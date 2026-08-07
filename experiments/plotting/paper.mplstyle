@@ -1,0 +1,40 @@
+# Shared paper-figure style for plasmax figures. Plasma colors on pure white.
+
+figure.facecolor: white
+axes.facecolor: white
+savefig.facecolor: white
+
+axes.prop_cycle: cycler('color', ['5316d6', 'a11b9b', 'd6556d'])
+
+axes.spines.top: False
+axes.spines.right: False
+axes.edgecolor: 333333
+axes.linewidth: 0.8
+axes.labelcolor: 111111
+axes.axisbelow: True
+
+axes.grid: True
+grid.color: DDDDDD
+grid.linewidth: 0.6
+grid.linestyle: -
+
+xtick.color: 333333
+ytick.color: 333333
+xtick.direction: out
+ytick.direction: out
+
+lines.linewidth: 2.0
+lines.markersize: 6
+lines.markeredgecolor: white
+lines.markeredgewidth: 0.8
+
+legend.frameon: False
+legend.fontsize: 9
+
+font.family: sans-serif
+font.sans-serif: DejaVu Sans
+font.size: 10
+
+figure.dpi: 100
+savefig.dpi: 300
+savefig.bbox: tight

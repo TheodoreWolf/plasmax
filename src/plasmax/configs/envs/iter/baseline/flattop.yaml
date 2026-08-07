@@ -1,0 +1,39 @@
+# ITER baseline — flat-top phase at the ITPA TC-33 450 s reference.
+#
+# Episode begins already in the flat-top burn: Ip held at 15 MA, plasma starts
+# hot (H-mode initial profiles). See base.yaml for the physics-gap caveats.
+#
+# Geometry:  Converted ITPA TC-33 450 s COCOS-7 EQDSK. Episode:
+#            t_final = 200 s → 2000 steps (flat-top duration, 60–260 s).
+
+phase: flattop
+reset_reference: iter_baseline_hot_450s
+
+task:
+  reward: P_diff
+  # Intentionally uncalibrated; flat-top termination currently has no penalty.
+  terminal_penalty: 0.0
+
+torax:
+  profile_conditions:
+    Ip: 15.0e+6                  # constant flat-top plasma current [A]
+    T_i_right_bc: 0.855          # imported rho=1 value [keV]
+    T_e_right_bc: 0.62
+    n_e_right_bc: 5.719823123267768e+19
+  numerics:
+    t_final: 200.0               # flat-top duration [s] → 2000 steps
+  geometry:
+    geometry_file: references/iter_baseline_450s.eqdsk
+  sources:
+    generic_heat:
+      P_total: 32204566.10558545
+    ecrh:
+      P_total: 16875121.09102656
+      gaussian_location: 0.18092074381061005
+    gas_puff:
+      S_total: 0.0
+actuators:
+- {name: P_nbi, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 32204566.10558545}
+- {name: P_eccd, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 16875121.09102656}
+- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.18092074381061005}
+- {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 0.0}

@@ -1,0 +1,44 @@
+# ITER baseline — ramp-down phase from the ITPA TC-33 450 s reference.
+#
+# Episode begins already in the flat-top burn (same hot initial conditions as
+# flattop); Ip immediately ramps down 15 → 1.5 MA. See base.yaml for the
+# physics-gap caveats.
+#
+# Geometry:  Per-Ip FreeGSnke EQDSKs (15 / 4.5 / 3 MA), anchored where the Ip
+#            schedule crosses each file's current; the 3 MA anchor is the
+#            limited end-of-discharge shape, held to t_final.
+#            Episode: t_final = 40 s → 400 steps.
+
+phase: rampdown
+reset_reference: iter_baseline_hot_450s
+
+task:
+  reward: rampdown
+  terminal_penalty: -1325.766753078688
+
+torax:
+  profile_conditions:
+    Ip: {0: 15.0e+6, 40: 1.5e+6}  # [A]
+    T_i_right_bc: {0: 0.855, 40: 0.1}
+    T_e_right_bc: {0: 0.62, 40: 0.1}
+    n_e_right_bc: {0: 5.719823123267768e+19, 40: 1.0e+19}
+  numerics:
+    t_final: 40.0                # ramp-down only [s] → 400 steps
+  geometry:
+    geometry_configs:
+      0.0: {geometry_file: references/iter_baseline_450s.eqdsk}
+      31.1: {geometry_file: iter_baseline_ip045.eqdsk}   # Ip crosses 4.5 MA
+      35.6: {geometry_file: iter_baseline_ip030.eqdsk}   # Ip crosses 3 MA
+  sources:
+    generic_heat:
+      P_total: 32204566.10558545
+    ecrh:
+      P_total: 16875121.09102656
+      gaussian_location: 0.18092074381061005
+    gas_puff:
+      S_total: 0.0
+actuators:
+- {name: P_nbi, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 32204566.10558545}
+- {name: P_eccd, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 16875121.09102656}
+- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.18092074381061005}
+- {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 0.0}

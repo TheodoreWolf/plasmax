@@ -1,0 +1,39 @@
+# SPARC PRD — ramp-up phase. Cold start, drive Ip 1 -> 8.7 MA over 10 s.
+phase: rampup
+reset_reference: sparc_prd_cold_1ma
+task:
+  reward: lh_transition
+  terminal_penalty: -10.143482539628325
+torax:
+  profile_conditions:
+    Ip: {0: 1.0e+6, 10: 8.7e+6}
+    T_i: {0.0: {0.0: 1.0, 1.0: 0.1}}
+    T_i_right_bc: {0: 0.1, 10: 0.5}
+    T_e: {0.0: {0.0: 1.0, 1.0: 0.1}}
+    T_e_right_bc: {0: 0.1, 10: 0.5}
+    n_e_right_bc: {0: 1.0e+19, 10: 3.0e+19}
+    n_e: {0.0: {0.0: 1.5, 1.0: 1.0}}
+    nbar: 0.3
+    initial_psi_mode: geometry
+    normalize_n_e_to_nbar: true
+    n_e_nbar_is_fGW: true
+  numerics:
+    t_final: 10.0
+  geometry:
+    geometry_configs:
+      0.0: {geometry_file: sparc_prd_ip010.eqdsk}
+      1.3: {geometry_file: sparc_prd_ip020.eqdsk}   # Ip crosses 2 MA
+      10.0: {geometry_file: references/sparc_prd_freegs_20221013.eqdsk}
+  sources:
+    generic_heat:
+      P_total: 11000000.0
+    ecrh:
+      P_total: 0.0
+      gaussian_location: 0.3
+    gas_puff:
+      S_total: 4e+21
+actuators:
+- {name: P_nbi, low: 1000000.0, high: 25000000.0, max_delta: 2000000.0, init: 11000000.0}
+- {name: P_eccd, low: 0.0, high: 10000000.0, max_delta: 1000000.0, init: 0.0}
+- {name: rho_eccd, low: 0.2, high: 0.8, max_delta: 0.05, init: 0.3}
+- {name: gas_puff_rate, low: 1e+20, high: 1e+22, max_delta: 2e+20, init: 4e+21}

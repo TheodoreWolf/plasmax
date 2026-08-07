@@ -1,0 +1,14 @@
+The files `sparc_prd_transp_20221013.txt` and
+`sparc_prd_freegs_20221013.eqdsk` are copied without modification from:
+
+  https://github.com/cfs-energy/SPARCPublic
+  commit 5b913b8216d05346b22e2e1e87c2ff100761613f
+  directory PrimaryReferenceDischarge
+
+Original filenames:
+
+  5 - transp_20221013.txt
+  2 - SPARC_DN_PRD_freegs_20221013
+
+SPARCPublic is distributed under the MIT License. A copy is included as
+`SPARCPublic_LICENSE` in this directory.

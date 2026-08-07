@@ -1,0 +1,152 @@
+name: Pull request checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GIT_LFS_SKIP_SMUDGE: "1"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.28"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run Ruff
+        run: uv run ruff check .
+
+      - name: Reject retired project identifiers
+        run: uv run --no-project python .github/scripts/check_brand.py
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.28"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run test suite
+        run: uv run pytest tests/
+
+      - name: Run clone-only experiment tests
+        run: uv run pytest experiments/tests/
+
+  integration-tests:
+    name: Integration (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      # Separate runners release JAX compilation caches between scenario families.
+      matrix:
+        include:
+          - name: iter-baseline
+            selector: iter_baseline
+          - name: iter-hybrid
+            selector: iter_hybrid
+          - name: iter-advanced
+            selector: iter_advanced
+          - name: sparc-prd
+            selector: sparc_prd
+          - name: sparc-reduced-field
+            selector: sparc_reduced_field
+          - name: step
+            selector: step
+          - name: other
+            selector: not EnvMatrixSmokeTest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.28"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run integration test suite
+        run: uv run pytest -o addopts="" -m integration -k "${{ matrix.selector }}" tests/
+
+  distributions:
+    name: Installed distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.28"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Build wheel and source distribution
+        run: uv build
+
+      - name: Check distribution metadata
+        run: uvx --from "twine==6.2.0" twine check dist/*
+
+      - name: Check distribution contents
+        run: uv run --no-project python .github/scripts/check_dist.py dist
+
+      - name: Smoke test installed wheel
+        working-directory: /tmp
+        run: uv run --isolated --no-project --with "${GITHUB_WORKSPACE}"/dist/*.whl python "${GITHUB_WORKSPACE}"/.github/scripts/smoke_installed.py
+
+      - name: Smoke test installed source distribution
+        working-directory: /tmp
+        run: uv run --isolated --no-project --with "${GITHUB_WORKSPACE}"/dist/*.tar.gz python "${GITHUB_WORKSPACE}"/.github/scripts/smoke_installed.py

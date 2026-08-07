@@ -1,0 +1,30 @@
+# SPARC reduced-field — flat-top phase. Hot start at 5.7 MA, static geometry.
+phase: flattop
+reset_reference: sparc_h8_hot_figure16
+task:
+  reward: P_diff
+  # Intentionally uncalibrated; flat-top termination currently has no penalty.
+  terminal_penalty: 0.0
+torax:
+  profile_conditions:
+    Ip: 5.7e+6                    # constant (scalar, not time-keyed)
+    T_i_right_bc: 2.30769
+    T_e_right_bc: 2.52959
+    n_e_right_bc: 9.66667e+19
+  numerics:
+    t_final: 15.0
+  geometry:
+    geometry_file: sparc_reduced_field_ip057.eqdsk   # static single EQDSK
+  sources:
+    generic_heat:
+      P_total: 25000000.0
+    ecrh:
+      P_total: 0.0
+      gaussian_location: 0.3
+    gas_puff:
+      S_total: 0.0
+actuators:
+- {name: P_nbi, low: 0.0, high: 25000000.0, max_delta: 2000000.0, init: 25000000.0}
+- {name: P_eccd, low: 0.0, high: 10000000.0, max_delta: 1000000.0, init: 0.0}
+- {name: rho_eccd, low: 0.2, high: 0.8, max_delta: 0.05, init: 0.3}
+- {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 0.0}

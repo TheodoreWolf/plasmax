@@ -1,0 +1,21 @@
+# KSTAR scenario — pair with the fusion_lstm world-model backend.
+#
+# A target-tracking control task on the NeoRL2 KSTAR fusion_lstm dynamics
+# (Korea Superconducting Tokamak Advanced Research; Seo et al., Nucl. Fusion
+# 2021). The agent steers 6 engineering actuators (plasma current + shape) to
+# hold three plasma scalars (βp, q95, li) at sampled setpoints.
+#
+# Observation (15) and action (6) are intrinsic to the trained model, so this
+# env YAML carries only the RL-task framing (no TORAX block). Reward is the
+# model's native target-tracking reward (-log RMS to target).
+#
+# Load with:
+#   load_env("kstar", "fusion_lstm")
+
+task:
+  reward: native
+  terminal_penalty: null
+
+world_model_env:
+  max_steps_in_episode: 100   # NeoRL2 episode length
+  random_target: true         # sample βp/q95/li targets per episode at reset

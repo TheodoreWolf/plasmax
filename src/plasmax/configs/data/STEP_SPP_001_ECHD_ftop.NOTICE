@@ -1,0 +1,45 @@
+OpenSTEP SPP-001 EC-HD flat-top dataset notice
+================================================
+
+Asset
+  STEP_SPP_001_ECHD_ftop.nc
+
+Title
+  OpenSTEP: public data release of the STEP Prototype Powerplant scenario
+  SPP-001
+
+Authors
+  Theodore Brown; Francis Casson; Agnieszka Hudoba; Stephen Marsden;
+  Emmi Tholerus; Thomas Wilson; The STEP team
+
+Publisher and year
+  United Kingdom Atomic Energy Authority (UKAEA), 2025
+
+Source
+  https://github.com/ukaea/OpenSTEP/blob/v1.0/ec-hd/ftop/STEP_SPP_001_ECHD_ftop.nc
+
+Release
+  OpenSTEP v1.0, Git commit 60b0ec2f6a036b9dc6a79dd52e9a20dec24c9930
+
+DOI
+  https://doi.org/10.14468/07jt-s540
+
+SHA-256
+  64fe9e0d7f634be8ce4b748c08090ecdca2a4a5212473fb5a2c33cb2b6fd4bad
+
+Modification status
+  The packaged NetCDF asset is unmodified and byte-for-byte identical to the
+  file in the OpenSTEP v1.0 release. plasmax interpolates released fields at
+  runtime but does not alter this source file.
+
+License
+  Creative Commons Attribution 4.0 International (CC BY 4.0)
+  https://creativecommons.org/licenses/by/4.0/
+  Upstream license text:
+  https://github.com/ukaea/OpenSTEP/blob/v1.0/LICENSE.txt
+
+Attribution
+  Brown, T., Casson, F., Hudoba, A., Marsden, S., Tholerus, E., Wilson, T.,
+  and The STEP team (2025). OpenSTEP: public data release of the STEP
+  Prototype Powerplant scenario SPP-001. Dataset. UKAEA.
+  https://doi.org/10.14468/07jt-s540

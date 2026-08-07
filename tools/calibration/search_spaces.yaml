@@ -1,0 +1,161 @@
+# Calibration search spaces for tools/calibration/calibrate_backends.py,
+# keyed by backend alias. Tool metadata only: these blocks declare what
+# the offline calibration search may tune and what stays locked; they
+# never reach the runtime environment configuration.
+
+bohm_gyrobohm:
+  scope: conventional_global
+  preserved_envs: [step]
+  max_physical_groups: 2
+  numerical:
+    solver.n_corrector_steps: [10, 12, 16, 24, 32]
+    stepping.max_solver_substeps: [8, 16, 32, 64, 128]
+  physical_groups:
+    tied_bohm_gyrobohm_transport:
+      relative_grid: [0.9, 0.95, 1.0, 1.05, 1.1]
+      parameters:
+      - {runtime_path: transport.chi_e_bohm_multiplier, randomization_path: transport_model.chi_e_bohm_multiplier}
+      - {runtime_path: transport.chi_i_bohm_multiplier, randomization_path: transport_model.chi_i_bohm_multiplier}
+      - {runtime_path: transport.chi_e_gyrobohm_multiplier, randomization_path: transport_model.chi_e_gyrobohm_multiplier}
+      - {runtime_path: transport.chi_i_gyrobohm_multiplier, randomization_path: transport_model.chi_i_gyrobohm_multiplier}
+    bootstrap:
+      relative_grid: [0.95, 0.975, 1.0, 1.025, 1.05]
+      parameters:
+      - {runtime_path: neoclassical.bootstrap_current.bootstrap_multiplier, randomization_path: neoclassical.bootstrap_current.bootstrap_multiplier}
+
+cgm:
+  scope: conventional_global
+  max_physical_groups: 2
+  numerical:
+    solver.n_corrector_steps: [1, 2, 4, 8, 10]
+    stepping.max_solver_substeps: [8, 16, 32, 64, 128]
+  physical_groups:
+    stiffness:
+      relative_grid: [0.9, 0.95, 1.0, 1.05, 1.1]
+      parameters:
+      - {runtime_path: transport.alpha, randomization_path: transport_model.alpha}
+      - {runtime_path: transport.chi_stiff, randomization_path: transport_model.chi_stiff}
+    heat_particle_partition:
+      relative_grid: [0.9, 0.95, 1.0, 1.05, 1.1]
+      parameters:
+      - {runtime_path: transport.chi_e_i_ratio, randomization_path: transport_model.chi_e_i_ratio}
+      - {runtime_path: transport.chi_D_ratio, randomization_path: transport_model.chi_D_ratio}
+    tied_inner_patch:
+      relative_grid: [0.9, 0.95, 1.0, 1.05, 1.1]
+      parameters:
+      - {runtime_path: transport.chi_i_inner, randomization_path: transport_model.chi_i_inner}
+      - {runtime_path: transport.chi_e_inner, randomization_path: transport_model.chi_e_inner}
+      - {runtime_path: transport.D_e_inner, randomization_path: transport_model.D_e_inner}
+    bootstrap:
+      relative_grid: [0.95, 0.975, 1.0, 1.025, 1.05]
+      parameters:
+      - {runtime_path: neoclassical.bootstrap_current.bootstrap_multiplier, randomization_path: neoclassical.bootstrap_current.bootstrap_multiplier}
+    lh_threshold:
+      relative_grid: [0.8, 0.9, 1.0, 1.125, 1.25]
+      parameters:
+      - {runtime_path: pedestal.formation_model.P_LH_prefactor, randomization_path: pedestal.formation_model.P_LH_prefactor}
+
+qlknn:
+  scope: conventional_global
+  max_physical_groups: 2
+  locked_nominal:
+  - transport.ITG_flux_ratio_correction
+  - transport.ETG_correction_factor
+  numerical:
+    solver.n_corrector_steps: [10, 12, 16, 24, 32]
+    stepping.max_solver_substeps: [8, 16, 32, 64, 128]
+  physical_groups:
+    collisionality:
+      relative_grid: [0.85, 0.925, 1.0, 1.075, 1.15]
+      parameters:
+      - {runtime_path: transport.collisionality_multiplier, randomization_path: transport_model.collisionality_multiplier}
+    tied_inner_patch:
+      relative_grid: [0.9, 0.95, 1.0, 1.05, 1.1]
+      parameters:
+      - {runtime_path: transport.chi_i_inner, randomization_path: transport_model.chi_i_inner}
+      - {runtime_path: transport.chi_e_inner, randomization_path: transport_model.chi_e_inner}
+      - {runtime_path: transport.D_e_inner, randomization_path: transport_model.D_e_inner}
+    tied_outer_patch:
+      relative_grid: [0.9, 0.95, 1.0, 1.05, 1.1]
+      parameters:
+      - {runtime_path: transport.chi_i_outer, randomization_path: transport_model.chi_i_outer}
+      - {runtime_path: transport.chi_e_outer, randomization_path: transport_model.chi_e_outer}
+      - {runtime_path: transport.D_e_outer, randomization_path: transport_model.D_e_outer}
+    bootstrap:
+      relative_grid: [0.95, 0.975, 1.0, 1.025, 1.05]
+      parameters:
+      - {runtime_path: neoclassical.bootstrap_current.bootstrap_multiplier, randomization_path: neoclassical.bootstrap_current.bootstrap_multiplier}
+    lh_threshold:
+      relative_grid: [0.8, 0.9, 1.0, 1.125, 1.25]
+      parameters:
+      - {runtime_path: pedestal.formation_model.P_LH_prefactor, randomization_path: pedestal.formation_model.P_LH_prefactor}
+
+tglfnn:
+  scope: conventional_global
+  max_physical_groups: 2
+  numerical:
+    solver.n_corrector_steps: [10, 12, 16, 24, 32]
+    stepping.max_solver_substeps: [8, 16, 32, 64, 128]
+  physical_groups:
+    collisionality:
+      relative_grid: [0.8, 0.9, 1.0, 1.1, 1.2]
+      parameters:
+      - {runtime_path: transport.collisionality_multiplier, randomization_path: transport_model.collisionality_multiplier}
+    tied_inner_patch:
+      relative_grid: [0.9, 0.95, 1.0, 1.05, 1.1]
+      parameters:
+      - {runtime_path: transport.chi_i_inner, randomization_path: transport_model.chi_i_inner}
+      - {runtime_path: transport.chi_e_inner, randomization_path: transport_model.chi_e_inner}
+      - {runtime_path: transport.D_e_inner, randomization_path: transport_model.D_e_inner}
+    tied_outer_patch:
+      relative_grid: [0.9, 0.95, 1.0, 1.05, 1.1]
+      parameters:
+      - {runtime_path: transport.chi_i_outer, randomization_path: transport_model.chi_i_outer}
+      - {runtime_path: transport.chi_e_outer, randomization_path: transport_model.chi_e_outer}
+      - {runtime_path: transport.D_e_outer, randomization_path: transport_model.D_e_outer}
+    bootstrap:
+      relative_grid: [0.95, 0.975, 1.0, 1.025, 1.05]
+      parameters:
+      - {runtime_path: neoclassical.bootstrap_current.bootstrap_multiplier, randomization_path: neoclassical.bootstrap_current.bootstrap_multiplier}
+    lh_threshold:
+      relative_grid: [0.8, 0.9, 1.0, 1.125, 1.25]
+      parameters:
+      - {runtime_path: pedestal.formation_model.P_LH_prefactor, randomization_path: pedestal.formation_model.P_LH_prefactor}
+
+tglfnn_nr:
+  scope: conventional_global
+  physical_from: tglfnn
+  solver_only: true
+  max_physical_groups: 0
+  numerical:
+    solver.n_max_iterations: [100, 150, 200, 300, 500]
+    solver.tau_min: [1.0e-6, 1.0e-7, 1.0e-8, 1.0e-9, 1.0e-10]
+    stepping.max_solver_substeps: [32, 48, 64, 96, 128]
+
+tglfnn_spherical:
+  scope: step_spherical
+  max_physical_groups: 2
+  numerical:
+    solver.n_corrector_steps: [10, 12, 16, 24, 32]
+    stepping.max_solver_substeps: [8, 16, 32, 64, 128]
+  physical_groups:
+    collisionality:
+      relative_grid: [0.8, 0.9, 1.0, 1.1, 1.2]
+      parameters:
+      - {runtime_path: transport.collisionality_multiplier, randomization_path: transport_model.collisionality_multiplier}
+    tied_inner_patch:
+      relative_grid: [0.9, 0.95, 1.0, 1.05, 1.1]
+      parameters:
+      - {runtime_path: transport.chi_i_inner, randomization_path: transport_model.chi_i_inner}
+      - {runtime_path: transport.chi_e_inner, randomization_path: transport_model.chi_e_inner}
+      - {runtime_path: transport.D_e_inner, randomization_path: transport_model.D_e_inner}
+    tied_outer_patch:
+      relative_grid: [0.9, 0.95, 1.0, 1.05, 1.1]
+      parameters:
+      - {runtime_path: transport.chi_i_outer, randomization_path: transport_model.chi_i_outer}
+      - {runtime_path: transport.chi_e_outer, randomization_path: transport_model.chi_e_outer}
+      - {runtime_path: transport.D_e_outer, randomization_path: transport_model.D_e_outer}
+    bootstrap:
+      relative_grid: [0.95, 0.975, 1.0, 1.025, 1.05]
+      parameters:
+      - {runtime_path: neoclassical.bootstrap_current.bootstrap_multiplier, randomization_path: neoclassical.bootstrap_current.bootstrap_multiplier}

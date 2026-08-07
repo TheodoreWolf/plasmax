@@ -1,0 +1,59 @@
+# STEP — device-level defaults (compact high-field spherical tokamak).
+#
+# STEP's initial state, composition and geometry come from the OpenSTEP IMAS
+# release, so the scenario env (envs/step.yaml) keeps the _imas_init
+# directive, the IMAS geometry file, and its (unusual) numerics; only the IMAS
+# geometry plumbing and the RL interface are device-level and live here. A
+# scenario sets `tokamak: step` to inherit this.
+
+torax:
+  geometry:
+    geometry_type: imas
+    geometry_directory: ${DATA_DIR}
+    # A 25/50/100-cell reset sweep changed the thermodynamic and equilibrium
+    # globals by <0.5%. Bootstrap current is calibrated on this production
+    # grid; the 50-cell evolution is not yet dynamically converged.
+    n_rho: 25
+    Ip_from_parameters: true
+
+# STEP is fully non-inductive ECCD-driven with pellet fuelling — no NBI/gas-puff.
+actuators:
+  - {name: P_eccd,      low: 50000000.0, high: 300000000.0, max_delta: 20000000.0}
+  - {name: rho_eccd,    low: 0.3,        high: 0.7,         max_delta: 0.05}
+  - {name: pellet_rate, low: 1.0e+20,    high: 5.0e+22,     max_delta: 5.0e+20}
+
+observations:
+  profiles:
+    - {name: T_e,  scale: 25.0,    bounds: [0.0, 100.0]}      # keV (STEP core ~25 keV)
+    - {name: T_i,  scale: 25.0,    bounds: [0.0, 100.0]}      # keV
+    - {name: n_e,  scale: 1.0e+20, bounds: [0.0, 3.0e+20]}    # m^-3
+    - {name: psi,  scale: 50.0,    bounds: [-500.0, 500.0]}   # Wb (larger Ip than ITER)
+    - {name: q,    scale: 5.0,     bounds: [0.0, 30.0]}
+  scalars:
+    - {name: W_thermal,       scale: 1.0e+8, bounds: [0.0, 2.0e+9]}    # J (STEP ~1 GJ)
+    - {name: tau_E,           scale: 1.0,    bounds: [0.0, 20.0]}      # s
+    - {name: P_fusion,        scale: 1.0e+8, bounds: [0.0, 5.0e+9]}    # W (STEP ~1.8 GW)
+    - {name: t,               scale: 100.0,  bounds: [0.0, 100.0]}     # s, matches t_final
+    - {name: Ip,              scale: 1.0e+7, bounds: [0.0, 2.5e+7]}    # A (STEP ~20 MA)
+    - {name: q_min,           scale: 3.0,    bounds: [0.0, 10.0]}
+    - {name: q95,             scale: 5.0,    bounds: [0.0, 20.0]}
+    - {name: beta_N,          scale: 5.0,    bounds: [0.0, 10.0]}      # STEP runs high-beta ~4.5
+    - {name: f_non_inductive, scale: 1.0,    bounds: [0.0, 1.5]}
+
+state_noise:
+  T_e: 0.05
+  T_i: 0.05
+  n_e: 0.03
+
+# Shared STEP uncertainty. The radiation fraction is a scenario-calibration
+# prior; transport-model ranges come from the selected backend.
+physics_randomization:
+  numerics.resistivity_multiplier: {relative: [0.95, 1.05]}
+  pedestal.T_i_ped: {relative: [0.8, 1.2]}
+  pedestal.T_e_ped: {relative: [0.8, 1.2]}
+  pedestal.n_e_ped: {relative: [0.8, 1.2]}
+  sources.impurity_radiation.fraction_P_heating: {relative: [0.9, 1.1]}
+
+disruption:
+  q_min_threshold: 0.8
+  greenwald_threshold: 1.1

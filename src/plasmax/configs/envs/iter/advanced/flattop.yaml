@@ -1,0 +1,43 @@
+# ITER advanced — illustrative steady-state flat-top reference.
+#
+# Episode begins already in the fully-non-inductive flat-top burn: Ip held at
+# 9 MA, with T_i, T_e, n_e, and q digitized from the published slide-25
+# steady-state scenario. See base.yaml for provenance and confidence caveats.
+#
+# Geometry:  Static 9 MA FreeGSnke EQDSK, rescaled to the live Ip. Episode:
+#            t_final = 840 s → 8400 steps (flat-top duration, 100–940 s).
+
+phase: flattop
+reset_reference: iter_advanced_hot_slide25
+
+task:
+  reward: P_diff
+  # Intentionally uncalibrated; flat-top termination currently has no penalty.
+  terminal_penalty: 0.0
+
+torax:
+  profile_conditions:
+    Ip: 9.0e+6                   # constant flat-top plasma current [A]
+    T_i_right_bc: 0.2            # edge T_i BC [keV]
+    T_e_right_bc: 0.2
+    n_e_right_bc: 4.34633e+19
+    initial_psi_mode: profile_conditions
+  numerics:
+    t_final: 840.0               # flat-top duration [s] → 8400 steps
+  geometry:
+    geometry_file: iter_advanced_ip090.eqdsk
+  sources:
+    generic_current:
+      fraction_of_total_current: 1.0
+    generic_heat:
+      P_total: 34000000.0
+    ecrh:
+      P_total: 34000000.0
+      gaussian_location: 0.5
+    gas_puff:
+      S_total: 6e+21
+actuators:
+- {name: P_nbi, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 34000000.0}
+- {name: P_eccd, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 34000000.0}
+- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.5}
+- {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 6e+21}

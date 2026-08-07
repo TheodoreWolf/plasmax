@@ -1,0 +1,86 @@
+# ITER hybrid scenario — phase-shared base.
+#
+# Physics common to the ramp-up, flat-top, and ramp-down phases. Each phase file
+# in this directory overlays only its deltas: the Ip
+# schedule + initial/boundary profiles, t_final, geometry, and the driven-
+# current fraction. Device-level config (ion mix, numerics evolve flags,
+# geometry plumbing, actuators, observations, disruption) is inherited from
+# tokamaks/iter.yaml via `tokamak: iter`.
+#
+# Device:    ITER hybrid (R=6.2 m, a=2.0 m, B0=5.3 T, flat-top Ip=10.5 MA).
+# Reference: van Mulders et al., Nucl. Fusion 2021; TORAX iterhybrid_rampup.py
+#            + iterhybrid_predictor_corrector.py examples.
+
+tokamak: iter
+scenario: hybrid
+
+stepping:
+  max_event_substeps: 1
+
+torax:
+  # plasma_composition — main_ion/impurity from tokamak; Z_eff is scenario-set.
+  plasma_composition:
+    Z_eff: 1.6
+  # Exact hot anchor from TORAX v1.4.2
+  # iterhybrid_predictor_corrector.py. Ramp-up overrides this with the exact
+  # cold anchor from iterhybrid_rampup.py.
+  profile_conditions:
+    T_i: {0.0: {0.0: 15.0, 1.0: 0.2}}
+    T_e: {0.0: {0.0: 15.0, 1.0: 0.2}}
+    n_e: {0.0: {0.0: 1.5, 1.0: 1.0}}
+    nbar: 0.8
+    initial_psi_mode: geometry
+    normalize_n_e_to_nbar: true
+    n_e_nbar_is_fGW: true
+    n_e_right_bc_is_fGW: false
+  # sources — magnitudes used at reset; the RL agent overrides P_nbi / P_eccd /
+  # rho_eccd / gas_puff_rate each step. The driven-current *fraction* is
+  # phase-specific (low during ramps, high at flat-top) and set per phase.
+  sources:
+    generic_particle:
+      S_total: 2.05e+20
+      deposition_location: 0.3
+      particle_width: 0.25
+    gas_puff:
+      puff_decay_length: 0.3
+      S_total: 6.0e+21
+    generic_heat:                  # NBI heating (Gaussian deposition)
+      # Both local heat channels retain the exact upstream spatial shape; only
+      # their powers are split to expose two controls while preserving the
+      # upstream 51 MW / 68% electron-heating source.
+      gaussian_location: 0.12741589640723575
+      gaussian_width: 0.07280908366127758
+      P_total: 23.314285714285713e+6
+      electron_heat_fraction: 0.3
+    generic_current:               # NBI-driven non-inductive current
+      gaussian_location: 0.36
+      gaussian_width: 0.075
+    ecrh:
+      gaussian_location: 0.12741589640723575
+      gaussian_width: 0.07280908366127758
+      P_total: 27.685714285714287e+6
+      current_drive_efficiency: 0.3
+    fusion: {}                     # D-T alpha heating
+    ei_exchange:
+      Qei_multiplier: 1.0
+  # pedestal — ITER hybrid H-mode target values. The backend supplies the
+  # pedestal model and L-H formation rule for the transport family.
+  pedestal:
+    T_i_ped: 4.5
+    T_e_ped: 4.5
+    n_e_ped: 6.2e+19
+    n_e_ped_is_fGW: false
+    rho_norm_ped_top: 0.9
+  # The short crash is an internal event; the environment then completes the
+  # remainder of the physical control interval with the action held constant.
+  mhd:
+    sawtooth:
+      trigger_model:
+        model_name: simple
+        s_critical: 0.1
+        minimum_radius: 0.05
+      redistribution_model:
+        model_name: simple
+        flattening_factor: 1.01
+        mixing_radius_multiplier: 1.1
+      crash_step_duration: 1.0e-5

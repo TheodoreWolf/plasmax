@@ -1,0 +1,31 @@
+# TGLFNN-UKAEA multimachine transport with the nonlinear Newton-Raphson solver.
+#
+# This is the high-fidelity reference counterpart to tglfnn.yaml. It uses the
+# same transport model, clipping guards, patches, and neoclassical physics, but
+# converges the coupled transport equations with NR instead of the fixed-cost
+# linear predictor-corrector solver. Backend-specific randomization is omitted
+# deliberately so this remains a deterministic reference. It is intended for
+# validation rollouts rather than vectorized RL training.
+
+extends: tglfnn_base.yaml
+
+stepping:
+  # Static 2x margin over the acceptance target of <64 observed PDE substeps.
+  max_solver_substeps: 32
+
+torax:
+  pedestal:
+    model_name: set_T_ped_n_ped
+    set_pedestal: true
+    mode: ADAPTIVE_TRANSPORT
+    formation_model:
+      model_name: martin_scaling
+  transport:
+    machine: multimachine
+  solver:
+    solver_type: newton_raphson
+    log_iterations: false
+    # The ITER hybrid flat-top reference trajectory needs more than TORAX's
+    # default iteration budget and a less restrictive line-search floor.
+    n_max_iterations: 100
+    tau_min: 1.0e-6

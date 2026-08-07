@@ -1,0 +1,68 @@
+# CGM transport backend — analytic ITG critical-gradient model.
+#
+# What it brings:
+#   transport          — CGM (Guo-Romanelli ITG stiff transport) with
+#                        ad-hoc inner-core OOD patch for the q<1 region
+#   neoclassical       — simple bootstrap_multiplier
+#   solver             — linear theta-method, single Picard correction
+#   time stepping      — fixed dt
+#
+# Use for:
+#   * the main "realistic" ITER RL experiment. Theory-based, analytic,
+#     JIT-friendly — preferred over QLKNN for RL because an exploring
+#     policy can push profiles into regions where the NN extrapolates
+#     (see Citrin et al. 2024, arXiv:2406.06718 §III.C).
+#   * differentiable end-to-end with no ML-surrogate OOD risk.
+#
+# Cost (post-cache, CPU, iter_hybrid env):
+#   compile ~5 s · ~15 ms/step.
+
+physics_randomization:
+  # CGM's free stiffness/partition coefficients are model-form parameters, not
+  # measured constants; use provisional +/-10% priors pending calibration.
+  transport_model.alpha: {relative: [0.9, 1.1]}
+  transport_model.chi_stiff: {relative: [0.9, 1.1]}
+  transport_model.chi_e_i_ratio: {relative: [0.9, 1.1]}
+  transport_model.chi_D_ratio: {relative: [0.9, 1.1]}
+  transport_model.chi_i_inner: {relative: [0.9, 1.1]}
+  transport_model.chi_e_inner: {relative: [0.9, 1.1]}
+  transport_model.D_e_inner: {relative: [0.9, 1.1]}
+  neoclassical.bootstrap_current.bootstrap_multiplier: {relative: [0.95, 1.05]}
+  pedestal.formation_model.P_LH_prefactor: {relative: [0.8, 1.25]}
+
+torax:
+  pedestal:
+    model_name: set_T_ped_n_ped
+    set_pedestal: true
+    mode: ADAPTIVE_TRANSPORT
+    formation_model:
+      model_name: martin_scaling
+  transport:
+    model_name: CGM
+    alpha: 2.0
+    chi_stiff: 2.0
+    chi_e_i_ratio: 2.0
+    chi_D_ratio: 5.0
+    VR_D_ratio: 0.0
+    chi_min: 0.05
+    chi_max: 100.0
+    smoothing_width: 0.1
+    # Inner patch — q<1 core OOD guard; not a sawtooth crash model.
+    apply_inner_patch: true
+    chi_i_inner: 1.0
+    chi_e_inner: 1.0
+    D_e_inner: 0.25
+    V_e_inner: 0.0
+    rho_inner: 0.3
+  neoclassical:
+    bootstrap_current:
+      bootstrap_multiplier: 1.0
+  solver:
+    solver_type: linear
+    use_predictor_corrector: true
+    n_corrector_steps: 1
+    chi_pereverzev: 30
+    D_pereverzev: 15
+    use_pereverzev: true
+  time_step_calculator:
+    calculator_type: fixed

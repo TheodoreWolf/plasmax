@@ -1,0 +1,598 @@
+schema_version: 1
+
+references:
+  iter_baseline_hot_450s:
+    machine: iter
+    scenario: baseline
+    anchor: hot
+    kind: exact
+    confidence: high
+    sources:
+    - title: ITPA TC-33 ITER 15 MA reference state at 450 s
+      url: https://zenodo.org/records/21391776/files/ITPA-TC33-450s.nc?download=1
+      doi: 10.5281/zenodo.21391776
+      revision: 450 s state; IMAS DD 3.42.0
+      sha256: ec73a0c64afa0352a5dc8173187a03682c27b8bf8f7b5cc3f6bfba533b1fbf71
+      license: redistribution terms not stated in the record
+      redistribution: checksum_only
+    - title: ITPA TC-33 ITER 15 MA comparison state at 415 s
+      url: https://zenodo.org/records/21391776/files/ITPA-TC33-415s.nc?download=1
+      doi: 10.5281/zenodo.21391776
+      revision: rejected comparison state; q_min approximately 0.73
+      sha256: f5e137d96ceee28085338324c5ba43be69fbe0b5a295ae069028308d2f7e121e
+      license: redistribution terms not stated in the record
+      redistribution: checksum_only
+    extraction:
+      method: imas_import
+      grid: 25 TORAX cell centres at rho_tor_norm=0.02:0.04:0.98
+      notes:
+      - Profiles are linearly interpolated in rho_tor_norm; their cylindrical volume-weighted integral error is below 1%.
+      - Psi is shifted by the released magnetic-axis value before interpolation.
+      - The equilibrium is explicitly converted from IMAS DD3 COCOS 17 to a deterministic COCOS-7 GEQDSK.
+      - The 450 s state is selected because q_min=0.9655; the 415 s state has q_min approximately 0.73.
+    profile_sha256: cd6d237860306adffcbeef54594c5c01f20a9518672850b822daaf9b1f7594ee
+    artifacts:
+      data/references/iter_baseline_450s_profiles_25.csv: 2447bf4a5e773a4df9cccf4cd2128b9cff2626f7bfa3dca8f7c84fbe070fb7b2
+      data/references/iter_baseline_450s.eqdsk: 4b37fc63cdcabadc9557acd2eb81ee5d018c3b04722f8ea767ca06f13e8ea800
+    locked_paths:
+    - torax.profile_conditions.Ip
+    - torax.profile_conditions.T_i
+    - torax.profile_conditions.T_e
+    - torax.profile_conditions.n_e
+    - torax.profile_conditions.psi
+    - torax.profile_conditions.T_i_right_bc
+    - torax.profile_conditions.T_e_right_bc
+    - torax.profile_conditions.n_e_right_bc
+    - torax.geometry.geometry_file
+    - torax.sources.generic_heat
+    - torax.sources.ecrh
+    - torax.sources.generic_particle
+    - torax.sources.pellet
+    - actuators
+    projections:
+    - source_component: ITPA core_sources/nbi total heat
+      torax_component: torax.sources.generic_heat
+      matched_quantities: [integrated_power, volume_weighted_centroid, rms_width, electron_ion_partition]
+      source_targets:
+        power_W: 32204566.10558545
+        rho_centroid: 0.5048100773961027
+        rho_rms_width: 0.21657692524735792
+        electron_heat_fraction: 0.6349488250037933
+      torax_parameters:
+        P_total: 32204566.10558545
+        gaussian_location: 0.2556776403728281
+        gaussian_width: 0.3334149540677585
+        electron_heat_fraction: 0.6349488250037933
+      notes:
+      - Gaussian parameters are fitted on the converted 25-cell ITPA geometry; they are not themselves the physical centroid and width.
+    - source_component: ITPA core_sources/ec electron heat
+      torax_component: torax.sources.ecrh
+      matched_quantities: [integrated_power, volume_weighted_centroid, rms_width, electron_ion_partition]
+      source_targets:
+        power_W: 16875121.09102656
+        rho_centroid: 0.21154895623267286
+        rho_rms_width: 0.0674905480965164
+        electron_heat_fraction: 1.0
+      torax_parameters:
+        P_total: 16875121.09102656
+        gaussian_location: 0.18092074381061005
+        gaussian_width: 0.07447085458047044
+      notes:
+      - The local EC current-drive efficiency is not supplied by this profile projection and remains an editable local parameter.
+    - source_component: ITPA core_sources/nbi ion particles
+      torax_component: torax.sources.generic_particle
+      matched_quantities: [integrated_particles, volume_weighted_centroid, rms_width]
+      source_targets:
+        particles_per_s: 1.958196187096854e+20
+        rho_centroid: 0.5001969452749675
+        rho_rms_width: 0.2194036058345459
+      torax_parameters:
+        S_total: 1.958196187096854e+20
+        deposition_location: 0.2129021131867942
+        particle_width: 0.3524989016656593
+    - source_component: ITPA core_sources/pellet ion particles
+      torax_component: torax.sources.pellet
+      matched_quantities: [integrated_particles, volume_weighted_centroid, rms_width]
+      source_targets:
+        particles_per_s: 3.2822178577250456e+22
+        rho_centroid: 0.8419126869793957
+        rho_rms_width: 0.06735942621600581
+      torax_parameters:
+        S_total: 3.2822178577250456e+22
+        pellet_deposition_location: 0.8413844189838808
+        pellet_width: 0.07053089225185659
+    targets:
+      source_time_s: 450.0
+      Ip_A: 15000000.0
+      q_min: 0.9655333353712965
+      auxiliary_power_W: 49079687.196612
+      fusion_power_total_W: 705823585.1070224
+
+  iter_baseline_cold_3ma:
+    machine: iter
+    scenario: baseline
+    anchor: cold
+    kind: constrained
+    confidence: medium
+    sources:
+    - title: ITPA TC-33 ITER baseline machine reference
+      url: https://zenodo.org/records/21391776
+      doi: 10.5281/zenodo.21391776
+      revision: machine and 15 MA target context
+      sha256: ec73a0c64afa0352a5dc8173187a03682c27b8bf8f7b5cc3f6bfba533b1fbf71
+      license: redistribution terms not stated in the record
+      redistribution: checksum_only
+    extraction:
+      method: constrained_template
+      grid: TORAX profile endpoints with geometry-derived psi
+      notes:
+      - Cold anchor is a physical L-mode startup template, not a backend-relaxed stationary state.
+    profile_sha256: db7cc164f6f65de39b4568d0612e58fd44ec5292a27b93d8a9e948d50d1b47b3
+    locked_paths:
+    - torax.profile_conditions.Ip
+    - torax.profile_conditions.T_i
+    - torax.profile_conditions.T_e
+    - torax.profile_conditions.n_e
+    - torax.profile_conditions.nbar
+    - torax.profile_conditions.initial_psi_mode
+    - actuators
+    targets:
+      Ip_A: 3000000.0
+      f_GW: 0.3
+      axis_temperature_keV: 6.0
+      edge_temperature_keV: 0.1
+
+  iter_hybrid_hot_v1_4_2:
+    machine: iter
+    scenario: hybrid
+    anchor: hot
+    kind: upstream
+    confidence: high
+    sources:
+    - title: TORAX ITER hybrid predictor-corrector example
+      url: https://github.com/google-deepmind/torax/blob/v1.4.2/torax/examples/iterhybrid_predictor_corrector.py
+      revision: v1.4.2
+      sha256: 0b2ee110defc5979b78be8ecf5807a04d329fc71ad310873e176fecfd9712f79
+      license: Apache-2.0
+      redistribution: checksum_only
+    extraction:
+      method: torax_config
+      grid: TORAX v1.4.2 analytic profiles evaluated by TORAX
+      notes:
+      - Upstream profiles, composition, pedestal, current fraction, source totals, and schedules are locked.
+    profile_sha256: b991a79d06af13c7fb8b7b739a3e92a023a437ee421c4dbf88e2d096d6b62bd4
+    locked_paths:
+    - torax.profile_conditions
+    - torax.plasma_composition
+    - torax.pedestal
+    - torax.sources.generic_current
+    - torax.sources.generic_particle
+    - torax.sources.gas_puff
+    - torax.sources.generic_heat
+    - actuators
+    projections:
+    - source_component: TORAX v1.4.2 generic_heat
+      torax_component: torax.sources.generic_heat + torax.sources.ecrh
+      matched_quantities: [integrated_power, complete_radial_shape, electron_ion_partition]
+      source_targets:
+        power_W: 51000000.0
+        gaussian_location: 0.12741589640723575
+        gaussian_width: 0.07280908366127758
+        electron_heat_fraction: 0.68
+      torax_parameters:
+        generic_heat_P_total_W: 23314285.714285713
+        generic_heat_electron_fraction: 0.3
+        ecrh_P_total_W: 27685714.285714287
+        shared_gaussian_location: 0.12741589640723575
+        shared_gaussian_width: 0.07280908366127758
+      notes:
+      - Both projected channels use the identical upstream Gaussian, so their sum reproduces the complete released source shape rather than only its first two moments.
+    targets:
+      Ip_A: 10500000.0
+      f_GW: 0.8
+      auxiliary_power_W: 51000000.0
+      electron_heat_fraction: 0.68
+
+  iter_hybrid_cold_v1_4_2:
+    machine: iter
+    scenario: hybrid
+    anchor: cold
+    kind: constrained
+    confidence: high
+    sources:
+    - title: TORAX ITER hybrid ramp-up example
+      url: https://github.com/google-deepmind/torax/blob/v1.4.2/torax/examples/iterhybrid_rampup.py
+      revision: v1.4.2 with the shared 0.30 f_GW cold-anchor constraint
+      sha256: f3a66f5767a9cb3a2a6c6a7d6596a7433704d0439a32d89912ccf45f1fd00c50
+      license: Apache-2.0
+      redistribution: checksum_only
+    extraction:
+      method: constrained_template
+      grid: TORAX profile endpoints with geometry-derived psi
+      notes:
+      - The upstream current, pedestal, source and geometry schedules are retained; the common ITER cold state uses 6-to-0.1 keV and f_GW=0.30.
+    profile_sha256: 2479c90397765042bbdc08f6f03ccb379d6587ff7e21e1ed6d4bcff844862462
+    locked_paths:
+    - torax.profile_conditions.Ip
+    - torax.profile_conditions.T_i
+    - torax.profile_conditions.T_e
+    - torax.profile_conditions.n_e
+    - torax.profile_conditions.nbar
+    - torax.profile_conditions.initial_psi_mode
+    - torax.sources
+    - torax.pedestal
+    - actuators
+    targets:
+      Ip_A: 3000000.0
+      f_GW: 0.3
+      axis_temperature_keV: 6.0
+      edge_temperature_keV: 0.1
+
+  iter_advanced_hot_slide25:
+    machine: iter
+    scenario: advanced
+    anchor: hot
+    kind: digitized
+    confidence: medium
+    sources:
+    - title: ITER steady-state scenario, First ITER Summer School
+      url: https://www.iter.org/sites/default/files/education/ITER_Physics_Campbell.pdf
+      revision: slide 25
+      sha256: 29b25019c8fb1b47ed354b5ecb218c7fb55e77a567f6ea1ec0c7beebe2b7a3c3
+      license: redistribution terms not stated on the deck
+      redistribution: checksum_only
+    extraction:
+      method: figure_digitization
+      grid: 25 TORAX cell centres at rho=0.02:0.04:0.98
+      page: 25
+      crop: [1320, 420, 1970, 1460]
+      digitization_tolerance_pixels: 2.0
+      axis_transform:
+        rho_pixels: [1334.0, 1948.0]
+        rho_values: [0.0, 1.0]
+        temperature_pixels: [881.0, 444.0]
+        temperature_keV: [0.0, 30.0]
+        density_pixels: [881.0, 444.0]
+        density_1e20_m-3: [0.0, 1.0]
+        q_pixels: [1448.0, 1040.0]
+        q_values: [0.0, 10.0]
+      notes:
+      - Curves are illustrative; the stored CSV and generated overlay are the inspection record.
+      - Psi is reconstructed from digitized q by integrating rho/q and normalized to the local 9 MA equilibrium edge flux.
+    profile_sha256: 089ee22d9c40a23efb033b06e8dd7f3890915094a43b5f17026ae3930354c102
+    artifacts:
+      data/references/iter_advanced_slide25_profiles_25.csv: 926b24067bf00fd98e6197f0585a75819b1435535cd0f13608080c1c2f6e4484
+    locked_paths:
+    - torax.profile_conditions.Ip
+    - torax.profile_conditions.T_i
+    - torax.profile_conditions.T_e
+    - torax.profile_conditions.n_e
+    - torax.profile_conditions.psi
+    - torax.sources.generic_current
+    - torax.sources.generic_heat
+    - torax.sources.ecrh
+    - actuators
+    projections:
+    - source_component: published 34 MW neutral-beam current drive
+      torax_component: torax.sources.generic_heat + torax.sources.generic_current
+      matched_quantities: [integrated_power]
+      source_targets:
+        power_W: 34000000.0
+      torax_parameters:
+        generic_heat_P_total_W: 34000000.0
+        generic_current_fraction_of_total_current: 1.0
+      notes:
+      - Slide 25 does not publish a deposition curve; the existing local Gaussian shape and non-inductive-current split remain editable within physical plausibility.
+    - source_component: published 34 MW lower-hybrid current drive
+      torax_component: torax.sources.ecrh
+      matched_quantities: [integrated_power]
+      source_targets:
+        power_W: 34000000.0
+      torax_parameters:
+        P_total_W: 34000000.0
+      notes:
+      - TORAX exposes no lower-hybrid source in this task, so the electron-heating channel is represented by ecrh; the local deposition and current-efficiency parameters are explicitly not source-locked.
+    targets:
+      Ip_A: 9000000.0
+      q95: 5.3
+      edge_poloidal_flux_Wb: 42.0772
+      H98: 1.3
+      beta_N: 2.56
+      lower_hybrid_power_W: 34000000.0
+      neutral_beam_power_W: 34000000.0
+      fusion_power_W: 340000000.0
+
+  iter_advanced_cold_3ma:
+    machine: iter
+    scenario: advanced
+    anchor: cold
+    kind: constrained
+    confidence: medium
+    sources:
+    - title: ITER steady-state scenario, First ITER Summer School
+      url: https://www.iter.org/sites/default/files/education/ITER_Physics_Campbell.pdf
+      revision: slide 25 machine and 9 MA target context
+      sha256: 29b25019c8fb1b47ed354b5ecb218c7fb55e77a567f6ea1ec0c7beebe2b7a3c3
+      license: redistribution terms not stated on the deck
+      redistribution: checksum_only
+    extraction:
+      method: constrained_template
+      grid: TORAX profile endpoints with geometry-derived psi
+      notes:
+      - Cold anchor is a physical L-mode startup template, not a stationary state.
+    profile_sha256: 178a041884d1ddaf21c0f10eea7e8b9cef68a630b3372842a10e013fef25fb30
+    locked_paths:
+    - torax.profile_conditions.Ip
+    - torax.profile_conditions.T_i
+    - torax.profile_conditions.T_e
+    - torax.profile_conditions.n_e
+    - torax.profile_conditions.nbar
+    - torax.profile_conditions.initial_psi_mode
+    - actuators
+    targets:
+      Ip_A: 3000000.0
+      f_GW: 0.3
+      axis_temperature_keV: 6.0
+      edge_temperature_keV: 0.1
+
+  sparc_prd_hot_transp:
+    machine: sparc
+    scenario: prd
+    anchor: hot
+    kind: exact
+    confidence: high
+    sources:
+    - title: SPARCPublic PRD TRANSP high-density profile
+      url: https://github.com/cfs-energy/SPARCPublic/blob/5b913b8216d05346b22e2e1e87c2ff100761613f/PrimaryReferenceDischarge/5%20-%20transp_20221013.txt
+      revision: 5b913b8216d05346b22e2e1e87c2ff100761613f
+      sha256: 1637755cada719c96b1a75eec1b697aee39805274114ab2180803268f2992db9
+      license: MIT
+      redistribution: vendored
+      local_path: data/references/sparc_prd_transp_20221013.txt
+    - title: SPARCPublic PRD FreeGS GEQDSK
+      url: https://github.com/cfs-energy/SPARCPublic/blob/5b913b8216d05346b22e2e1e87c2ff100761613f/PrimaryReferenceDischarge/2%20-%20SPARC_DN_PRD_freegs_20221013
+      revision: 5b913b8216d05346b22e2e1e87c2ff100761613f
+      sha256: 6299e73a1ba1f2b8a1bb6d5e0dfa35f424ec09eebe153c96ea7779420eee85c6
+      license: MIT
+      redistribution: vendored
+      local_path: data/references/sparc_prd_freegs_20221013.eqdsk
+    extraction:
+      method: sectioned_profile
+      grid: 101 released rho points linearly interpolated to 25 TORAX cell centres
+      notes:
+      - Poloidal flux in Wb/radian is multiplied by 2pi for TORAX profile_conditions.
+      - The released GEQDSK is used without modification.
+      - TORAX uses last_surface_factor=0.9725, the largest value passing a 1e-4 deterministic contour sweep; this excludes non-closed edge contours without modifying the released GEQDSK.
+    profile_sha256: 8d61e32901e93bd14f70099d289c0bab33d29f9cd3e0c3917e3efa27704bbbce
+    artifacts:
+      data/references/sparc_prd_transp_20221013.txt: 1637755cada719c96b1a75eec1b697aee39805274114ab2180803268f2992db9
+      data/references/sparc_prd_freegs_20221013.eqdsk: 6299e73a1ba1f2b8a1bb6d5e0dfa35f424ec09eebe153c96ea7779420eee85c6
+    locked_paths:
+    - torax.profile_conditions.Ip
+    - torax.profile_conditions.T_i
+    - torax.profile_conditions.T_e
+    - torax.profile_conditions.n_e
+    - torax.profile_conditions.psi
+    - torax.geometry.geometry_file
+    - torax.sources.generic_heat
+    - actuators
+    projections:
+    - source_component: SPARCPublic 11 MW ICRF operating point
+      torax_component: torax.sources.generic_heat
+      matched_quantities: [integrated_power]
+      source_targets:
+        power_W: 11000000.0
+      torax_parameters:
+        P_total_W: 11000000.0
+        gaussian_location: 0.1
+        gaussian_width: 0.2
+        electron_heat_fraction: 0.5
+      notes:
+      - The released profile table contains no ICRF deposition curve; the local source shape and electron-ion partition remain editable within physical bounds.
+    targets:
+      Ip_A: 8700000.0
+      ICRF_power_W: 11000000.0
+      profile_variant: released high-density profile
+
+  sparc_prd_cold_1ma:
+    machine: sparc
+    scenario: prd
+    anchor: cold
+    kind: constrained
+    confidence: medium
+    sources:
+    - title: CFS SPARCPublic Primary Reference Discharge
+      url: https://github.com/cfs-energy/SPARCPublic/tree/5b913b8216d05346b22e2e1e87c2ff100761613f/PrimaryReferenceDischarge
+      revision: 5b913b8216d05346b22e2e1e87c2ff100761613f
+      sha256: 1637755cada719c96b1a75eec1b697aee39805274114ab2180803268f2992db9
+      license: MIT
+      redistribution: vendored
+      local_path: data/references/sparc_prd_transp_20221013.txt
+    extraction:
+      method: constrained_template
+      grid: TORAX profile endpoints with geometry-derived psi
+      notes:
+      - Cold anchor is a 1 MA limited L-mode template, not a backend-relaxed state.
+    profile_sha256: 24aa1dfc3fa1d11ad1a9c6010c421935a1e3c9e308c155cd507deb9425f79d8a
+    locked_paths:
+    - torax.profile_conditions.Ip
+    - torax.profile_conditions.T_i
+    - torax.profile_conditions.T_e
+    - torax.profile_conditions.n_e
+    - torax.profile_conditions.nbar
+    - torax.profile_conditions.initial_psi_mode
+    - actuators
+    targets:
+      Ip_A: 1000000.0
+      f_GW: 0.3
+      axis_temperature_keV: 1.0
+      edge_temperature_keV: 0.1
+
+  sparc_h8_hot_figure16:
+    machine: sparc
+    scenario: reduced_field
+    anchor: hot
+    kind: digitized
+    confidence: medium
+    sources:
+    - title: SPARC 8 T H-mode operational space study
+      url: https://arxiv.org/pdf/2502.00187
+      doi: 10.48550/arXiv.2502.00187
+      revision: Figure 16
+      sha256: 1175d9d66894fda9024dce51368be1e435a2e6f8fdca9d6e4b7584798058f76d
+      license: arXiv redistribution terms not asserted here
+      redistribution: checksum_only
+    extraction:
+      method: figure_digitization
+      grid: pointwise 10th, 50th and 90th percentile curves at 25 TORAX cell centres
+      page: 25
+      crop: [290, 190, 1060, 765]
+      digitization_tolerance_pixels: 2.0
+      axis_transform:
+        Ti_rho_pixels: [310.0, 636.0]
+        Ti_keV_pixels: [449.0, 218.0]
+        Te_rho_pixels: [720.0, 1045.0]
+        Te_keV_pixels: [449.0, 222.0]
+        ne_rho_pixels: [519.0, 840.0]
+        ne_1e19_m-3_pixels: [750.0, 548.0]
+      notes:
+      - The pointwise median is the reset profile; the 10-90% curves are retained as its digitization envelope.
+      - The generated overlay is the visual inspection record.
+      - Figure 16 contains kinetic profiles but no q curve; psi therefore comes from the chosen 5.7 MA FreeGS geometry, whose q95 is 3.20 and is consistent with the published Uckan q-star=3 operating point.
+    profile_sha256: 629174bcedfab0854676e15120babc9882491a5f8bd2c1a463eea719728414ad
+    artifacts:
+      data/references/sparc_h8_figure16_profiles_25.csv: 815ceffa2b88b29bf07b1cfee29c376d45fc7234aa678f713d2d61b7e2666ac0
+    locked_paths:
+    - torax.profile_conditions.Ip
+    - torax.profile_conditions.T_i
+    - torax.profile_conditions.T_e
+    - torax.profile_conditions.n_e
+    - torax.sources.generic_heat
+    - actuators
+    projections:
+    - source_component: Muraca et al. 25 MW ICRF operating point
+      torax_component: torax.sources.generic_heat
+      matched_quantities: [integrated_power]
+      source_targets:
+        power_W: 25000000.0
+      torax_parameters:
+        P_total_W: 25000000.0
+        gaussian_location: 0.1
+        gaussian_width: 0.2
+        electron_heat_fraction: 0.5
+      notes:
+      - Figure 16 publishes converged state profiles but no ICRF deposition curve; the local source shape and partition are explicitly not source-locked.
+    targets:
+      Ip_A: 5700000.0
+      f_GW: 0.46
+      q_star_uckan: 3.0
+      ICRF_power_W: 25000000.0
+
+  sparc_h8_cold_1ma:
+    machine: sparc
+    scenario: reduced_field
+    anchor: cold
+    kind: constrained
+    confidence: medium
+    sources:
+    - title: SPARC 8 T H-mode operational space study
+      url: https://arxiv.org/abs/2502.00187
+      doi: 10.48550/arXiv.2502.00187
+      revision: 8 T machine and 5.7 MA target context
+      sha256: 1175d9d66894fda9024dce51368be1e435a2e6f8fdca9d6e4b7584798058f76d
+      license: arXiv redistribution terms not asserted here
+      redistribution: checksum_only
+    extraction:
+      method: constrained_template
+      grid: TORAX profile endpoints with geometry-derived psi
+      notes:
+      - Cold anchor is a 1 MA limited L-mode template, not a backend-relaxed state.
+    profile_sha256: cf1ff705b6498f574fb4594f636939c0b1f70418688a60b76d3e4efba0e54d45
+    locked_paths:
+    - torax.profile_conditions.Ip
+    - torax.profile_conditions.T_i
+    - torax.profile_conditions.T_e
+    - torax.profile_conditions.n_e
+    - torax.profile_conditions.nbar
+    - torax.profile_conditions.initial_psi_mode
+    - actuators
+    targets:
+      Ip_A: 1000000.0
+      f_GW: 0.3
+      axis_temperature_keV: 1.0
+      edge_temperature_keV: 0.1
+
+  step_hot_openstep_v1_4_2:
+    machine: step
+    scenario: spp_001_ec_hd
+    anchor: hot
+    kind: exact
+    confidence: high
+    sources:
+    - title: OpenSTEP SPP-001 EC-HD flat-top IMAS state
+      url: https://github.com/ukaea/OpenSTEP/blob/v1.0/ec-hd/ftop/STEP_SPP_001_ECHD_ftop.nc
+      doi: 10.14468/07jt-s540
+      revision: v1.0; commit 60b0ec2f6a036b9dc6a79dd52e9a20dec24c9930
+      sha256: 64fe9e0d7f634be8ce4b748c08090ecdca2a4a5212473fb5a2c33cb2b6fd4bad
+      license: CC-BY-4.0
+      redistribution: vendored
+      local_path: data/STEP_SPP_001_ECHD_ftop.nc
+    - title: TORAX STEP flat-top Bohm-GyroBohm example
+      url: https://github.com/google-deepmind/torax/blob/v1.4.2/torax/examples/step_flattop_bgb.py
+      revision: v1.4.2
+      sha256: 94234eaa673530c07041ea633a2b6657fd0ab7fd367a4ddd5d4730030980ff08
+      license: Apache-2.0
+      redistribution: checksum_only
+    extraction:
+      method: imas_import
+      grid: OpenSTEP IMAS profiles and equilibrium imported by TORAX at n_rho=25
+      notes:
+      - The released IMAS state is used without backend relaxation.
+      - TORAX v1.4.2 pedestal, source, current-efficiency and BgB settings are locked.
+    profile_sha256: cfbefa59510c570a71975ea866d69eb99d574342aed22937f66fdcdb8d24f9e6
+    artifacts:
+      data/STEP_SPP_001_ECHD_ftop.nc: 64fe9e0d7f634be8ce4b748c08090ecdca2a4a5212473fb5a2c33cb2b6fd4bad
+    locked_paths:
+    - torax._imas_init
+    - torax.profile_conditions
+    - torax.plasma_composition
+    - torax.geometry
+    - torax.pedestal
+    - torax.sources.ecrh
+    - torax.sources.pellet
+    - torax.transport
+    - actuators
+    projections:
+    - source_component: OpenSTEP distributed EC electron heating
+      torax_component: torax.sources.ecrh
+      matched_quantities: [integrated_power, volume_weighted_centroid, rms_width]
+      source_targets:
+        power_W: 150000000.0
+        rho_centroid: 0.3938490669119931
+        rho_rms_width: 0.14595495422825847
+      torax_parameters:
+        P_total_W: 150000000.0
+        gaussian_location: 0.3384
+        gaussian_width: 0.1704
+        current_drive_efficiency: 0.14
+      notes:
+      - The source shape is a moment-matched projection; the 0.14 current-drive efficiency is locked directly to TORAX v1.4.2.
+    - source_component: OpenSTEP distributed pellet deposition shape
+      torax_component: torax.sources.pellet
+      matched_quantities: [volume_weighted_centroid, rms_width]
+      source_targets:
+        released_particles_per_s: 1.1754882422741837e+22
+        rho_centroid: 0.7558262303011922
+        rho_rms_width: 0.13770938492751514
+      torax_parameters:
+        S_total: 3.0e+21
+        pellet_deposition_location: 0.8
+        pellet_width: 0.17
+      notes:
+      - The Gaussian shape matches the released moments, while its total rate is intentionally the exact TORAX v1.4.2 value rather than the larger OpenSTEP source total.
+    targets:
+      Ip_A: 21228640.0
+      ecrh_power_W: 150000000.0
+      ecrh_current_drive_efficiency: 0.14
+      pellet_rate_s-1: 3.0e+21
+      bgb_multiplier: 0.15

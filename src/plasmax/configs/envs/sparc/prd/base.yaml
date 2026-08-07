@@ -1,0 +1,83 @@
+# SPARC PRD (Primary Reference Discharge) — phase-shared base.
+# Full-field H-mode: 12.2 T / 8.7 MA, Q~11. Physics shared across the ramp-up,
+# flat-top, and ramp-down phases. The hot profiles are the released TRANSP
+# state from SPARCPublic commit 5b913b8; they are not backend-relaxed.
+tokamak: sparc
+scenario: prd
+
+stepping:
+  max_event_substeps: 1
+
+torax:
+  geometry:
+    # The released diverted GEQDSK has open/noisy contours in its outermost
+    # 2.75% of poloidal flux. 0.9725 is the largest tested value (to 1e-4)
+    # for which TORAX constructs monotone closed-surface volumes; the source
+    # equilibrium remains byte-for-byte unchanged.
+    last_surface_factor: 0.9725
+  plasma_composition:
+    Z_eff: 1.5
+  profile_conditions:
+    T_i:
+      0.0: {0.02: 19.909532, 0.06: 19.489733, 0.1: 18.730038, 0.14: 17.746496, 0.18: 16.64907, 0.22: 15.538726, 0.26: 14.482958, 0.3: 13.513514, 0.34: 12.632262, 0.38: 11.823011, 0.42: 11.065586, 0.46: 10.34509, 0.5: 9.6559721, 0.54: 8.9996096, 0.58: 8.3798756, 0.62: 7.7995275, 0.66: 7.2585253, 0.7: 6.7540242, 0.74: 6.2810732, 0.78: 5.8333134, 0.82: 5.404235, 0.86: 4.995204, 0.9: 4.6117993, 0.94: 4.2825268, 0.98: 0.97938851}
+    T_e:
+      0.0: {0.02: 22.679953, 0.06: 22.155991, 0.1: 21.242846, 0.14: 20.07454, 0.18: 18.779176, 0.22: 17.456451, 0.26: 16.167951, 0.3: 14.949475, 0.34: 13.824184, 0.38: 12.805615, 0.42: 11.89416, 0.46: 11.073816, 0.5: 10.315187, 0.54: 9.5887235, 0.58: 8.8777174, 0.62: 8.1832107, 0.66: 7.5176856, 0.7: 6.8944903, 0.74: 6.3220439, 0.78: 5.8021198, 0.82: 5.3355164, 0.86: 4.9170712, 0.9: 4.5665435, 0.94: 4.2817758, 0.98: 0.70340674}
+    n_e:
+      0.0: {0.02: 4.1654734e+20, 0.06: 4.1603519e+20, 0.1: 4.1434872e+20, 0.14: 4.1114591e+20, 0.18: 4.059996e+20, 0.22: 3.9893763e+20, 0.26: 3.9054986e+20, 0.3: 3.8175134e+20, 0.34: 3.7335256e+20, 0.38: 3.6573416e+20, 0.42: 3.588674e+20, 0.46: 3.5254001e+20, 0.5: 3.4654897e+20, 0.54: 3.4073882e+20, 0.58: 3.3494232e+20, 0.62: 3.2900538e+20, 0.66: 3.2289046e+20, 0.7: 3.1676884e+20, 0.74: 3.1091795e+20, 0.78: 3.0560331e+20, 0.82: 3.0079978e+20, 0.86: 2.9638311e+20, 0.9: 2.9154533e+20, 0.94: 2.864485e+20, 0.98: 1.0782633e+20}
+    psi:
+      0.0: {0.02: 0.017444421, 0.06: 0.093827032, 0.1: 0.25722509, 0.14: 0.50039853, 0.18: 0.82371812, 0.22: 1.2249467, 0.26: 1.699798, 0.3: 2.2448633, 0.34: 2.8596041, 0.38: 3.544855, 0.42: 4.2982282, 0.46: 5.109669, 0.5: 5.9600278, 0.54: 6.8274474, 0.58: 7.6922305, 0.62: 8.5385623, 0.66: 9.3574442, 0.7: 10.14405, 0.74: 10.895223, 0.78: 11.608502, 0.82: 12.281421, 0.86: 12.911035, 0.9: 13.493839, 0.94: 14.022866, 0.98: 14.494744}
+    initial_psi_mode: profile_conditions
+    normalize_n_e_to_nbar: false
+    n_e_nbar_is_fGW: false
+  sources:
+    generic_particle:
+      S_total: 5.0e+20
+      deposition_location: 0.3
+      particle_width: 0.25
+    gas_puff:
+      puff_decay_length: 0.3
+      S_total: 4.0e+21
+    generic_heat:                  # ICRF aux heating (core-deposited)
+      gaussian_location: 0.1
+      gaussian_width: 0.2
+      P_total: 11.0e+6
+      electron_heat_fraction: 0.5
+    generic_current:               # SPARC is mostly inductive — small, constant CD
+      fraction_of_total_current: 0.1
+      gaussian_location: 0.3
+      gaussian_width: 0.1
+    ecrh:
+      gaussian_location: 0.3
+      gaussian_width: 0.05
+      P_total: 0.0
+      current_drive_efficiency: 0.3
+    fusion: {}
+    ei_exchange:
+      Qei_multiplier: 1.0
+    # bremsstrahlung + Mavrin impurity_radiation are machine-wide: see
+    # tokamaks/sparc.yaml. Z_eff (above) and the radiation_multiplier
+    # randomization stay scenario-owned.
+  pedestal:
+    model_name: set_T_ped_n_ped
+    set_pedestal: true
+    mode: ADAPTIVE_TRANSPORT
+    use_formation_model_with_adaptive_source: false
+    formation_model:
+      model_name: martin_scaling
+    T_i_ped: 4.2825268
+    T_e_ped: 4.2817758
+    n_e_ped: 2.864485e+20
+    rho_norm_ped_top: 0.94
+  # The short crash is an internal event; the environment then completes the
+  # remainder of the physical control interval with the action held constant.
+  mhd:
+    sawtooth:
+      trigger_model:
+        model_name: simple
+        s_critical: 0.1
+        minimum_radius: 0.05
+      redistribution_model:
+        model_name: simple
+        flattening_factor: 1.01
+        mixing_radius_multiplier: 1.1
+      crash_step_duration: 1.0e-5

@@ -1,0 +1,62 @@
+# ITER advanced (steady-state) scenario — phase-shared physical reference.
+#
+# Target: ~9 MA fully non-inductive steady-state with weak/reversed shear and an
+# internal transport barrier (ITB) — the most speculative ITER scenario for
+# current TORAX. Physics common to all three advanced phases; each phase file
+# overlays its deltas. Device-level config is inherited from
+# tokamaks/iter.yaml via `tokamak: iter`.
+#
+# The hot kinetic and q profiles are digitized from page 25 of the official
+# ITER Physics summer-school deck. Psi is reconstructed deterministically from
+# q and normalized to the local 9 MA equilibrium edge flux. This reference is
+# illustrative/medium-confidence, exactly as labelled by its source.
+
+tokamak: iter
+scenario: advanced
+
+torax:
+  plasma_composition:
+    Z_eff: 1.8
+  profile_conditions:
+    T_i:
+      0.0: {0.02: 28.62385, 0.06: 28.65826, 0.1: 28.65826, 0.14: 28.52064, 0.18: 28.27982, 0.22: 28.00459, 0.26: 27.52294, 0.3: 26.69725, 0.34: 25.18349, 0.38: 24.22018, 0.42: 22.70642, 0.46: 20.47018, 0.5: 18.02752, 0.54: 15.58486, 0.58: 12.93578, 0.62: 10.04587, 0.66: 6.536697, 0.7: 5.022936, 0.74: 4.059633, 0.78: 3.577982, 0.82: 3.027523, 0.86: 2.408257, 0.9: 2.133028, 0.94: 1.651376, 0.98: 0.412844}
+    T_e:
+      0.0: {0.02: 26.62844, 0.06: 26.62844, 0.1: 26.50803, 0.14: 26.38761, 0.18: 26.2844, 0.22: 25.94037, 0.26: 25.59633, 0.3: 24.90826, 0.34: 24.42661, 0.38: 22.63761, 0.42: 20.98624, 0.46: 20.12615, 0.5: 17.27064, 0.54: 15.34404, 0.58: 11.90367, 0.62: 9.83945, 0.66: 5.917431, 0.7: 4.885321, 0.74: 3.922018, 0.78: 3.509174, 0.82: 3.130734, 0.86: 2.752294, 0.9: 2.408257, 0.94: 2.201835, 0.98: 0.8944954}
+    n_e:
+      0.0: {0.02: 7.385321e+19, 0.06: 7.373853e+19, 0.1: 7.373853e+19, 0.14: 7.373853e+19, 0.18: 7.373853e+19, 0.22: 7.373853e+19, 0.26: 7.373853e+19, 0.3: 7.373853e+19, 0.34: 7.373853e+19, 0.38: 7.362385e+19, 0.42: 7.33945e+19, 0.46: 7.316514e+19, 0.5: 7.28211e+19, 0.54: 7.224771e+19, 0.58: 7.178899e+19, 0.62: 7.087156e+19, 0.66: 6.949541e+19, 0.7: 6.880734e+19, 0.74: 6.788991e+19, 0.78: 6.743119e+19, 0.82: 6.616972e+19, 0.86: 6.46789e+19, 0.9: 6.261468e+19, 0.94: 5.733945e+19, 0.98: 4.34633e+19}
+    psi:
+      0.0: {0.02: 0.014701655, 0.06: 0.13899752, 0.1: 0.39827043, 0.14: 0.79646539, 0.18: 1.3308988, 0.22: 2.0174663, 0.26: 2.8968553, 0.3: 3.9924976, 0.34: 5.2905774, 0.38: 6.7642012, 0.42: 8.4015609, 0.46: 10.202657, 0.5: 12.167488, 0.54: 14.31816, 0.58: 16.720039, 0.62: 19.386352, 0.66: 22.292218, 0.7: 25.312868, 0.74: 28.290692, 0.78: 31.118937, 0.82: 33.753406, 0.86: 36.189214, 0.9: 38.379861, 0.94: 40.346673, 0.98: 42.0772}
+    normalize_n_e_to_nbar: false
+    n_e_nbar_is_fGW: false
+    n_e_right_bc_is_fGW: false
+    initial_psi_mode: profile_conditions
+  sources:
+    generic_particle:
+      S_total: 2.05e+20
+      deposition_location: 0.3
+      particle_width: 0.25
+    gas_puff:
+      puff_decay_length: 0.3
+      S_total: 6.0e+21
+    generic_heat:
+      gaussian_location: 0.3
+      gaussian_width: 0.15
+      P_total: 34.0e+6
+      electron_heat_fraction: 0.4
+    generic_current:               # NBI-CD, peaked off-axis for q-shear control
+      gaussian_location: 0.45
+      gaussian_width: 0.1
+    ecrh:                          # broad off-axis ECCD, important for ITB
+      gaussian_location: 0.5
+      gaussian_width: 0.1
+      P_total: 34.0e+6
+      current_drive_efficiency: 0.3
+    fusion: {}
+    ei_exchange:
+      Qei_multiplier: 1.0
+  pedestal:
+    T_i_ped: 1.651376
+    T_e_ped: 2.201835
+    n_e_ped: 5.733945e+19
+    n_e_ped_is_fGW: false
+    rho_norm_ped_top: 0.94

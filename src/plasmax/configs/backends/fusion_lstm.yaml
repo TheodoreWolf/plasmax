@@ -1,0 +1,19 @@
+# World-model backend — NeoRL2 KSTAR fusion_lstm (learned dynamics).
+#
+# NOT a TORAX transport model: a neural-net ensemble trained on ~5 years of
+# KSTAR experimental discharges (Seo et al., Nucl. Fusion 2021) that emulates
+# the 0D plasma response (βn, q95, q0, li, βp) to engineering actuators. The
+# JAX reimplementation + converted weights live in plasmax.models.world_model /
+# plasmax.models.world_model_env; weights are vendored at
+# data/kstar_lstm/weights.npz (converted from the ONNX release by
+# tools/artifacts/convert_kstar_onnx.py).
+#
+# `type: world_model` makes environment.config.load_env dispatch to the
+# learned-dynamics env instead of building a ToraxConfig. Unlike TORAX
+# transport backends, a world model is 1:1 with its scenario (it only pairs
+# with the `kstar` env) — its observation/action layout is intrinsic to the
+# trained weights.
+
+type: world_model
+world_model:
+  name: kstar_lstm

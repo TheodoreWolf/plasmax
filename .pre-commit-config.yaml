@@ -1,0 +1,14 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-lint
+        name: Ruff lint
+        entry: uv run ruff check --extend-ignore I .
+        language: system
+        pass_filenames: false
+
+      - id: ruff-import-order
+        name: Ruff import order
+        entry: uv run ruff check --select I .
+        language: system
+        pass_filenames: false

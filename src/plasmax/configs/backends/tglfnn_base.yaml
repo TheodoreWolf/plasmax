@@ -1,0 +1,57 @@
+# Shared TGLFNN-UKAEA transport and solver settings.
+#
+# Concrete backends select the trained machine weights, pedestal calibration,
+# and solver implementation. This fragment is internal and is not a backend
+# registry entry.
+
+torax:
+  numerics:
+    max_dt: 0.5
+    chi_timestep_prefactor: 50
+    dt_reduction_factor: 3
+  neoclassical:
+    bootstrap_current:
+      model_name: redl
+    transport:
+      model_name: angioni_sauter
+      use_shaing_ion_correction: true
+  transport:
+    model_name: tglfnn-ukaea
+    # Rotation/momentum transport is not modelled in these scenarios.
+    use_rotation: false
+    rotation_multiplier: 1.0
+    collisionality_multiplier: 1.0
+    DV_effective: true
+    An_min: 0.05
+
+    # Hard bounds for out-of-distribution NN predictions.
+    chi_min: 0.05
+    chi_max: 100.0
+    D_e_min: 0.05
+    D_e_max: 50.0
+    V_e_min: -10.0
+    V_e_max: 10.0
+    smoothing_width: 0.1
+
+    # Inner-core surrogate OOD guard and outer L-mode shoulder patch. The inner
+    # patch is not a sawtooth crash/redistribution model.
+    apply_inner_patch: true
+    chi_i_inner: 1.0
+    chi_e_inner: 1.0
+    D_e_inner: 0.25
+    V_e_inner: 0.0
+    rho_inner: 0.2
+    apply_outer_patch: true
+    chi_i_outer: 2.0
+    chi_e_outer: 2.0
+    D_e_outer: 0.1
+    V_e_outer: 0.0
+    rho_outer: 0.9
+  solver:
+    use_predictor_corrector: true
+    n_corrector_steps: 10
+    chi_pereverzev: 30
+    D_pereverzev: 15
+    use_pereverzev: true
+  time_step_calculator:
+    calculator_type: fixed

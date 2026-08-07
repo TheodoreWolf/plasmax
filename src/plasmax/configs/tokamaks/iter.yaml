@@ -1,0 +1,104 @@
+# ITER — device-level defaults shared across all ITER scenarios.
+#
+# A scenario env (envs/iter/<scenario>/<phase>.yaml) sets `tokamak: iter`
+# to inherit everything here, then overlays only its scenario/phase deltas (Z_eff,
+# geometry_file/configs, Ip schedule + profile_conditions, t_final, sources,
+# pedestal). The loader deep-merges tokamak (base) < scenario base < phase; see
+# plasmax.environment.merge._load_tokamak_defaults / _load_scenario_base.
+#
+# Device: ITER (R=6.2 m, a=2.0 m, B0=5.3 T). The actuator bounds / observation
+# scaling / disruption thresholds below are the unified ITER RL interface (the
+# hybrid values, adopted as the source of truth for all ITER scenarios).
+
+torax:
+  # Ion mix + impurity species are common to all ITER scenarios; each scenario
+  # sets its own Z_eff (impurity content) on top.
+  plasma_composition:
+    main_ion: {D: 0.5, T: 0.5}  # 50/50 deuterium-tritium mix
+    impurity: Ne                 # single impurity species: Neon
+  # Machine-wide source-model selection, valid for every ITER scenario on any
+  # transport backend (radiation depends on composition/field, not transport
+  # choice). Scenario bases keep the operating point: Z_eff, powers, deposition.
+  sources:
+    ohmic: {}   # standard resistive heating; psi is evolved, so it belongs in the power balance
+    bremsstrahlung:
+      mode: MODEL_BASED
+      use_relativistic_correction: true
+      exclude_impurity_bremsstrahlung: true
+    impurity_radiation:
+      mode: MODEL_BASED
+      model_name: mavrin_fit
+      radiation_multiplier: 1.0
+    cyclotron_radiation: {}   # Albajar synchrotron; TORAX defaults (wall_reflection_coeff 0.9, uncalibrated)
+  # PDEs evolved + numerical knobs common to every ITER discharge phase. Each
+  # scenario sets its own t_final. resistivity_multiplier=1 (physical) is
+  # mandatory so psi diffuses on its real tau_R through ramps and flat-top.
+  numerics:
+    fixed_dt: 0.1                # RL outer step size [s]
+    resistivity_multiplier: 1
+    evolve_ion_heat: true
+    evolve_electron_heat: true
+    evolve_current: true
+    evolve_density: true
+  # EQDSK geometry plumbing common to all ITER equilibria (committed under
+  # data/). Each scenario sets its own geometry_file (static) or
+  # geometry_configs (time-keyed ramp), rescaled to the live Ip.
+  geometry:
+    geometry_type: eqdsk
+    geometry_directory: ${DATA_DIR}
+    cocos: 7
+    Ip_from_parameters: true
+    n_rho: 25
+
+# ===========================================================================
+# Unified ITER RL interface (actuators / observations / disruption). Shared by
+# every iter_* scenario; a scenario may still override any block if it needs to.
+# ===========================================================================
+actuators:
+  - {name: P_nbi,         low: 1.0e+6, high: 50.0e+6, max_delta: 2.0e+6}
+  - {name: P_eccd,        low: 1.0e+6, high: 50.0e+6, max_delta: 2.0e+6}
+  - {name: rho_eccd,      low: 0.0,    high: 0.8,     max_delta: 0.05}
+  - {name: gas_puff_rate, low: 1.0e+20, high: 1.0e+22, max_delta: 2.0e+20}
+
+observations:
+  profiles:
+    - {name: T_e,  scale: 10.0,    bounds: [0.0, 50.0]}
+    - {name: T_i,  scale: 10.0,    bounds: [0.0, 50.0]}
+    - {name: n_e,  scale: 1.0e+20, bounds: [0.0, 2.0e+20]}
+    - {name: psi,  scale: 10.0,    bounds: [-200.0, 200.0]}
+    - {name: q,    scale: 5.0,     bounds: [0.0, 20.0]}
+  scalars:
+    - {name: W_thermal,       scale: 1.0e+8, bounds: [0.0, 5.0e+8]}
+    - {name: tau_E,           scale: 1.0,    bounds: [0.0, 10.0]}
+    - {name: P_fusion,        scale: 1.0e+8, bounds: [0.0, 1.0e+9]}
+    # Unified time normalization across all ITER scenarios: 1000 s covers the
+    # longest phase (advanced flat-top) with no clipping; shorter phases use a
+    # compressed [0, <1] range. (Per-scenario t_final still sets episode length.)
+    - {name: t,               scale: 1000.0, bounds: [0.0, 1000.0]}
+    - {name: Ip,              scale: 1.0e+7, bounds: [0.0, 2.0e+7]}
+    - {name: q_min,           scale: 3.0,    bounds: [0.0, 10.0]}
+    - {name: q95,             scale: 5.0,    bounds: [0.0, 20.0]}
+    - {name: beta_N,          scale: 3.0,    bounds: [0.0, 5.0]}
+    - {name: f_non_inductive, scale: 1.0,    bounds: [0.0, 1.5]}
+
+state_noise:
+  T_e: 0.05
+  T_i: 0.05
+  n_e: 0.03
+
+# Device/scenario uncertainty shared by every ITER transport backend. Relative
+# ranges multiply each scenario's own nominal value; model-specific ranges live
+# with the backends. See physics_randomization/README.md for provenance.
+physics_randomization:
+  numerics.resistivity_multiplier: {relative: [0.95, 1.05]}
+  pedestal.T_i_ped: {relative: [0.8, 1.2]}
+  pedestal.T_e_ped: {relative: [0.8, 1.2]}
+  pedestal.n_e_ped: {relative: [0.8, 1.2]}
+  sources.impurity_radiation.radiation_multiplier: {relative: [0.9, 1.1]}
+
+# Crossing either threshold ends the episode. Greenwald uses the volume-averaged
+# density; limit 1.0. (iter_hybrid values, unified across scenarios.)
+disruption:
+  q_min_threshold: 0.8
+  greenwald_threshold: 1.0
+  greenwald_metric: volume_avg

@@ -1,0 +1,82 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+# Editable installs also expose the repository-only agents/training packages.
+# Built distributions contain only the environment library under src/.
+dev-mode-dirs = ["src", "."]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/plasmax"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src/plasmax", "/LICENSE", "/README.md", "/pyproject.toml"]
+
+[project]
+name = "plasmax"
+version = "0.1.0"
+description = "JAX-native fusion-control environments built on TORAX"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "jax-envelope==0.4.2",
+    "torax>=1.4.1,<1.5",
+    "pyyaml",
+    "pydantic>=2",
+    "numpy>2",
+    "jax==0.10.1",
+    "jaxlib==0.10.1",
+]
+
+[dependency-groups]
+research = [
+    "rejax",
+    "gymnax",
+    "flax",
+    "optax",
+    "chex",
+    "wandb",
+    "tyro",
+    "plotly",
+    "matplotlib",
+    "pillow",
+    "pypdfium2",
+    "ruamel.yaml",
+]
+dev = [
+    { include-group = "research" },
+    "pytest",
+    "ruff",
+    "pre-commit>=4.6.0",
+]
+artifacts = [
+    "onnx",
+    "onnxruntime",
+]
+
+[project.urls]
+Repository = "https://github.com/TheodoreWolf/plasmax"
+
+[tool.uv]
+# Retain the draft override until the compatible TGLFNN release reaches PyPI.
+override-dependencies = [
+    "tglfnn-ukaea @ git+https://github.com/ukaea/tglfnn-ukaea.git@v0.2.0-draft",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agents", "experiments", "plasmax", "training"]
+known-third-party = ["envelope", "wandb"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_classes = ["Test*", "*Test"]
+markers = [
+    "integration: slow integration tests over the full env x backend x variant matrix",
+]
+addopts = "-m 'not integration'"

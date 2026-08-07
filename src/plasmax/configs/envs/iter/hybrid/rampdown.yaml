@@ -1,0 +1,47 @@
+# ITER hybrid — ramp-down phase.
+#
+# The episode begins already in the flat-top burn (same hot initial conditions
+# as flattop) and Ip immediately ramps down from 10.5 MA to 1 MA — no ramp-up,
+# no flat-top hold. Isolates the terminal ramp-down as its own control problem.
+#
+# Geometry:  Per-Ip FreeGSnke EQDSKs (10.5 / 4.5 / 3 MA), anchored where the Ip
+#            schedule crosses each file's current; the 3 MA anchor is the
+#            limited end-of-discharge shape, held to t_final.
+#            Episode: t_final = 60 s → 600 steps.
+
+phase: rampdown
+reset_reference: iter_hybrid_hot_v1_4_2
+
+task:
+  reward: rampdown
+  terminal_penalty: -997.5949907086881
+
+torax:
+  profile_conditions:
+    Ip: {0: 10.5e+6, 60: 1.0e+6}  # [A]
+    T_i_right_bc: {0: 0.2, 60: 0.1}  # edge T_i BC [keV]
+    T_e_right_bc: {0: 0.2, 60: 0.1}
+    n_e_right_bc: {0: 2.5e+19, 60: 1.0e+19}
+  numerics:
+    t_final: 60.0                # ramp-down only [s] → 600 steps
+  geometry:
+    geometry_configs:
+      0.0: {geometry_file: iter_hybrid_ip105.eqdsk}
+      37.9: {geometry_file: iter_hybrid_ip045.eqdsk}   # Ip crosses 4.5 MA
+      47.4: {geometry_file: iter_hybrid_ip030.eqdsk}   # Ip crosses 3 MA
+  sources:
+    generic_current:
+      # Drops from the hybrid flat-top fraction back to the low-Ip value.
+      fraction_of_total_current: {0: 0.46, 60: 0.15}
+    generic_heat:
+      P_total: 23314285.714285713
+    ecrh:
+      P_total: 27685714.285714287
+      gaussian_location: 0.12741589640723575
+    gas_puff:
+      S_total: 6.0e+21
+actuators:
+- {name: P_nbi, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 23314285.714285713}
+- {name: P_eccd, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 27685714.285714287}
+- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.12741589640723575}
+- {name: gas_puff_rate, low: 1e+20, high: 1e+22, max_delta: 2e+20, init: 6.0e+21}

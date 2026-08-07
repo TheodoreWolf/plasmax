@@ -1,0 +1,48 @@
+# ITER advanced — ramp-down from the illustrative steady-state reference.
+#
+# Episode begins at exactly the same digitized hot anchor as flattop; Ip then
+# ramps down 9 → 1 MA. See base.yaml for the confidence caveats.
+#
+# Geometry:  Per-Ip FreeGSnke EQDSKs (9 / 4.5 / 3 MA), anchored where the Ip
+#            schedule crosses each file's current; the 3 MA anchor is the
+#            limited end-of-discharge shape, held to t_final.
+#            Episode: t_final = 60 s → 600 steps.
+
+phase: rampdown
+reset_reference: iter_advanced_hot_slide25
+
+task:
+  reward: rampdown
+  terminal_penalty: -329.20634693386705
+
+torax:
+  profile_conditions:
+    Ip: {0: 9.0e+6, 60: 1.0e+6}  # [A]
+    T_i_right_bc: {0: 0.2, 60: 0.1}  # edge T_i BC [keV]
+    T_e_right_bc: {0: 0.2, 60: 0.1}
+    n_e_right_bc: {0: 4.34633e+19, 60: 1.0e+19}
+    initial_psi_mode: profile_conditions
+  numerics:
+    t_final: 60.0                # ramp-down only [s] → 600 steps
+  geometry:
+    geometry_configs:
+      0.0: {geometry_file: iter_advanced_ip090.eqdsk}
+      33.8: {geometry_file: iter_advanced_ip045.eqdsk}   # Ip crosses 4.5 MA
+      45.0: {geometry_file: iter_advanced_ip030.eqdsk}   # Ip crosses 3 MA
+  sources:
+    generic_current:
+      # Drops from the fully-non-inductive flat-top fraction back to the low-Ip
+      # value as Ip ramps down.
+      fraction_of_total_current: {0: 1.0, 60: 0.15}
+    generic_heat:
+      P_total: 34000000.0
+    ecrh:
+      P_total: 34000000.0
+      gaussian_location: 0.5
+    gas_puff:
+      S_total: 6e+21
+actuators:
+- {name: P_nbi, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 34000000.0}
+- {name: P_eccd, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 34000000.0}
+- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.5}
+- {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 6e+21}

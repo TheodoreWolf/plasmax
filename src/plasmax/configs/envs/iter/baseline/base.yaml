@@ -1,0 +1,93 @@
+# ITER baseline scenario — phase-shared hot physical reference.
+#
+# Target: 15 MA Q=10 inductive H-mode (the ITER reference baseline). Physics
+# common to all three baseline phases; each phase file overlays its deltas (Ip
+# schedule, initial/boundary profiles, t_final, geometry). Device-level config
+# is inherited from tokamaks/iter.yaml via `tokamak: iter`.
+#
+# T_i, T_e, n_e, psi, and global targets are imported from the ITPA TC-33
+# 450 s IMAS state. The source netCDF is checksum-only; the compact 25-cell
+# extraction is packaged under data/references/. The local EQDSK is a declared
+# geometry projection, while the imported psi fixes the magnetic reset state.
+
+tokamak: iter
+scenario: baseline
+
+stepping:
+  max_event_substeps: 1
+
+torax:
+  plasma_composition:
+    Z_eff: 1.7
+  profile_conditions:
+    T_i:
+      0.0: {0.02: 23.653497, 0.06: 23.388408, 0.1: 22.347649, 0.14: 20.898527, 0.18: 19.538816, 0.22: 18.23018, 0.26: 16.984169, 0.3: 15.919526, 0.34: 14.958622, 0.38: 14.060014, 0.42: 13.254228, 0.46: 12.512113, 0.5: 11.827781, 0.54: 11.192074, 0.58: 10.561998, 0.62: 9.9196309, 0.66: 9.2543617, 0.7: 8.5791608, 0.74: 7.9086662, 0.78: 7.2766289, 0.82: 6.6737938, 0.86: 6.1108585, 0.9: 5.5741655, 0.94: 4.7268568, 0.98: 2.2721915}
+    T_e:
+      0.0: {0.02: 31.916919, 0.06: 31.61559, 0.1: 30.90669, 0.14: 29.666591, 0.18: 27.781227, 0.22: 25.347258, 0.26: 22.629095, 0.3: 20.260162, 0.34: 18.296595, 0.38: 16.599106, 0.42: 15.177253, 0.46: 13.961184, 0.5: 12.930521, 0.54: 12.029129, 0.58: 11.181325, 0.62: 10.333079, 0.66: 9.4312868, 0.7: 8.5333971, 0.74: 7.7115109, 0.78: 6.9616092, 0.82: 6.3041168, 0.86: 5.7599056, 0.9: 5.2836349, 0.94: 4.5562782, 0.98: 2.1198222}
+    n_e:
+      0.0: {0.02: 1.1670714e+20, 0.06: 1.1667727e+20, 0.1: 1.165019e+20, 0.14: 1.1617598e+20, 0.18: 1.157678e+20, 0.22: 1.1545218e+20, 0.26: 1.1581921e+20, 0.3: 1.169548e+20, 0.34: 1.1686385e+20, 0.38: 1.1627821e+20, 0.42: 1.1481396e+20, 0.46: 1.1390974e+20, 0.5: 1.1331053e+20, 0.54: 1.1202327e+20, 0.58: 1.1036128e+20, 0.62: 1.0792315e+20, 0.66: 1.0566582e+20, 0.7: 1.0351864e+20, 0.74: 1.0090941e+20, 0.78: 9.7559282e+19, 0.82: 9.3301709e+19, 0.86: 8.8276338e+19, 0.9: 8.2672523e+19, 0.94: 7.4735285e+19, 0.98: 6.3124835e+19}
+    psi:
+      0.0: {0.02: 0.051514582, 0.06: 0.42623202, 0.1: 1.1707325, 0.14: 2.2926423, 0.18: 3.7894485, 0.22: 5.6851369, 0.26: 7.9893666, 0.3: 10.67715, 0.34: 13.727939, 0.38: 17.115167, 0.42: 20.814375, 0.46: 24.778118, 0.5: 28.943089, 0.54: 33.241284, 0.58: 37.609863, 0.62: 41.97812, 0.66: 46.287337, 0.7: 50.483194, 0.74: 54.52251, 0.78: 58.37365, 0.82: 62.016065, 0.86: 65.429674, 0.9: 68.585489, 0.94: 71.474728, 0.98: 74.124332}
+    initial_psi_mode: profile_conditions
+    normalize_n_e_to_nbar: false
+    n_e_nbar_is_fGW: false
+    n_e_right_bc_is_fGW: false
+  sources:
+    generic_particle:
+      # ITPA NBI particle source, projected by total, dV-weighted centroid,
+      # and RMS width. The Gaussian parameters below differ from those two
+      # physical moments because TORAX normalizes against the shaped dV/drho.
+      S_total: 1.958196187096854e+20
+      deposition_location: 0.2129021131867942
+      particle_width: 0.3524989016656593
+    gas_puff:
+      puff_decay_length: 0.3
+      S_total: 0.0
+    generic_heat:
+      # ITPA NBI heat source, projected by power, dV-weighted moments, and
+      # electron/ion partition. These Gaussian parameters reproduce a physical
+      # centroid of 0.504810 and RMS width of 0.216577 on the ITPA geometry.
+      gaussian_location: 0.2556776403728281
+      gaussian_width: 0.3334149540677585
+      P_total: 32204566.10558545
+      electron_heat_fraction: 0.6349488250037933
+    generic_current:               # predominantly inductive — constant low CD
+      fraction_of_total_current: 0.15
+      gaussian_location: 0.4
+      gaussian_width: 0.075
+    ecrh:
+      # ITPA EC source, projected by power and dV-weighted moments.
+      gaussian_location: 0.18092074381061005
+      gaussian_width: 0.07447085458047044
+      P_total: 16875121.09102656
+      current_drive_efficiency: 0.3
+    pellet:
+      S_total: 3.2822178577250456e+22
+      pellet_deposition_location: 0.8413844189838808
+      pellet_width: 0.07053089225185659
+    fusion: {}
+    ei_exchange:
+      Qei_multiplier: 1.0
+  pedestal:
+    T_i_ped: 4.7268568
+    T_e_ped: 4.5562782
+    n_e_ped: 7.4735285e+19
+    n_e_ped_is_fGW: false
+    rho_norm_ped_top: 0.94
+  geometry:
+    # Smallest contour contraction that closes every surface in the released
+    # 71x71 ITPA equilibrium when TORAX constructs its geometry.
+    last_surface_factor: 0.989
+  # The short crash is an internal event; the environment then completes the
+  # remainder of the physical control interval with the action held constant.
+  mhd:
+    sawtooth:
+      trigger_model:
+        model_name: simple
+        s_critical: 0.1
+        minimum_radius: 0.05
+      redistribution_model:
+        model_name: simple
+        flattening_factor: 1.01
+        mixing_radius_multiplier: 1.1
+      crash_step_duration: 1.0e-5

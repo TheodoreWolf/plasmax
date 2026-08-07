@@ -1,0 +1,65 @@
+# ITER hybrid — ramp-up phase.
+#
+# The episode ends as soon as the current reaches the flat-top value — no
+# flat-top hold, no ramp-down. The plasma starts cold and only the 0–80 s Ip
+# ramp (3 → 10.5 MA) is simulated. Isolates the cold-start ramp-up as its own
+# control problem, side-by-side with flattop (stationary) and rampdown
+# (terminal).
+#
+# Geometry:  Per-Ip FreeGSnke EQDSKs (3 / 4.5 / 10.5 MA).
+# Episode:   exact upstream t_final = 80 s, fixed_dt = 2 s → 40 steps.
+
+phase: rampup
+reset_reference: iter_hybrid_cold_v1_4_2
+
+task:
+  reward: lh_transition
+  terminal_penalty: -99.99568287525884
+
+torax:
+  profile_conditions:
+    Ip: {0: 3.0e+6, 80: 10.5e+6}
+    T_i: {0.0: {0.0: 6.0, 1.0: 0.1}}
+    T_i_right_bc: 0.1
+    T_e: {0.0: {0.0: 6.0, 1.0: 0.1}}
+    T_e_right_bc: 0.1
+    n_e_right_bc: {0: 0.1, 80: 0.3}
+    n_e_right_bc_is_fGW: true
+    n_e: {0.0: {0.0: 1.5, 1.0: 1.0}}
+    nbar: 0.3
+    initial_psi_mode: geometry
+    normalize_n_e_to_nbar: true
+    n_e_nbar_is_fGW: true
+  numerics:
+    t_final: 80.0
+    fixed_dt: 2.0
+  geometry:
+    geometry_configs:
+      0.0: {geometry_file: iter_hybrid_ip030.eqdsk}
+      16.0: {geometry_file: iter_hybrid_ip045.eqdsk}
+      80.0: {geometry_file: iter_hybrid_ip105.eqdsk}
+  sources:
+    generic_current:
+      fraction_of_total_current: 0.15
+    generic_particle:
+      S_total: 0.0
+    generic_heat:
+      gaussian_location: 0.12741589640723575
+      gaussian_width: 0.07280908366127758
+      P_total: 20000000.0
+      electron_heat_fraction: 1.0
+    ecrh:
+      P_total: 0.0
+    gas_puff:
+      S_total: 0.0
+  pedestal:
+    T_i_ped: 1.0
+    T_e_ped: 1.0
+    n_e_ped: {0: 0.3, 80: 0.7}
+    n_e_ped_is_fGW: true
+    rho_norm_ped_top: 0.9
+actuators:
+- {name: P_nbi, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 20000000.0}
+- {name: P_eccd, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 0.0}
+- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.12741589640723575}
+- {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 0.0}

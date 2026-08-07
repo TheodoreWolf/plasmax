@@ -1,0 +1,83 @@
+# SPARC — device-level defaults (compact high-field D-T tokamak, CFS/MIT).
+#
+# R0 = 1.85 m, a = 0.55 m. A scenario env under envs/sparc/<scenario>/
+# sets `tokamak: sparc` to inherit this device config and overlays its
+# scenario/phase deltas. Scenarios: `prd` (Primary Reference Discharge, full-
+# field H-mode 12.2 T / 8.7 MA) and `reduced_field` (early-ops H-mode 8 T /
+# 5.7 MA). B0 is set per scenario by the EQDSK geometry (fvac), not here.
+
+torax:
+  plasma_composition:
+    main_ion: {D: 0.5, T: 0.5}
+    impurity: Ne
+  # Machine-wide source-model selection, valid for every SPARC scenario on any
+  # transport backend (radiation depends on composition/field, not transport
+  # choice). Scenario bases keep the operating point: Z_eff, powers, deposition.
+  sources:
+    ohmic: {}   # standard resistive heating; psi is evolved, so it belongs in the power balance
+    bremsstrahlung:
+      mode: MODEL_BASED
+      use_relativistic_correction: true
+      exclude_impurity_bremsstrahlung: true
+    impurity_radiation:
+      mode: MODEL_BASED
+      model_name: mavrin_fit
+      radiation_multiplier: 1.0
+    cyclotron_radiation: {}   # Albajar synchrotron; TORAX defaults (wall_reflection_coeff 0.9, uncalibrated)
+  numerics:
+    fixed_dt: 0.1
+    resistivity_multiplier: 1
+    evolve_ion_heat: true
+    evolve_electron_heat: true
+    evolve_current: true
+    evolve_density: true
+  geometry:
+    geometry_type: eqdsk
+    geometry_directory: ${DATA_DIR}
+    cocos: 7
+    Ip_from_parameters: true
+    n_rho: 25
+
+# SPARC has no NBI; the P_nbi actuator alias drives ICRF aux heat. P_eccd range
+# is smaller than ITER (SPARC is mostly inductive).
+actuators:
+  - {name: P_nbi,         low: 1.0e+6, high: 25.0e+6, max_delta: 2.0e+6}  # ICRF
+  - {name: P_eccd,        low: 0.0,    high: 10.0e+6, max_delta: 1.0e+6}
+  - {name: rho_eccd,      low: 0.2,    high: 0.8,     max_delta: 0.05}
+  - {name: gas_puff_rate, low: 1.0e+20, high: 1.0e+22, max_delta: 2.0e+20}
+
+observations:
+  profiles:
+    - {name: T_e,  scale: 10.0,    bounds: [0.0, 50.0]}
+    - {name: T_i,  scale: 10.0,    bounds: [0.0, 50.0]}
+    - {name: n_e,  scale: 1.0e+20, bounds: [0.0, 4.0e+20]}
+    - {name: psi,  scale: 10.0,    bounds: [-200.0, 200.0]}
+    - {name: q,    scale: 5.0,     bounds: [0.0, 20.0]}
+  scalars:
+    - {name: W_thermal,       scale: 1.0e+8, bounds: [0.0, 5.0e+8]}
+    - {name: tau_E,           scale: 1.0,    bounds: [0.0, 10.0]}
+    - {name: P_fusion,        scale: 1.0e+8, bounds: [0.0, 1.0e+9]}
+    - {name: t,               scale: 30.0,   bounds: [0.0, 30.0]}
+    - {name: Ip,              scale: 1.0e+7, bounds: [0.0, 1.0e+7]}
+    - {name: q_min,           scale: 3.0,    bounds: [0.0, 10.0]}
+    - {name: q95,             scale: 5.0,    bounds: [0.0, 20.0]}
+    - {name: beta_N,          scale: 3.0,    bounds: [0.0, 5.0]}
+    - {name: f_non_inductive, scale: 1.0,    bounds: [0.0, 1.5]}
+
+state_noise:
+  T_e: 0.05
+  T_i: 0.05
+  n_e: 0.03
+
+# Shared experimental/model uncertainty; backend-specific transport ranges are
+# merged in from backends/*.yaml. See physics_randomization/README.md.
+physics_randomization:
+  numerics.resistivity_multiplier: {relative: [0.95, 1.05]}
+  pedestal.T_i_ped: {relative: [0.8, 1.2]}
+  pedestal.T_e_ped: {relative: [0.8, 1.2]}
+  pedestal.n_e_ped: {relative: [0.8, 1.2]}
+  sources.impurity_radiation.radiation_multiplier: {relative: [0.9, 1.1]}
+
+disruption:
+  q_min_threshold: 0.8
+  greenwald_threshold: 1.1

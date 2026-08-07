@@ -1,0 +1,23 @@
+KSTAR fusion_lstm world-model weights — attribution
+====================================================
+
+weights.npz contains the KSTAR fusion_lstm neural-network ensemble weights
+(βn/q95/q0/li dynamics LSTM, steady-state init net, and β-power net), converted
+from the ONNX release in the NeoRL2 benchmark to a JAX-friendly format by
+tools/artifacts/convert_kstar_onnx.py. The JAX reimplementation lives in
+plasmax/models/world_model.py and plasmax/models/world_model_env.py.
+
+Source
+------
+NeoRL2: https://github.com/polixir/NeoRL2 (neorl2/envs/data/fusion_lstm).
+  Code license: Apache-2.0. Dataset/weights license: CC BY 4.0.
+
+Cite
+----
+- H. Seo et al., "Feedforward beta control in the KSTAR tokamak by deep
+  reinforcement learning," Nuclear Fusion 61, 106010 (2021).
+- NeoRL-2: "Near Real-World Benchmarks for Offline Reinforcement Learning with
+  Extended Realistic Scenarios," arXiv:2503.19267.
+
+The weights are redistributed here under CC BY 4.0; this notice provides the
+required attribution.

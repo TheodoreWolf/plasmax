@@ -1,0 +1,61 @@
+# Shared wrapper configuration for env/backend scenario YAMLs.
+#
+# Env files still define the base oracle observation space because scales and
+# bounds can be scenario-specific. This file only defines optional wrappers
+# layered on top for variant='realistic'.
+
+observations:
+  realistic:
+    # Fractional standard deviations for the deliberately simple independent
+    # Gaussian sensor model. ITER measurement accuracies are used as engineering
+    # proxies here, not as exact statistical 1-sigma definitions.
+    #
+    # Source of truth: Mazon et al., Nuclear Fusion 65 (2025) 113001,
+    # table 10, "Specification for plasma measurements on ITER".
+    # https://doi.org/10.1088/1741-4326/adfc7c
+    #
+    # Direct mappings from table 10: T_e=10% (052), n_e=5% (054), T_i=10%
+    # (064), P_fusion=10% (012), and q_min/q95=10% from the q-profile
+    # requirement over q=0.5-5 (056). The table specifies beta_p accuracy as
+    # 0.05 + 5% (006), which is approximately 10% at beta_p=1; that value is
+    # also used as a simple proxy for the derived W_thermal, beta_N, and tau_E
+    # observations. Ip uses the 1% total-plasma-current requirement (001a);
+    # f_non_inductive uses the 10% q-profile requirement as its proxy.
+    noise:
+      T_e: 0.10
+      T_i: 0.10
+      n_e: 0.05
+      Ip: 0.01
+      W_thermal: 0.10
+      P_fusion: 0.10
+      q_min: 0.10
+      q95: 0.10
+      beta_N: 0.10
+      tau_E: 0.10
+      f_non_inductive: 0.10
+    resolution:
+      T_e: 5
+      T_i: 5
+      n_e: 5
+    filter:
+      profiles: [T_e, T_i, n_e]
+      scalars: [W_thermal, P_fusion, t, Ip, q_min, q95, beta_N, tau_E, f_non_inductive]
+    delay:
+      T_e: 0.1
+      T_i: 0.1
+      n_e: 0.1
+      W_thermal: 0.1
+      P_fusion: 0.1
+      t: 0.1
+      Ip: 0.1
+      q_min: 0.1
+      q95: 0.1
+      beta_N: 0.1
+      tau_E: 0.1
+      f_non_inductive: 0.1
+
+actions:
+  realistic:
+    # Per-actuator num_bins, e.g. {ecrh_power_W: 5}. Empty here since actuator
+    # names differ per env; set per-env to opt in (deep-merges over this).
+    quantize: {}
