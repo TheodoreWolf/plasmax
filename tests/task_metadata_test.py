@@ -18,7 +18,7 @@ from plasmax.environment.config import (
     parse_scenario,
     scenario_to_yaml,
 )
-from plasmax.environment.factory import load_env, load_scenario
+from plasmax.environment.factory import make
 from plasmax.environment.schema import TaskConfig
 
 _EXPECTED_TASKS: dict[str, tuple[str, float | None]] = {
@@ -79,17 +79,10 @@ def test_ten_calibrated_terminal_penalties_are_exact(alias, expected):
 
 def test_public_constructor_defaults_to_realistic():
     assert inspect.signature(plasmax.make).parameters["variant"].default == "realistic"
-    assert (
-        inspect.signature(plasmax.load_env).parameters["variant"].default == "realistic"
-    )
-    assert (
-        inspect.signature(plasmax.load_scenario).parameters["variant"].default
-        == "realistic"
-    )
 
 
 def test_omitted_reward_and_penalty_resolve_from_task_metadata():
-    env = load_scenario("test")
+    env = make("test")
     dynamics = env.unwrapped._dynamics
     assert dynamics._reward_fn is rewards.P_diff
     np.testing.assert_array_equal(dynamics._disruption_penalty, jnp.float32(0.0))
@@ -97,14 +90,14 @@ def test_omitted_reward_and_penalty_resolve_from_task_metadata():
 
 
 def test_string_and_callable_reward_overrides_are_preserved():
-    string_env = load_scenario("test", reward="Q_fusion")
+    string_env = make("test", reward="Q_fusion")
     assert string_env.unwrapped._dynamics._reward_fn is rewards.Q_fusion
 
     def custom_reward(last_action, state, action, next_state):
         del last_action, state, action, next_state
         return jnp.float32(7.0)
 
-    callable_env = load_scenario("test", reward=custom_reward)
+    callable_env = make("test", reward=custom_reward)
     assert callable_env.unwrapped._dynamics._reward_fn is custom_reward
 
 
@@ -114,7 +107,7 @@ def test_explicit_zero_terminal_penalty_overrides_nonzero_metadata(tmp_path):
     )
     path = tmp_path / "explicit-zero.yaml"
     scenario_to_yaml(config, path)
-    env = load_scenario(str(path), disruption_penalty=0.0)
+    env = make(str(path), disruption_penalty=0.0)
     np.testing.assert_array_equal(env.unwrapped._dynamics._disruption_penalty, 0.0)
 
 
@@ -130,10 +123,10 @@ def test_phase_defaults_are_available_without_duplicated_reward_maps():
 
 
 def test_kstar_inherits_native_reward_and_rejects_terminal_penalties():
-    env = load_env("kstar", "fusion_lstm")
+    env = make("kstar", "fusion_lstm")
     assert env is not None
-    load_env("kstar", "fusion_lstm", reward="native")
+    make("kstar", "fusion_lstm", reward="native")
     with pytest.raises(ValueError, match="native reward"):
-        load_env("kstar", "fusion_lstm", reward="P_diff")
+        make("kstar", "fusion_lstm", reward="P_diff")
     with pytest.raises(ValueError, match="disruption_penalty"):
-        load_env("kstar", "fusion_lstm", disruption_penalty=0.0)
+        make("kstar", "fusion_lstm", disruption_penalty=0.0)

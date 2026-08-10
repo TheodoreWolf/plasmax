@@ -440,7 +440,7 @@ def evaluate(env, key, actions_norm: jax.Array):
 def main() -> None:
     args = tyro.cli(Args)
 
-    env = sc.load_env(
+    env = sc.make(
         args.env,
         args.backend,
         reward=args.reward,

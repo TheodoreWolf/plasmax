@@ -10,7 +10,7 @@
 # model's native target-tracking reward (-log RMS to target).
 #
 # Load with:
-#   load_env("kstar", "fusion_lstm")
+#   make("kstar", "fusion_lstm")
 
 task:
   reward: native

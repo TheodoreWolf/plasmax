@@ -28,7 +28,7 @@ import jax
 import numpy as np
 import tyro
 
-from plasmax.environment.factory import load_env
+from plasmax.environment.factory import make
 
 BACKENDS = (
     "cgm",
@@ -369,7 +369,7 @@ def main(cfg: Config) -> None:
 
     for backend in cfg.backends:
         print(f"Collecting {backend}...", flush=True)
-        env = load_env(
+        env = make(
             cfg.env_setup,
             backend_configs[backend],
             validate=cfg.validate_backend_pairs,

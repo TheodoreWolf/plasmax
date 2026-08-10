@@ -73,7 +73,7 @@ from experiments.studies.transfer_eval import (
     write_transfer_summary,
 )
 from plasmax.environment.config import backend_kind
-from plasmax.environment.factory import load_env
+from plasmax.environment.factory import make
 from plasmax.environment.merge import env_key
 from plasmax.environment.registry import resolve_backend, resolve_env
 from training.envelope_gymnax import EnvelopeGymnax
@@ -281,7 +281,7 @@ def _build_algo(cfg: Config, env):
 
 
 def _load_env(cfg: Config, backend_alias_or_path: str):
-    # load_env resolves registry aliases for both env_setup and backend
+    # make resolves registry aliases for both env_setup and backend
     # internally (plasmax.environment.registry.resolve_env/resolve_backend).
     if cfg.env.disruption_penalty is not None:
         disruption_penalty = cfg.env.disruption_penalty
@@ -293,7 +293,7 @@ def _load_env(cfg: Config, backend_alias_or_path: str):
         )
     else:
         disruption_penalty = None
-    return load_env(
+    return make(
         cfg.env.env_setup,
         backend_alias_or_path,
         reward=cfg.env.reward,

@@ -13,7 +13,7 @@ from helpers import CheapBoundaryEnv
 from rejax.algos.ppo import PPO
 
 from agents.ppo import MultiDiscretePolicy, PPOAdapter, ResidualGaussianPolicy
-from plasmax.environment.factory import load_scenario
+from plasmax.environment.factory import make
 from plasmax.wrappers import QuantizeActionWrapper
 from training.envelope_gymnax import EnvelopeGymnax
 
@@ -43,9 +43,7 @@ def test_multidiscrete_policy_samples_and_scores_each_head():
     assert jnp.all((actions[:, 1] >= 0) & (actions[:, 1] < 4))
     assert jnp.all(jnp.isfinite(log_prob))
     assert jnp.all(jnp.isfinite(entropy))
-    np.testing.assert_allclose(
-        log_prob, rescored_log_prob, rtol=1e-5, atol=1e-8
-    )
+    np.testing.assert_allclose(log_prob, rescored_log_prob, rtol=1e-5, atol=1e-8)
     np.testing.assert_allclose(entropy, rescored_entropy, rtol=1e-5, atol=1e-8)
 
 
@@ -110,7 +108,7 @@ def test_short_training_on_cheap_envelope_env_has_finite_outputs(quantized):
 @pytest.mark.integration
 class PPOTrainSmokeTest:
     def test_short_torax_training_run_completes_with_finite_outputs(self):
-        env = load_scenario("test")
+        env = make("test")
         algo = _make_algo(
             env,
             total_timesteps=1024,

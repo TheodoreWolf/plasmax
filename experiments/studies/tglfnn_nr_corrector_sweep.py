@@ -22,7 +22,7 @@ import numpy as np
 import tyro
 import yaml
 
-from plasmax.environment.factory import load_env
+from plasmax.environment.factory import make
 from plasmax.environment.registry import resolve_backend
 
 
@@ -127,7 +127,7 @@ def _gradient_diagnostic(env: Any, key: jax.Array) -> dict[str, Any]:
 
 
 def _run_case(cfg: Config, backend_path: Path, corrector_steps: int) -> dict[str, Any]:
-    env = load_env(
+    env = make(
         cfg.env_setup,
         str(backend_path),
         variant="realistic",

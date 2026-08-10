@@ -8,7 +8,7 @@
 # data/kstar_lstm/weights.npz (converted from the ONNX release by
 # tools/artifacts/convert_kstar_onnx.py).
 #
-# `type: world_model` makes environment.config.load_env dispatch to the
+# `type: world_model` makes environment.config dispatch to the
 # learned-dynamics env instead of building a ToraxConfig. Unlike TORAX
 # transport backends, a world model is 1:1 with its scenario (it only pairs
 # with the `kstar` env) — its observation/action layout is intrinsic to the

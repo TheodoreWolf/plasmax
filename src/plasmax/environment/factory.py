@@ -1,8 +1,8 @@
-"""Construct validated plasmax environments from parsed configuration.
+""":func:`make` constructs validated plasmax environments from configuration.
 
-Single-file scenarios use :func:`load_scenario`. Device scenarios use
-:func:`load_env`, merging backend defaults with env overrides. Both accept
-registry aliases or paths.
+Single-file scenarios take no backend; device scenarios take an env + backend
+pair, merging backend defaults with env overrides. Both accept registry aliases
+or paths.
 """
 
 from __future__ import annotations
@@ -36,8 +36,6 @@ from plasmax.environment.schema import (
 
 __all__ = [
     "make",
-    "load_scenario",
-    "load_env",
 ]
 
 
@@ -360,8 +358,8 @@ def _build_env(
 
 def make(
     env: str,
-    *,
     backend: str | None = None,
+    *,
     reward: str | rewards_lib.RewardFn | None = None,
     variant: Literal["oracle", "realistic"] = "realistic",
     disruption_penalty: float | None = None,
@@ -373,12 +371,13 @@ def make(
 ) -> Environment:
     """Build an environment from registry aliases or YAML paths.
 
-    Omit ``backend`` for single-file scenarios such as ``"test"``. The
-    realistic variant may override all actuator bin counts with
+    Omit ``backend`` for single-file scenarios such as ``"test"``; ``validate``
+    checks env/backend compatibility and is therefore ignored when no backend
+    is given. The realistic variant may override all actuator bin counts with
     ``quantize_bins``.
     """
     if backend is None:
-        return load_scenario(
+        return _load_scenario(
             env,
             reward=reward,
             variant=variant,
@@ -388,7 +387,7 @@ def make(
             time_aware=time_aware,
             quantize_bins=quantize_bins,
         )
-    return load_env(
+    return _load_env(
         env,
         backend,
         reward=reward,
@@ -402,7 +401,7 @@ def make(
     )
 
 
-def load_scenario(
+def _load_scenario(
     path: str,
     *,
     reward: str | rewards_lib.RewardFn | None = None,
@@ -439,7 +438,7 @@ def load_scenario(
     )
 
 
-def load_env(
+def _load_env(
     env_path: str,
     backend_path: str,
     *,

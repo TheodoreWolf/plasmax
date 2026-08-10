@@ -26,7 +26,7 @@ from plasmax.environment.config import (
     backend_kind,
     valid_env_backend_combos,
 )
-from plasmax.environment.factory import load_env
+from plasmax.environment.factory import make
 from plasmax.wrappers import (
     PlasmaxTruncationWrapper,
     iter_wrappers,
@@ -132,7 +132,7 @@ class EnvCanaryTest:
         "env_yaml,backend", _CANARY_PAIRS, ids=[_pair_id(p) for p in _CANARY_PAIRS]
     )
     def test_load_env_canary(self, env_yaml, backend):
-        env = load_env(env_yaml, backend, variant="oracle")
+        env = make(env_yaml, backend, variant="oracle")
         _assert_step_contract(env)
 
 
@@ -145,5 +145,5 @@ class EnvMatrixSmokeTest:
         "env_yaml,backend", _VALID_PAIRS, ids=[_pair_id(p) for p in _VALID_PAIRS]
     )
     def test_smoke(self, env_yaml, backend, variant):
-        env = load_env(env_yaml, backend, variant=variant)
+        env = make(env_yaml, backend, variant=variant)
         _assert_step_contract(env, single_solver_call=backend == "tglfnn_nr")

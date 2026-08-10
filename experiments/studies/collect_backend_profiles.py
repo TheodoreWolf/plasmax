@@ -7,7 +7,7 @@ import json
 import jax
 import numpy as np
 
-from plasmax.environment import load_env
+from plasmax.environment import make
 
 BACKENDS = ("cgm", "bohm_gyrobohm", "qlknn", "tglfnn")
 N_STEPS = 100
@@ -26,7 +26,7 @@ def _snapshot(state):
 
 
 def _collect_backend(backend: str) -> dict[str, object]:
-    env = load_env("iter/hybrid/flattop", backend, variant="realistic").unwrapped
+    env = make("iter/hybrid/flattop", backend, variant="realistic").unwrapped
 
     @jax.jit
     def rollout(key: jax.Array):

@@ -179,7 +179,7 @@ def test_multi_seed_failures_are_reported_without_pruning_other_pairs(
 
     monkeypatch.setattr(
         backend_agreement,
-        "load_env",
+        "make",
         lambda _env, backend, validate=True: SimpleNamespace(
             unwrapped=FakeEnv(backend)
         ),

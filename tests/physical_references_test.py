@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from plasmax.environment.config import parse_env_and_backend
-from plasmax.environment.factory import load_env
+from plasmax.environment.factory import make
 from plasmax.environment.merge import (
     _load_extended_yaml,
     _merge_env_and_backend,
@@ -387,7 +387,7 @@ def test_backend_context_changes_dynamics_but_not_the_reset() -> None:
 
 
 def test_reference_reset_is_jittable_and_vmappable() -> None:
-    env = load_env("step", "bohm_gyrobohm", variant="oracle")
+    env = make("step", "bohm_gyrobohm", variant="oracle")
     keys = jax.random.split(jax.random.key(0), 2)
     states, info = jax.jit(jax.vmap(env.init))(keys)
     physical = unwrap_to_env_state(states)
@@ -404,8 +404,8 @@ def test_reference_reset_is_jittable_and_vmappable() -> None:
 
 
 def test_realistic_and_oracle_use_the_same_physical_reset_perturbation() -> None:
-    oracle = load_env("step", "bohm_gyrobohm", variant="oracle")
-    realistic = load_env("step", "bohm_gyrobohm", variant="realistic")
+    oracle = make("step", "bohm_gyrobohm", variant="oracle")
+    realistic = make("step", "bohm_gyrobohm", variant="realistic")
     key = jax.random.key(17)
     oracle_state = unwrap_to_env_state(oracle.init(key)[0])
     realistic_state = unwrap_to_env_state(realistic.init(key)[0])

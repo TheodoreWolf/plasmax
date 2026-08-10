@@ -38,7 +38,7 @@ from plasmax.environment.config import (
     parse_env_and_backend,
     scenario_to_yaml,
 )
-from plasmax.environment.factory import load_env, load_scenario
+from plasmax.environment.factory import make
 from plasmax.wrappers import (
     ActionRescaleWrapper,
     NoiseWrapper,
@@ -165,7 +165,7 @@ class LoadScenarioOracleTest:
     @classmethod
     def setup_class(cls):
         cls._path = _dump_temp_yaml(_make_scenario())
-        cls._env = load_scenario(cls._path)
+        cls._env = make(cls._path)
 
     @classmethod
     def teardown_class(cls):
@@ -220,7 +220,7 @@ class LoadScenarioRealisticTest:
             ),
         )
         cls._path = _dump_temp_yaml(cfg)
-        cls._env = load_scenario(cls._path, variant="realistic")
+        cls._env = make(cls._path, variant="realistic")
 
     @classmethod
     def teardown_class(cls):
@@ -276,7 +276,7 @@ class VariantWrapperTest:
         return path
 
     def test_no_history_oracle_unchanged(self):
-        env = load_scenario(self._write())
+        env = make(self._write())
         _, info = env.init(jax.random.key(0))
         assert info.obs.shape == (self._OBS_PER_FRAME,)
 
@@ -284,14 +284,14 @@ class VariantWrapperTest:
         path = self._write(history=HistoryConfig(length=3))
         expected = 3 * (self._OBS_PER_FRAME + self._ACT_DIM)
         for variant in ("oracle", "realistic"):
-            env = load_scenario(path, variant=variant)
+            env = make(path, variant=variant)
             _, info = env.init(jax.random.key(0))
             assert info.obs.shape == (expected,), variant
 
     def test_delay_holds_selected_sensor_only_in_realistic(self):
         path = self._write(realistic=RealisticObsConfig(delay={"T_e": 1.0}))
-        oracle = load_scenario(path, variant="oracle")
-        realistic = load_scenario(path, variant="realistic")
+        oracle = make(path, variant="oracle")
+        realistic = make(path, variant="realistic")
         key = jax.random.key(0)
         oracle_state, oracle_info = oracle.init(key)
         realistic_state, realistic_info = realistic.init(key)
@@ -304,12 +304,12 @@ class VariantWrapperTest:
 
     def test_delay_does_not_change_obs_shape(self):
         path = self._write(realistic=RealisticObsConfig(delay={"T_e": 0.5}))
-        env = load_scenario(path, variant="realistic")
+        env = make(path, variant="realistic")
         _, info = env.init(jax.random.key(0))
         assert info.obs.shape == (self._OBS_PER_FRAME,)
 
     def test_oracle_step_runs_with_history(self):
-        env = load_scenario(self._write(history=HistoryConfig(length=3)))
+        env = make(self._write(history=HistoryConfig(length=3)))
         state, initial = env.init(jax.random.key(0))
         _, stepped = env.step(state, jnp.zeros(env.action_space.shape))
         assert stepped.obs.shape == initial.obs.shape
@@ -320,7 +320,7 @@ class VariantWrapperTest:
     def test_delay_unknown_sensor_raises(self):
         path = self._write(realistic=RealisticObsConfig(delay={"not_a_sensor": 0.5}))
         with pytest.raises(ValueError, match="delay sensor"):
-            load_scenario(path, variant="realistic")
+            make(path, variant="realistic")
 
     def test_delay_must_survive_filter(self):
         # T_e is excluded by the filter, so it cannot be a delay target.
@@ -331,7 +331,7 @@ class VariantWrapperTest:
             )
         )
         with pytest.raises(ValueError, match="delay sensor"):
-            load_scenario(path, variant="realistic")
+            make(path, variant="realistic")
 
     def test_history_length_must_be_positive(self):
         with pytest.raises(pydantic.ValidationError):
@@ -345,8 +345,8 @@ class VariantWrapperTest:
                 delay={"T_e": 0.3},
             )
         )
-        full = load_scenario(path, variant="realistic")
-        ablated = load_scenario(path, variant="realistic", ablate="filter")
+        full = make(path, variant="realistic")
+        ablated = make(path, variant="realistic", ablate="filter")
         assert full.observation_space.shape == (2 * _N_RHO + 1,)
         assert ablated.observation_space.shape == (self._OBS_PER_FRAME,)
 
@@ -357,8 +357,8 @@ class VariantWrapperTest:
                 delay={"T_e": 1.0},
             )
         )
-        delayed = load_scenario(path, variant="realistic")
-        ablated = load_scenario(path, variant="realistic", ablate="delay")
+        delayed = make(path, variant="realistic")
+        ablated = make(path, variant="realistic", ablate="delay")
         key = jax.random.key(0)
         delayed_state, delayed_info = delayed.init(key)
         ablated_state, ablated_info = ablated.init(key)
@@ -372,15 +372,15 @@ class VariantWrapperTest:
     def test_ablate_unknown_target_raises(self):
         path = self._write()
         with pytest.raises(ValueError, match="unknown ablate target"):
-            load_scenario(path, variant="realistic", ablate="bogus")
+            make(path, variant="realistic", ablate="bogus")
 
     def test_ablate_rejected_for_oracle(self):
         with pytest.raises(ValueError, match="only applies"):
-            load_scenario(self._write(), variant="oracle", ablate="noise")
+            make(self._write(), variant="oracle", ablate="noise")
 
     def test_unknown_variant_raises(self):
         with pytest.raises(ValueError, match="unknown variant"):
-            load_scenario(self._write(), variant="typo")
+            make(self._write(), variant="typo")
 
     def test_physics_randomization_only_applied_under_realistic(self):
         path = self._write(
@@ -388,10 +388,10 @@ class VariantWrapperTest:
                 "numerics.resistivity_multiplier": {"absolute": (0.5, 1.5)}
             }
         )
-        oracle_state, _ = load_scenario(path, variant="oracle").init(jax.random.key(0))
+        oracle_state, _ = make(path, variant="oracle").init(jax.random.key(0))
         assert unwrap_to_env_state(oracle_state).phys_params == {}
 
-        realistic = load_scenario(path, variant="realistic")
+        realistic = make(path, variant="realistic")
         state, _ = realistic.init(jax.random.key(0))
         state, _ = realistic.step(state, jnp.zeros(realistic.action_space.shape))
         value = float(
@@ -405,7 +405,7 @@ class VariantWrapperTest:
                 "numerics.resistivity_multiplier": {"absolute": (0.5, 1.5)}
             }
         )
-        env = load_scenario(path, variant="realistic")
+        env = make(path, variant="realistic")
         initial_state, _ = env.init(jax.random.key(3))
         action = jnp.zeros(env.action_space.shape)
         s1, info1 = env.step(initial_state, action)
@@ -436,7 +436,7 @@ class VariantWrapperTest:
                 delay={"T_e": 0.5},
             ),
         )
-        env = load_scenario(
+        env = make(
             path,
             variant="realistic",
             time_aware=True,
@@ -463,7 +463,7 @@ class ShippedConfigSmokeTest:
     """Smoke tests for YAML configs shipped with the package."""
 
     def test_load_scenario_test_yaml(self):
-        env = load_scenario(os.path.join(_CONFIG_DIR, "test.yaml"))
+        env = make(os.path.join(_CONFIG_DIR, "test.yaml"))
         _, info = env.init(jax.random.key(0))
         assert env.action_space.shape == (2,)
         assert info.obs.shape == (2 * 10 + 4,)
@@ -471,7 +471,7 @@ class ShippedConfigSmokeTest:
 
     def test_load_env_iter_hybrid_cgm_smoke(self):
         # Load a packaged phase task through the conventional CGM backend.
-        env = load_env(
+        env = make(
             os.path.join(_CONFIG_DIR, "envs", "iter", "hybrid", "flattop.yaml"),
             os.path.join(_CONFIG_DIR, "backends", "cgm.yaml"),
             max_steps=2,
@@ -492,7 +492,7 @@ class ShippedConfigSmokeTest:
         ranges = parse_env_and_backend(env_path, backend_path).physics_randomization
         assert ranges, "iter/hybrid/flattop declares no physics_randomization"
 
-        env = load_env(env_path, backend_path, variant="realistic", max_steps=2)
+        env = make(env_path, backend_path, variant="realistic", max_steps=2)
         state, initial = env.init(jax.random.key(0))
         assert jnp.all(jnp.isfinite(initial.obs))
         state, info = env.step(state, jnp.zeros(env.action_space.shape))
@@ -529,7 +529,7 @@ class ShippedConfigSmokeTest:
             atol=0.0,
         )
         with pytest.raises(ValueError, match="must be >= 2"):
-            load_env(
+            make(
                 env_path,
                 backend_path,
                 variant="realistic",
@@ -540,7 +540,7 @@ class ShippedConfigSmokeTest:
 
 class LoaderMaxStepsContractTest:
     def test_default_is_derived_from_torax_safe_horizon(self):
-        env = load_scenario("test")
+        env = make("test")
         # Shipped test.yaml: t_initial=0, t_final=.5, fixed_dt=.1.
         assert isinstance(env, PlasmaxTruncationWrapper)
         assert env.max_steps == 5
@@ -551,25 +551,25 @@ class LoaderMaxStepsContractTest:
             "numerics": {"t_initial": 0.1, "t_final": 0.3, "fixed_dt": 0.1},
         }
         with _temp_yaml(_make_scenario(torax=torax)) as path:
-            env = load_scenario(path)
+            env = make(path)
         assert env.max_steps == 2
 
     @pytest.mark.parametrize("value", [0, -1])
     def test_max_steps_must_be_positive(self, value):
         with pytest.raises(ValueError, match="max_steps.*positive|>= 1"):
-            load_scenario("test", max_steps=value)
+            make("test", max_steps=value)
 
     @pytest.mark.parametrize("value", [True, 1.5])
     def test_max_steps_must_be_integral(self, value):
         with pytest.raises(ValueError, match="max_steps.*integer"):
-            load_scenario("test", max_steps=value)
+            make("test", max_steps=value)
 
     def test_max_steps_cannot_exceed_backend_safe_horizon(self):
         with pytest.raises(ValueError, match="safe horizon|configured horizon|at most"):
-            load_scenario("test", max_steps=6)
+            make("test", max_steps=6)
 
     def test_shorter_caller_horizon_is_allowed(self):
-        env = load_scenario("test", max_steps=1)
+        env = make("test", max_steps=1)
         state, _ = env.init(jax.random.key(0))
         _, info = env.step(state, jnp.zeros(env.action_space.shape))
         assert bool(info.truncated)
@@ -577,20 +577,16 @@ class LoaderMaxStepsContractTest:
 
     def test_num_steps_keyword_has_no_compatibility_alias(self):
         with pytest.raises(TypeError, match="num_steps"):
-            load_scenario("test", num_steps=1)
+            make("test", num_steps=1)
 
     def test_legacy_untyped_key_is_rejected(self):
-        env = load_scenario("test")
+        env = make("test")
         with pytest.raises(ValueError, match="typed|new-style|jax.random.key"):
             env.init(jax.random.PRNGKey(0))
 
-    def test_make_and_load_env_use_max_steps_name(self):
+    def test_make_uses_max_steps_name(self):
         assert "max_steps" in inspect.signature(factory_lib.make).parameters
-        assert "max_steps" in inspect.signature(load_env).parameters
-        assert "max_steps" in inspect.signature(load_scenario).parameters
         assert "num_steps" not in inspect.signature(factory_lib.make).parameters
-        assert "num_steps" not in inspect.signature(load_env).parameters
-        assert "num_steps" not in inspect.signature(load_scenario).parameters
 
     @pytest.mark.parametrize(
         "forbidden", ["autoreset", "num_envs", "normalize_observations"]
@@ -599,8 +595,6 @@ class LoaderMaxStepsContractTest:
         self, forbidden
     ):
         assert forbidden not in inspect.signature(factory_lib.make).parameters
-        assert forbidden not in inspect.signature(load_env).parameters
-        assert forbidden not in inspect.signature(load_scenario).parameters
 
 
 class LoadEnvMergeTest:
@@ -708,7 +702,7 @@ class LoadEnvMergeTest:
         assert cfg.torax["geometry"]["geometry_type"] == "circular"
 
     def test_load_env_produces_runnable_wrapper(self):
-        env = load_env(self._env_path, self._backend_path, validate=False)
+        env = make(self._env_path, self._backend_path, validate=False)
         _, info = env.init(jax.random.key(0))
         assert isinstance(env, PlasmaxTruncationWrapper)
         assert jnp.all(jnp.isfinite(info.obs))
@@ -886,7 +880,7 @@ class ValidationTest:
             scalars=_DEFAULT_SCALARS,
         )
         with _temp_yaml(_make_scenario(observations=observations)) as path:
-            env = load_scenario(path)
+            env = make(path)
             state, info = env.init(jax.random.key(0))
         core_state = unwrap_to_env_state(state)
         layout = env.obs_layout()
@@ -917,4 +911,4 @@ class ValidationTest:
             _temp_yaml(cfg) as path,
             pytest.raises(ValueError, match="bad_profile_name"),
         ):
-            load_scenario(path)
+            make(path)

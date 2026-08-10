@@ -19,7 +19,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from plasmax.environment.config import parse_env_and_backend
-from plasmax.environment.factory import load_env
+from plasmax.environment.factory import make
 
 _ENV = "step"
 _BACKEND = "bohm_gyrobohm"
@@ -48,7 +48,7 @@ class StepEnvOracleTest:
 
     @classmethod
     def setup_class(cls):
-        cls._env = load_env(_ENV, _BACKEND)
+        cls._env = make(_ENV, _BACKEND)
         cls._base_env = cls._env.unwrapped
         cls._reset_state, _ = cls._base_env.init(jax.random.key(0))
 

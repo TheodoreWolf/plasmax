@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from envelope import WrappedState
 
-from plasmax.environment.factory import load_scenario
+from plasmax.environment.factory import make
 from plasmax.rollout import (
     collect_episodes,
     trajectories_to_state_history,
@@ -26,7 +26,7 @@ def _nbytes(traj) -> int:
 class CollectLeanTest:
     @classmethod
     def setup_class(cls):
-        cls.env = load_scenario("test")
+        cls.env = make("test")
 
     def _collect(self, lean, num_steps=4):
         return collect_episodes(

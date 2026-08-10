@@ -44,7 +44,7 @@ The distribution is an environment-only library. Hatch builds only
 The supported top-level API is:
 
 ```text
-make, load_env, load_scenario, ScenarioConfig, PlasmaxEnv, EnvState,
+make, ScenarioConfig, PlasmaxEnv, EnvState,
 TrajectoryStep, collect_episode, collect_episodes, registry
 ```
 
@@ -109,9 +109,10 @@ EQDSK/CHEASE geometry. Keep it until the upstream issue is resolved.
 Packaged aliases resolve paths relative to `src/plasmax/configs/` so installed
 artifacts work from any current directory.
 
-- Single-file scenarios use `load_scenario`, including the fast `test` fixture.
-- Machine tasks use `load_env` or `make` with an environment and compatible
-  backend alias.
+- `make` is the only public constructor. Single-file scenarios pass no backend,
+  including the fast `test` fixture; machine tasks pass an environment and a
+  compatible backend alias. The private `_load_scenario` / `_load_env` branches
+  behind it are not part of the API.
 - Environment values override backend defaults through the one canonical merge
   path.
 - Keep the full registered ITER, SPARC, STEP, and KSTAR matrix and every packaged

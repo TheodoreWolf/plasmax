@@ -274,9 +274,9 @@ class KstarLoaderTest:
             validate_env_backend(self._ENV, "qlknn")
 
     def test_load_env_returns_scalar_envelope_environment(self):
-        from plasmax.environment.factory import load_env
+        from plasmax.environment.factory import make
 
-        env = load_env(self._ENV, self._BACKEND)
+        env = make(self._ENV, self._BACKEND)
         assert isinstance(env, Environment)
         assert env.action_space.shape == (6,)
         assert env.observation_space.shape == (15,)
@@ -291,9 +291,9 @@ class KstarLoaderTest:
         assert not bool(info.truncated)
 
     def test_loader_applies_max_steps_and_time_observation(self):
-        from plasmax.environment.factory import load_env
+        from plasmax.environment.factory import make
 
-        env = load_env(self._ENV, self._BACKEND, max_steps=7, time_aware=True)
+        env = make(self._ENV, self._BACKEND, max_steps=7, time_aware=True)
         assert env.max_steps == 7
         assert env.observation_space.shape == (16,)
         assert env.obs_layout().slice_of("elapsed_time") == slice(15, 16)
@@ -303,9 +303,9 @@ class KstarLoaderTest:
         np.testing.assert_array_equal(info.obs[-1], 1)
 
     def test_loader_truncates_at_exact_requested_horizon(self):
-        from plasmax.environment.factory import load_env
+        from plasmax.environment.factory import make
 
-        env = load_env(self._ENV, self._BACKEND, max_steps=3)
+        env = make(self._ENV, self._BACKEND, max_steps=3)
         state, _ = env.init(jax.random.key(0))
         flags = []
         for _ in range(3):
@@ -314,10 +314,10 @@ class KstarLoaderTest:
         assert flags == [(False, False), (False, False), (False, True)]
 
     def test_realistic_variant_uses_native_world_model_interface(self):
-        from plasmax.environment.factory import load_env
+        from plasmax.environment.factory import make
 
-        oracle = load_env(self._ENV, self._BACKEND, variant="oracle")
-        realistic = load_env(self._ENV, self._BACKEND, variant="realistic")
+        oracle = make(self._ENV, self._BACKEND, variant="oracle")
+        realistic = make(self._ENV, self._BACKEND, variant="realistic")
         key = jax.random.key(0)
         action = jnp.zeros(6)
 
@@ -335,21 +335,21 @@ class KstarLoaderTest:
 
     @pytest.mark.parametrize("max_steps", [0, -1, 101])
     def test_loader_rejects_invalid_or_unsafe_horizon(self, max_steps):
-        from plasmax.environment.factory import load_env
+        from plasmax.environment.factory import make
 
         with pytest.raises(ValueError, match="max_steps"):
-            load_env(self._ENV, self._BACKEND, max_steps=max_steps)
+            make(self._ENV, self._BACKEND, max_steps=max_steps)
 
     @pytest.mark.parametrize("max_steps", [True, 1.5])
     def test_loader_rejects_nonintegral_requested_horizon(self, max_steps):
-        from plasmax.environment.factory import load_env
+        from plasmax.environment.factory import make
 
         with pytest.raises(ValueError, match="max_steps.*integer"):
-            load_env(self._ENV, self._BACKEND, max_steps=max_steps)
+            make(self._ENV, self._BACKEND, max_steps=max_steps)
 
     @pytest.mark.parametrize("safe_horizon", [True, 3.5])
     def test_loader_rejects_nonintegral_yaml_horizon(self, tmp_path, safe_horizon):
-        from plasmax.environment.factory import load_env
+        from plasmax.environment.factory import make
 
         env_path = tmp_path / "kstar.yaml"
         env_path.write_text(
@@ -359,15 +359,15 @@ class KstarLoaderTest:
                     "world_model_env": {
                         "max_steps_in_episode": safe_horizon,
                         "random_target": False,
-                    }
+                    },
                 }
             )
         )
         with pytest.raises(ValueError, match="configured safe horizon.*integer"):
-            load_env(str(env_path), self._BACKEND, validate=False)
+            make(str(env_path), self._BACKEND, validate=False)
 
     def test_loader_requires_yaml_safe_horizon(self, tmp_path):
-        from plasmax.environment.factory import load_env
+        from plasmax.environment.factory import make
 
         env_path = tmp_path / "kstar.yaml"
         env_path.write_text(
@@ -381,7 +381,7 @@ class KstarLoaderTest:
         with pytest.raises(
             ValueError, match="world_model_env.max_steps_in_episode.*required"
         ):
-            load_env(str(env_path), self._BACKEND, validate=False)
+            make(str(env_path), self._BACKEND, validate=False)
 
     @pytest.mark.parametrize(
         "kwargs, message",
@@ -393,16 +393,16 @@ class KstarLoaderTest:
         ],
     )
     def test_loader_rejects_torax_only_options(self, kwargs, message):
-        from plasmax.environment.factory import load_env
+        from plasmax.environment.factory import make
 
         with pytest.raises(ValueError, match=message):
-            load_env(self._ENV, self._BACKEND, **kwargs)
+            make(self._ENV, self._BACKEND, **kwargs)
 
     def test_loader_rejects_unknown_variant(self):
-        from plasmax.environment.factory import load_env
+        from plasmax.environment.factory import make
 
         with pytest.raises(ValueError, match="unknown variant"):
-            load_env(self._ENV, self._BACKEND, variant="invalid")
+            make(self._ENV, self._BACKEND, variant="invalid")
 
 
 def _neorl2_fusion_env():

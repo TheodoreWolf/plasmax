@@ -85,9 +85,7 @@ def main() -> None:
     )
     args = p.parse_args()
 
-    env = sc.load_env(
-        args.env, args.backend, reward=args.reward, max_steps=args.num_steps
-    )
+    env = sc.make(args.env, args.backend, reward=args.reward, max_steps=args.num_steps)
     key = jax.random.key(0)
 
     action_norm, rho, rho_face = _hold_action_and_grids(env, key, args.action)

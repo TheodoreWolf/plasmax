@@ -27,7 +27,7 @@ from project_paths import wandb_dir
 
 from experiments.studies.mpc import MPCAgent
 from experiments.studies.mpc import rollout as mpc_rollout
-from plasmax.environment.factory import load_env
+from plasmax.environment.factory import make
 from plasmax.environment.registry import resolve_backend, resolve_env
 from plasmax.rollout import TrajectoryStep, collect_episodes
 from plasmax.wrappers import unwrap_to_env_state
@@ -149,7 +149,7 @@ def _make_mpc_reward_fn(env, scalar_name: str):
 
 
 def _load_env(cfg: Config):
-    return load_env(
+    return make(
         cfg.env.env_setup,
         cfg.env.backend,
         reward=cfg.env.reward,

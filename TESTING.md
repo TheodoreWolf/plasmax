@@ -98,7 +98,7 @@ Tests cover:
 - loader inheritance when reward and penalty are omitted;
 - string and callable reward overrides;
 - explicit zero overriding nonzero task metadata;
-- realistic defaults on `make`, `load_env`, and `load_scenario`.
+- the realistic default on `make`.
 
 Golden merged-config comparisons must show that profile and TGLF YAML
 deduplication changes no physics values. The allowed differences are task

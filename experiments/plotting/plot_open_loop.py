@@ -87,7 +87,7 @@ def main() -> None:
     opt_actions = jnp.asarray(data["actions_norm"])  # (T, A) normalized in [-1,1]
     num_steps = opt_actions.shape[0]
 
-    env = sc.load_env(env_path, backend_path, reward=reward, max_steps=num_steps)
+    env = sc.make(env_path, backend_path, reward=reward, max_steps=num_steps)
     key = jax.random.key(0)
 
     # Setpoint-hold schedule: the env reset setpoint, normalized, held for the run.

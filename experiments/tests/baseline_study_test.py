@@ -14,7 +14,7 @@ from experiments.studies.baseline_study import (
     validate_reward,
 )
 from plasmax import rewards as rewards_lib
-from plasmax.environment.factory import load_env
+from plasmax.environment.factory import make
 
 
 def test_matrix_excludes_kstar_and_contains_all_phase_envs():
@@ -73,7 +73,7 @@ def test_seed_keys_do_not_depend_on_batch_size():
 
 
 def test_lh_transition_binds_the_environment_rampup_duration():
-    env = load_env(
+    env = make(
         "sparc/prd/rampup",
         "bohm_gyrobohm",
         reward="lh_transition",

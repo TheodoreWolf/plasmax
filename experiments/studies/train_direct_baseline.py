@@ -52,7 +52,7 @@ from experiments.studies.train_backprop_policy import (
     policy_action,
 )
 from experiments.studies.transfer_eval import transfer_metrics, write_transfer_summary
-from plasmax.environment.factory import load_env
+from plasmax.environment.factory import make
 from plasmax.environment.registry import resolve_backend
 from plasmax.wrappers import unwrap_to_env_state
 from training.envelope_gymnax import EnvelopeGymnax, to_typed_key
@@ -257,7 +257,7 @@ def _backend_name(alias_or_path: str) -> str:
 
 
 def _load_envelope(cfg: Config, backend: str):
-    return load_env(
+    return make(
         cfg.env.env_setup,
         backend,
         reward=cfg.env.reward,

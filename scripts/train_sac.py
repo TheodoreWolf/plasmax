@@ -32,7 +32,7 @@ from agents.sac import SACAdapter
 from experiments.plotting.wandb_logging import make_buffered_seed_callback
 from experiments.studies.baseline_study import run_slug, seed_keys, validate_reward
 from experiments.studies.transfer_eval import transfer_metrics, write_transfer_summary
-from plasmax.environment.factory import load_env
+from plasmax.environment.factory import make
 from plasmax.environment.registry import resolve_backend
 from training.envelope_gymnax import EnvelopeGymnax
 from training.vmap_logging import SeedBufferLogger
@@ -140,7 +140,7 @@ def _backend_name(alias_or_path: str) -> str:
 
 
 def _load_envelope(cfg: Config, backend: str):
-    return load_env(
+    return make(
         cfg.env.env_setup,
         backend,
         reward=cfg.env.reward,

@@ -907,7 +907,7 @@ def main(args: Args) -> None:
         raise ValueError("num_rollouts, eval_rollouts, and iters must be positive")
 
     env = EnvelopeGymnax(
-        scenario_config.load_env(
+        scenario_config.make(
             args.env,
             args.backend,
             reward=args.reward,

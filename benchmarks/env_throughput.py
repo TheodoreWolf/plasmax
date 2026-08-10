@@ -27,7 +27,7 @@ import jax
 import jax.numpy as jnp
 import tyro
 
-from plasmax.environment.factory import load_env
+from plasmax.environment.factory import make
 
 SEED = 0
 
@@ -175,7 +175,7 @@ def main(cfg: Config) -> None:
     )
 
     start = time.perf_counter()
-    wrapped_env = load_env(
+    wrapped_env = make(
         cfg.env_setup,
         cfg.backend,
         validate=cfg.validate_backend_pair,

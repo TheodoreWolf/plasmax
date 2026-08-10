@@ -3,7 +3,7 @@
 A **backend** is the simulator engine: it defines the transport model, the
 solver, the neoclassical model, and the radiation sources. It is deep-merged
 with an **env** (the RL task — actuators, observations, geometry, scenario) at
-load time via `load_env(env_path, backend_path)`; the backend supplies
+load time via `make(env_path, backend_path)`; the backend supplies
 defaults and the env wins on any leaf it sets explicitly. Not every env pairs
 with every backend — the allowed pairs are enforced by
 `plasmax.environment.merge._VALID_ENV_BACKEND_COMBOS`
@@ -189,6 +189,6 @@ and comparison against a published or upstream TORAX reference case.
 
 `fusion_lstm.yaml` (`type: world_model`) is a learned-dynamics world model — a
 NN ensemble trained on KSTAR discharges that emulates the 0D plasma response,
-not a TORAX transport model. `load_env` dispatches it to a separate
+not a TORAX transport model. `make` dispatches it to a separate
 learned-dynamics env. Unlike TORAX backends it is 1:1 with its scenario (pairs
 only with the `kstar` env).
