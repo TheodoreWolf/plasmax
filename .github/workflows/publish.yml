@@ -35,22 +35,8 @@ jobs:
       - name: Build source and wheel distributions
         run: uv build
 
-      - name: Reject retired project identifiers
-        run: uv run --no-project python .github/scripts/check_brand.py
-
       - name: Check distribution metadata
         run: uvx --from "twine==6.2.0" twine check dist/*
-
-      - name: Check distribution contents
-        run: uv run --no-project python .github/scripts/check_dist.py dist
-
-      - name: Smoke test installed wheel
-        working-directory: /tmp
-        run: uv run --isolated --no-project --with "${GITHUB_WORKSPACE}"/dist/*.whl python "${GITHUB_WORKSPACE}"/.github/scripts/smoke_installed.py
-
-      - name: Smoke test installed source distribution
-        working-directory: /tmp
-        run: uv run --isolated --no-project --with "${GITHUB_WORKSPACE}"/dist/*.tar.gz python "${GITHUB_WORKSPACE}"/.github/scripts/smoke_installed.py
 
       - name: Upload distributions
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

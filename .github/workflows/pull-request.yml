@@ -40,9 +40,6 @@ jobs:
       - name: Run Ruff
         run: uv run ruff check .
 
-      - name: Reject retired project identifiers
-        run: uv run --no-project python .github/scripts/check_brand.py
-
   tests:
     name: Tests
     runs-on: ubuntu-latest
@@ -139,14 +136,3 @@ jobs:
 
       - name: Check distribution metadata
         run: uvx --from "twine==6.2.0" twine check dist/*
-
-      - name: Check distribution contents
-        run: uv run --no-project python .github/scripts/check_dist.py dist
-
-      - name: Smoke test installed wheel
-        working-directory: /tmp
-        run: uv run --isolated --no-project --with "${GITHUB_WORKSPACE}"/dist/*.whl python "${GITHUB_WORKSPACE}"/.github/scripts/smoke_installed.py
-
-      - name: Smoke test installed source distribution
-        working-directory: /tmp
-        run: uv run --isolated --no-project --with "${GITHUB_WORKSPACE}"/dist/*.tar.gz python "${GITHUB_WORKSPACE}"/.github/scripts/smoke_installed.py

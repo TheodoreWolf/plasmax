@@ -122,23 +122,12 @@ contract and should retain its current sampling tests.
 
 ## Distribution tests
 
-Release checks build both a wheel and source distribution, install each outside
-the checkout, and prove that:
-
-- `import plasmax` works and the retired namespace is absent;
-- both artifacts expose the same small `plasmax.__all__`;
-- only `plasmax` is installed—agents, training, scripts, experiments, tests,
-  tools, and benchmarks do not leak into an archive;
-- all required YAML, EQDSK, STEP, and KSTAR assets are present;
-- `plasmax.make("test")` uses the realistic default;
-- spaces use property access such as `env.action_space.shape`;
-- published metadata contains no direct Git requirements.
-
-Run the local archive checks with:
+There are none. CI builds a wheel and a source distribution and runs `twine
+check` on them; nothing installs or exercises the built artifacts.
 
 ```bash
 uv build
-uv run --no-project python .github/scripts/check_dist.py dist
+uvx --from "twine==6.2.0" twine check dist/*
 ```
 
 ## Clone-only algorithms

@@ -155,10 +155,8 @@ policy: CI runs the integration suite explicitly in seven shards. Keep geometry,
 STEP, KSTAR, fixed-duration stepping, and TORAX-reference parity in the
 appropriate integration tier.
 
-Release checks build and install both wheel and source distribution outside the
-checkout. They must prove that only `plasmax` is packaged, required task/model
-assets are present, the public API matches, the retired namespace is absent, and
-metadata contains no direct Git requirements.
+Release checks build a wheel and a source distribution and run `twine check` on
+them. Nothing installs or smoke-tests the built artifacts.
 
 Do not add physical-trajectory acceptance tests or noise-validation tests.
 Clone-only PPO, SAC, and MPC smoke tests should exercise upstream algorithms and
@@ -181,6 +179,5 @@ though it is already the default.
 - Build metadata and repository links use
   `https://github.com/TheodoreWolf/plasmax`.
 - `jax-envelope==0.4.2` is the index-hosted Envelope dependency.
-- Run `.github/scripts/check_dist.py` after `uv build`.
 - Active tracked text must not contain retired branding. Immutable historical
   run identifiers belong only in ignored local manifests.
