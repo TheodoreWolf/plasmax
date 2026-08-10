@@ -39,9 +39,7 @@ def test_ci_is_across_training_seed_means_with_student_t():
     np.testing.assert_allclose(
         aggregate.return_mean, values.mean(), rtol=1e-7, atol=0.0
     )
-    np.testing.assert_allclose(
-        aggregate.return_std, expected_std, rtol=1e-7, atol=0.0
-    )
+    np.testing.assert_allclose(aggregate.return_std, expected_std, rtol=1e-7, atol=0.0)
     np.testing.assert_allclose(
         aggregate.ci95_high - aggregate.return_mean,
         expected_half_width,

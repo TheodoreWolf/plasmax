@@ -56,12 +56,8 @@ def test_knot_chunks_carry_state_but_cut_gradients_between_windows():
 
     np.testing.assert_allclose(first_return, 4.0, rtol=1e-7, atol=0.0)
     np.testing.assert_allclose(second_return, 16.0, rtol=1e-7, atol=0.0)
-    np.testing.assert_allclose(
-        first_grad, [2.0, 1.0, 0.0, 0.0], rtol=1e-7, atol=0.0
-    )
-    np.testing.assert_allclose(
-        second_grad, [0.0, 0.0, 2.0, 1.0], rtol=1e-7, atol=0.0
-    )
+    np.testing.assert_allclose(first_grad, [2.0, 1.0, 0.0, 0.0], rtol=1e-7, atol=0.0)
+    np.testing.assert_allclose(second_grad, [0.0, 0.0, 2.0, 1.0], rtol=1e-7, atol=0.0)
 
 
 class _TerminatingEnv(_AccumulatorEnv):

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/plasmax-logo.png" alt="plasmax logo" width="520">
+  <img src="https://raw.githubusercontent.com/TheodoreWolf/plasmax/main/assets/plasmax-logo.png" alt="plasmax logo" width="520">
 </p>
 
 # Plasmax: differentiable & parallelizable environments for transport control in Tokamaks
@@ -35,7 +35,7 @@ import plasmax
 
 env = plasmax.make(
     "iter/hybrid/flattop",
-    backend="Bohm-Gyrobohm",
+    backend="bohm_gyrobohm",
 )
 
 state, info = env.init(jax.random.key(0))
@@ -63,7 +63,7 @@ The environments use the [Envelope](https://github.com/keraJLi/envelope) API and
 
 Unsupported environment/backend pairs are rejected before construction.
 
-NB: the `tglfnn_spherical` backend requires a repository clone for now. 
+NB: the `tglfnn_spherical` backend requires a repository clone for now.
 [TGLFNN-UKAEA](https://github.com/ukaea/tglfnn-ukaea) is still an eager
 transitive TORAX dependency. TORAX 1.4.3 pins `fusion-surrogates` 0.4.6, whose
 TGLFNN extra pins the older 0.1.0 weights. Repository clones use a uv-only
@@ -82,7 +82,7 @@ task:
   terminal_penalty: -100
 ```
 
-By default, `reward` and `disruption_penalty`; uses the task metadata. 
+By default, `reward` and `disruption_penalty`; uses the task metadata.
 Explicit overrides are supported, including
 `disruption_penalty=0.0`. Ramp-up tasks use `lh_transition`, flat-top and STEP
 tasks use `P_diff`, and ramp-down tasks use `rampdown`. KSTAR uses its native
@@ -165,7 +165,9 @@ tests/              library and release tests
 
 ## License and attribution
 
-The library is licensed under the [Apache License 2.0](LICENSE). TORAX and
+The library is licensed under the
+[Apache License 2.0](https://github.com/TheodoreWolf/plasmax/blob/main/LICENSE).
+TORAX and
 packaged third-party data/model assets retain their own attribution and license
 terms; the relevant notices are shipped adjacent to those assets.
 

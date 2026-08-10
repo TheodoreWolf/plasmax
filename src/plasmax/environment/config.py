@@ -73,9 +73,7 @@ def parse_scenario(path: str) -> ScenarioConfig:
     return ScenarioConfig.model_validate(_load_yaml_mapping(resolved))
 
 
-def _parse_world_model_sources(
-    env_path: str, backend_path: str
-) -> _WorldModelSources:
+def _parse_world_model_sources(env_path: str, backend_path: str) -> _WorldModelSources:
     """Parse the task and learned-model construction blocks for one pair."""
     resolved_env = registry_lib.resolve_env(env_path)
     resolved_backend = registry_lib.resolve_backend(backend_path)

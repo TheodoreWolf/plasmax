@@ -99,9 +99,7 @@ class MPCAgentTest:
         np.testing.assert_array_equal(out.terminated, [False, False, False])
         np.testing.assert_array_equal(out.truncated, [True, False, False])
         np.testing.assert_array_equal(out.done, [True, False, False])
-        np.testing.assert_allclose(
-            out.total_return, out.reward[0], rtol=1e-7, atol=0.0
-        )
+        np.testing.assert_allclose(out.total_return, out.reward[0], rtol=1e-7, atol=0.0)
         np.testing.assert_allclose(
             out.next_obs[1:],
             jnp.broadcast_to(out.next_obs[0], out.next_obs[1:].shape),
@@ -149,9 +147,7 @@ class MPCAgentTest:
         np.testing.assert_array_equal(out.terminated, [True, False, False])
         np.testing.assert_array_equal(out.truncated, [False, False, False])
         np.testing.assert_array_equal(out.env_state.steps, [1, 1, 1])
-        np.testing.assert_allclose(
-            out.total_return, out.reward[0], rtol=1e-7, atol=0.0
-        )
+        np.testing.assert_allclose(out.total_return, out.reward[0], rtol=1e-7, atol=0.0)
         assert final_state.buffer.index == 1
 
     def test_rollout_rejects_autoreset(self):

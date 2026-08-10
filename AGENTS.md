@@ -184,6 +184,6 @@ though it is already the default.
 - The package version starts at `0.1.0` under the clean-break name.
 - Build metadata and repository links use
   `https://github.com/TheodoreWolf/plasmax`.
-- `jax-envelope==0.4.2` is the index-hosted Envelope dependency.
+- `jax-envelope~=0.6.1` is the index-hosted Envelope dependency.
 - Active tracked text must not contain retired branding. Immutable historical
   run identifiers belong only in ignored local manifests.

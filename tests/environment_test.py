@@ -451,9 +451,7 @@ class PhysicsRandomizationTest:
         with pytest.raises(ValueError, match="physical control interval"):
             make_test_env(
                 physics_randomization={
-                    "numerics.fixed_dt": PhysicsRandomizationSpec(
-                        absolute=(0.05, 0.15)
-                    )
+                    "numerics.fixed_dt": PhysicsRandomizationSpec(absolute=(0.05, 0.15))
                 }
             )
 
@@ -551,9 +549,7 @@ class PlasmaxEnvTransformContractTest:
         assert not jnp.any(terminated)
         assert not jnp.any(truncated)
         assert jnp.all(termination_code == -1)
-        np.testing.assert_allclose(
-            final_state.plasma.t, 0.2, atol=1e-5, rtol=0.0
-        )
+        np.testing.assert_allclose(final_state.plasma.t, 0.2, atol=1e-5, rtol=0.0)
 
     def test_manual_vmap_and_envelope_vmap_wrapper(self):
         randomized_path = "numerics.resistivity_multiplier"

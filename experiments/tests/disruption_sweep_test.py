@@ -40,6 +40,7 @@ class DisruptionPenaltyTest:
             rtol=1e-12,
         )
 
+
 class DisruptionSweepJobsTest:
     def test_complete_realistic_phase_by_kappa_matrix(self):
         jobs = make_disruption_sweep_jobs()

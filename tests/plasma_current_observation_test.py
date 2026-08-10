@@ -11,9 +11,7 @@ from plasmax.spaces import SCALAR_REGISTRY
 
 
 def _merge(env: str) -> dict:
-    return _merge_env_and_backend(
-        resolve_env(env), resolve_backend("bohm_gyrobohm")
-    )
+    return _merge_env_and_backend(resolve_env(env), resolve_backend("bohm_gyrobohm"))
 
 
 def test_ip_registry_extracts_total_current_at_lcfs():
@@ -37,9 +35,7 @@ def test_ip_registry_extracts_total_current_at_lcfs():
 )
 def test_tokamak_policy_interfaces_include_scaled_ip(env, upper_bound):
     merged = _merge(env)
-    scalar_specs = {
-        spec["name"]: spec for spec in merged["observations"]["scalars"]
-    }
+    scalar_specs = {spec["name"]: spec for spec in merged["observations"]["scalars"]}
 
     assert scalar_specs["Ip"] == {
         "name": "Ip",
