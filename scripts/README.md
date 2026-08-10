@@ -16,6 +16,5 @@ entrypoints. New runs default to the realistic environment variant and inherit
 their reward and terminal penalty from task YAML metadata unless explicitly
 overridden.
 
-Research studies and publication plotting live under `experiments/`; cluster
-launchers are under `experiments/cluster/`. Artifact, calibration, manifest,
-and equilibrium builders live under `tools/`.
+Research studies and publication plotting live under `experiments/`. Artifact,
+calibration, and equilibrium builders live under `tools/`.

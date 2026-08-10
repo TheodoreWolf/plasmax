@@ -43,7 +43,7 @@ def _kappa_label(kappa: float) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class DisruptionSweepJob:
-    """One cluster array task containing a vmapped PPO seed set."""
+    """One sweep task containing a vmapped PPO seed set."""
 
     env: str
     backend: str

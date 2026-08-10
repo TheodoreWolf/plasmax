@@ -204,9 +204,8 @@ training/           clone-only training adapters
 scripts/            generic baseline and rollout launchers
 tools/              artifact and equilibrium generation
 benchmarks/         backend agreement and throughput benchmarks
-experiments/        studies, plotting, cluster launchers, and legacy material
+experiments/        research studies and plotting
 tests/              library and release tests
-docs/               environment documentation
 ```
 
 ## License and attribution

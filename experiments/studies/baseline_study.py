@@ -2,7 +2,7 @@
 
 This module deliberately contains no training code. It reads each task's reward
 contract from packaged metadata and defines deterministic seed keys plus stable
-run labels used by the individual trainers and cluster launchers.
+run labels used by the individual trainers.
 """
 
 from __future__ import annotations

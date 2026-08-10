@@ -1,4 +1,4 @@
-"""Generate the Isambard PPO disruption-penalty sweep manifest."""
+"""Generate a PPO disruption-penalty sweep manifest."""
 
 from __future__ import annotations
 
@@ -16,14 +16,13 @@ from experiments.studies.disruption_sweep import (
 
 @dataclasses.dataclass
 class Args:
-    out: Path = Path("sweeps/ppo_disruption_kappa_isambard.tsv")
+    out: Path = Path("sweeps/ppo_disruption_kappa.tsv")
     backend: str = "bohm_gyrobohm"
     kappas: tuple[float, ...] = DEFAULT_KAPPAS
     total_steps: int = 2_000_000
     eval_freq: int = 250_000
     num_seeds: int = 3
     seed: int = 0
-    study: str = "ppo-disruption-kappa-pilot"
 
 
 def main(args: Args) -> None:
@@ -67,11 +66,6 @@ def main(args: Args) -> None:
             writer.writerow(row)
 
     print(f"Wrote {len(jobs)} jobs to {args.out}")
-    print(
-        f"Submit with: MANIFEST={args.out} STUDY={args.study} "
-        f"sbatch --array=0-{len(jobs) - 1}%4 "
-        "experiments/cluster/isambard/isambard_disruption_sweep.slurm"
-    )
 
 
 if __name__ == "__main__":

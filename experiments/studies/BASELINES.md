@@ -105,25 +105,7 @@ realistic variants as side-by-side panels when both are present.
 Evaluation-episode variation within a seed is not incorrectly treated as an
 independent training seed.
 
-## Generate and submit
+## Local launch infrastructure
 
-```bash
-uv run python tools/manifests/make_baseline_manifest.py \
-  --out sweeps/baseline_v1.tsv
-
-rsync -az --exclude='.venv/' --exclude='.git/' \
-  --exclude='outputs/' --exclude='plots/' ./ \
-  u6oz.aip2.isambard:/home/u6oz/theow.u6oz/plasmax/
-
-ssh u6oz.aip2.isambard \
-  'cd ~/plasmax && MANIFEST=sweeps/baseline_v1.tsv STUDY=baseline-v1 \
-   sbatch --array=0-191 experiments/cluster/isambard/isambard_baselines.slurm'
-```
-
-Submitting the full array queues every environment immediately. Slurm
-fair-share and QOS control actual concurrency; add a `%N` running-task limit
-only when it follows a measured project or workload constraint.
-
-The production array is submitted only after shorter ten-seed pilots establish
-memory use, wall time, finite gradients, and convergence behavior on the GH200
-compute nodes.
+Manifest generation and cluster submission launchers are local research
+infrastructure and are intentionally not tracked.

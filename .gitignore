@@ -27,3 +27,8 @@ CLAUDE.md
 /sweeps/
 /manifests/
 /tmp/
+
+# Local-only research infrastructure and notes.
+/experiments/cluster/
+/docs/
+/tools/manifests/make_baseline_manifest.py

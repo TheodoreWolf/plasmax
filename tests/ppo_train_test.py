@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from envelope import TruncationWrapper
+from envelope import Environment, TruncationWrapper
 from flax import linen as nn
 
 pytest.importorskip("rejax")
@@ -15,7 +15,16 @@ from rejax.algos.ppo import PPO
 from agents.ppo import MultiDiscretePolicy, PPOAdapter, ResidualGaussianPolicy
 from plasmax.environment.factory import load_scenario
 from plasmax.wrappers import QuantizeActionWrapper
-from training.train import train_ppo
+from training.envelope_gymnax import EnvelopeGymnax
+
+
+def _make_algo(env: Environment, **ppo_kwargs) -> PPOAdapter:
+    gymnax_env = EnvelopeGymnax(env)
+    return PPOAdapter.create(
+        env=gymnax_env,
+        env_params=gymnax_env.default_params,
+        **ppo_kwargs,
+    )
 
 
 def test_multidiscrete_policy_samples_and_scores_each_head():
@@ -81,7 +90,7 @@ def test_short_training_on_cheap_envelope_env_has_finite_outputs(quantized):
         env = QuantizeActionWrapper(env=env, bin_counts=(3,))
     env = TruncationWrapper(env=env, max_steps=2)
 
-    _, (lengths, returns) = train_ppo(
+    algo = _make_algo(
         env,
         total_timesteps=16,
         num_envs=2,
@@ -92,6 +101,7 @@ def test_short_training_on_cheap_envelope_env_has_finite_outputs(quantized):
         normalize_rewards=False,
         normalize_observations=False,
     )
+    _, (lengths, returns) = jax.jit(algo.train)(jax.random.PRNGKey(0))
 
     assert jnp.all(jnp.isfinite(returns))
     assert jnp.all(lengths > 0)
@@ -101,7 +111,7 @@ def test_short_training_on_cheap_envelope_env_has_finite_outputs(quantized):
 class PPOTrainSmokeTest:
     def test_short_torax_training_run_completes_with_finite_outputs(self):
         env = load_scenario("test")
-        _, (lengths, returns) = train_ppo(
+        algo = _make_algo(
             env,
             total_timesteps=1024,
             num_envs=16,
@@ -113,5 +123,6 @@ class PPOTrainSmokeTest:
             normalize_rewards=False,
             normalize_observations=False,
         )
+        _, (lengths, returns) = jax.jit(algo.train)(jax.random.PRNGKey(0))
         assert jnp.all(jnp.isfinite(returns))
         assert jnp.all(lengths > 0)

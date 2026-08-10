@@ -49,9 +49,8 @@ TrajectoryStep, collect_episode, collect_episodes, registry
 ```
 
 Keep agents, Gymnax/Rejax adaptation, programmatic training, W&B, plotting,
-studies, and cluster launchers outside `src/`. Concrete clone-only modules may
-be imported from a checkout, but `agents/` and `training/` do not provide
-package façades.
+and studies outside `src/`. Concrete clone-only modules may be imported from a
+checkout, but `agents/` and `training/` do not provide package façades.
 
 Do not recreate the retired import namespace or a compatibility shim. Use the
 lowercase brand `plasmax` in prose, paths, distribution metadata, infrastructure,
@@ -72,8 +71,7 @@ training/           clone-only adapters and training wrappers
 scripts/            generic PPO, SAC, evaluation, and rollout launchers
 tools/              artifact and equilibrium generation
 benchmarks/         backend agreement and throughput measurements
-docs/               environment documentation
-experiments/        studies, plotting, cluster infrastructure, and legacy code
+experiments/        research studies and plotting
 tests/              installed-library and integration tests
 ```
 
@@ -174,10 +172,6 @@ initialization fails.
 Generic launchers inherit reward and terminal penalty from task metadata. Pass
 `--env.variant realistic` explicitly in recorded experiment commands even
 though it is already the default.
-
-Cluster-specific Docker, Slurm, and synchronization guidance lives with the
-corresponding launchers under `experiments/cluster/`. Follow shared-cluster
-safety rules before running or stopping remote jobs.
 
 ## Release hygiene
 
