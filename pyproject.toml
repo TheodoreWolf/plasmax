@@ -22,7 +22,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
-    "jax-envelope==0.4.2",
+    "jax-envelope~=0.6.1",
     "torax>=1.4.1,<1.5",
     "pyyaml",
     "pydantic>=2",

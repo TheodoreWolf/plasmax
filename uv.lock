@@ -896,14 +896,14 @@ wheels = [
 
 [[package]]
 name = "jax-envelope"
-version = "0.4.2"
+version = "0.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/56/9a/e8214101924fb3b8d0845b79eb0c9782d85b11ace472521f70a4411f792a/jax_envelope-0.4.2.tar.gz", hash = "sha256:f2ecdc98d78bd5def010245fea7802fefc406367b385c84dae5c47c15f241853", size = 229300 }
+sdist = { url = "https://files.pythonhosted.org/packages/37/aa/9c7187cfb02c2c7456f6d06027a2c43a121a83d3ac2cce3a759bfeb267cd/jax_envelope-0.6.1.tar.gz", hash = "sha256:3ad298bb2b5eaa0295a0c2a65f04b2516708eb4ab3bf151192a695a7bd0d0612", size = 111374 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/52/6c5f00068df02e2cd8c08685625667814df649cab8fcabf397151b81f957/jax_envelope-0.4.2-py3-none-any.whl", hash = "sha256:79a7aedcad13a71d60fee53443d566bfbe2134c75375b061c899c2d9e8417969", size = 40229 },
+    { url = "https://files.pythonhosted.org/packages/f2/4a/388422b051d1ce7b8a5b061f3134a3c72dffa6fe2f8d5fed68dfa6dbd8e3/jax_envelope-0.6.1-py3-none-any.whl", hash = "sha256:8143a97ee4ec3492adc61fc0c748354fc803f37ad46c91b31a688e702ab2c3a1", size = 50503 },
 ]
 
 [[package]]
@@ -1770,7 +1770,7 @@ research = [
 [package.metadata]
 requires-dist = [
     { name = "jax", specifier = "==0.10.1" },
-    { name = "jax-envelope", specifier = "==0.4.2" },
+    { name = "jax-envelope", specifier = "~=0.6.1" },
     { name = "jaxlib", specifier = "==0.10.1" },
     { name = "numpy", specifier = ">2" },
     { name = "pydantic", specifier = ">=2" },

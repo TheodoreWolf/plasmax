@@ -750,7 +750,8 @@ class CompositionTest:
         state, _ = env.init(jax.random.key(0))
         state, info = env.step(state, _ACTION)
         assert not bool(info.terminated)
-        assert not bool(info.truncated)
+        assert bool(info.truncated)
+        assert bool(info.final_valid)
         assert bool(info.final.truncated)
         assert not bool(info.final.terminated)
         assert int(info.final.termination_code) == -1

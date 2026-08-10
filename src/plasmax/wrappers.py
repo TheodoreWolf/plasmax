@@ -82,6 +82,7 @@ class NoiseWrapper(Wrapper):
                 f"{noise_scale.shape} != {self.env.observation_space.shape}"
             )
         object.__setattr__(self, "noise_scale", noise_scale)
+        super().__post_init__()
 
     def _add_noise(self, info: Info, key: Key) -> Info:
         obs = info.obs
@@ -180,11 +181,13 @@ class ObsFilterWrapper(Wrapper):
     """Retain a subset of observation elements by index."""
 
     indices: Sequence[int] = static_field()
-    layout: ObsLayout | None = static_field(default=None)
+    # ObsLayout is immutable wrapper metadata, but its Mapping fields are unhashable.
+    layout: ObsLayout | None = static_field(default=None, unsafe=True)
 
     def __post_init__(self) -> None:
         indices = tuple(int(index) for index in self.indices)
         object.__setattr__(self, "indices", indices)
+        super().__post_init__()
 
     @classmethod
     def from_obs_config(cls, env, config: ObsFilterConfig) -> ObsFilterWrapper:
@@ -269,6 +272,7 @@ class ActionRescaleWrapper(Wrapper):
         inner = self.env.action_space
         if not isinstance(inner, Continuous):
             raise TypeError("ActionRescaleWrapper requires a Continuous action space")
+        super().__post_init__()
 
     @override
     def step(self, state: State, action: PyTree) -> tuple[State, Info]:
@@ -319,6 +323,7 @@ class QuantizeActionWrapper(Wrapper):
         if not bin_counts or min(bin_counts) < 2:
             raise ValueError("each action dimension needs at least two bins")
         object.__setattr__(self, "bin_counts", bin_counts)
+        super().__post_init__()
 
     @property
     def _bin_counts_array(self) -> jax.Array:
@@ -365,6 +370,7 @@ class ObsHistoryWrapper(Wrapper):
         # Materialize any cached space properties before this wrapper is traced.
         _ = self.env.observation_space
         _ = self.env.action_space
+        super().__post_init__()
 
     @property
     def _obs_dim(self) -> int:
@@ -497,6 +503,7 @@ class ObsDelayWrapper(Wrapper):
                 f"{hold_prob.shape} != {self.env.observation_space.shape}"
             )
         object.__setattr__(self, "hold_prob", hold_prob)
+        super().__post_init__()
 
     @override
     def init(self, key: Key) -> tuple[DelayEnvState, Info]:
@@ -635,6 +642,7 @@ class PlasmaxTruncationWrapper(TruncationWrapper):
                 f"max_steps={self.max_steps} exceeds the configured safe horizon "
                 f"of {safe_max_steps}"
             )
+        super().__post_init__()
 
     @override
     def step(self, state: WrappedState, action: PyTree) -> tuple[WrappedState, Info]:
