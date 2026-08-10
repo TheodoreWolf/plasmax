@@ -1,28 +1,29 @@
-# plasmax
+<p align="center">
+  <img src="./assets/plasmax-logo.png" alt="plasmax logo" width="520">
+</p>
+
+# Plasmax: differentiable & parallelizable environments for transport control in Tokamaks
 
 `plasmax` provides JAX-native fusion-control environments built on
-[TORAX](https://github.com/google-deepmind/torax). It packages machine-inspired
-ITER, SPARC, STEP, and KSTAR tasks behind one explicit-state Envelope API while
-keeping agents, training systems, and publication code outside the installed
-library.
+[TORAX](https://github.com/google-deepmind/torax).
+The environments are inspired by real tokamak devices; ITER, SPARC, STEP, and KSTAR.
+Each tokamak contains different tasks for different scenarios and phases.
 
-The environments are intended for control research. Their configurations retain
-the physical values, equilibria, transport choices, and learned-model assets
-tracked by this repository, but they are reduced control benchmarks rather than
-complete device digital twins. Physical and solver terminations are part of the
-control problem and remain observable through the environment boundary.
+Environment design is inspired by recommendations from [Challenges of Real World Reinforcement Learning](https://arxiv.org/abs/1904.12901), where missing, noisy observations are explicitly implemented.
 
 ## Install
-
-`plasmax` requires Python 3.12 or newer.
 
 ```bash
 pip install plasmax
 ```
+We did not package the training and agent stack to make the dependencies lighter.
+If you want to try training agents using our stack:
 
-The published distribution contains only `plasmax` and its runtime task data.
-It does not install agents, Gymnax adapters, Rejax, W&B, training launchers, or
-study code.
+```bash
+git clone https://github.com/TheodoreWolf/plasmax
+cd plasmax
+pip install -e . --group research
+```
 
 ## Quick start
 
@@ -34,7 +35,7 @@ import plasmax
 
 env = plasmax.make(
     "iter/hybrid/flattop",
-    backend="cgm",
+    backend="Bohm-Gyrobohm",
 )
 
 state, info = env.init(jax.random.key(0))
@@ -45,19 +46,13 @@ print(info.obs, info.reward)
 print(info.terminated, info.truncated)
 ```
 
-`realistic` is the default variant for `make`, `load_env`, and
-`load_scenario`. It applies the task's configured sensor, resolution, filter,
-delay, action, and transition-wise physics-randomization behavior. Use
-`variant="oracle"` only for an explicit oracle ablation.
+Environments are loaded through the `make` function, the environment name is structured as such `{tokamak}/{scenario}/{phase}.`
 
-Spaces are properties, so use `env.action_space.shape` and
-`env.observation_space.shape`. The scalar environment returned by a loader does
-not autoreset or vectorize itself. Its state owns environment PRNG streams;
-policies continue to own their own keys.
+By default, it applies the modifications recommended by [Challenges of Real World Reinforcement Learning](https://arxiv.org/abs/1904.12901), use `variant="oracle"`, to remove these.
+
+The environments use the [Envelope](https://github.com/keraJLi/envelope) API and contracts, this includes e.g. explicit truncation versus termination.
 
 ## Tasks and backends
-
-Named tasks resolve packaged YAML and data from any working directory:
 
 | Task aliases | Compatible backend aliases |
 |---|---|
@@ -66,25 +61,29 @@ Named tasks resolve packaged YAML and data from any working directory:
 | `step` | `bohm_gyrobohm`, `tglfnn_spherical` |
 | `kstar` | `fusion_lstm` |
 
-The fast packaged fixture is available through `plasmax.make("test")`.
-Explicit YAML paths are also accepted by `load_env` and `load_scenario`.
 Unsupported environment/backend pairs are rejected before construction.
 
-TGLFNN-UKAEA is still an eager transitive TORAX dependency. Repository clones
-retain the uv-only `v0.2.0-draft` override until the compatible release is on
-PyPI; true backend-level optionality is therefore deferred rather than hidden
-behind an installation claim.
+NB: the `tglfnn_spherical` backend requires a repository clone for now. 
+[TGLFNN-UKAEA](https://github.com/ukaea/tglfnn-ukaea) is still an eager
+transitive TORAX dependency. TORAX 1.4.3 pins `fusion-surrogates` 0.4.6, whose
+TGLFNN extra pins the older 0.1.0 weights. Repository clones use a uv-only
+override to the final PyPI 0.2.0 weights until TORAX adopts `fusion-surrogates`
+0.4.7. Published installs still follow TORAX's dependency metadata.
+
+Equilibria generated with
+[FreeGSNKE](https://github.com/FusionComputingLab/freegsnke) are committed
+artifacts, so FreeGSNKE is not a runtime dependency.
 
 Every leaf task YAML owns its reward and terminal-penalty defaults:
 
 ```yaml
 task:
   reward: lh_transition
-  terminal_penalty: -99.99568287525884
+  terminal_penalty: -100
 ```
 
-Callers normally omit `reward` and `disruption_penalty`; the loader then uses
-the task metadata. Explicit overrides are still supported, including
+By default, `reward` and `disruption_penalty`; uses the task metadata. 
+Explicit overrides are supported, including
 `disruption_penalty=0.0`. Ramp-up tasks use `lh_transition`, flat-top and STEP
 tasks use `P_diff`, and ramp-down tasks use `rampdown`. KSTAR uses its native
 learned-model reward and has no terminal penalty.
@@ -111,8 +110,7 @@ oracle_ablation = plasmax.make(
 - `info.truncated`: the configured time-limit cutoff;
 - `info.termination_code`: the environment's termination reason.
 
-If termination and the time limit coincide, termination wins. Internal TORAX
-physics precision is unchanged by the float32 reward boundary.
+If termination and the time limit coincide, termination wins.
 
 Fixed-shape rollout collection is part of the installed library:
 
@@ -136,64 +134,21 @@ trajectory = collect_episode(
 The collector retains the first terminal transition, stops stepping the
 environment, and pads the remaining fixed-size output with `valid=False`.
 
-## Public API
+## Contribution and Development
 
-The supported top-level API is deliberately small:
-
-```python
-from plasmax import (
-    EnvState,
-    PlasmaxEnv,
-    ScenarioConfig,
-    TrajectoryStep,
-    collect_episode,
-    collect_episodes,
-    load_env,
-    load_scenario,
-    make,
-    registry,
-)
-```
-
-Control types, rewards, spaces, and specialized wrappers are available from
-their explicit modules. Training and agent APIs are intentionally not exported
-by the installed package.
-
-## Clone-only baselines and development
-
-Clone the repository when running baselines or studies:
+We welcome contributions!
+To contribute, first fork the repository, then:
 
 ```bash
-git clone https://github.com/TheodoreWolf/plasmax.git
+git clone {your_gh_username}/plasmax
 cd plasmax
-
-uv sync --no-dev --group research
-
-uv run python scripts/train_ppo.py \
-  --env.env-setup iter/hybrid/flattop \
-  --env.backend cgm \
-  --env.variant realistic
-```
-
-PPO, SAC, baseline evaluation, and discharge rollout are generic clone-only
-launchers under `scripts/`. Their reward and terminal penalty are inherited
-from task metadata unless explicitly overridden. New W&B runs use the
-`flair/plasmax` project.
-
-For development and artifact-generation dependencies:
-
-```bash
+# We highly encourage uv for developement
 uv sync --group dev
-uv sync --group dev --group artifacts
-
-uv run ruff check .
-uv run pytest
-uv run pytest experiments/tests/
-uv run pytest -o addopts="" -m integration tests/
+git checkout {name}/{what_you_are_changing}
 ```
 
-Default pytest runs exclude integration tests. CI runs the explicit integration
-matrix separately across seven scenario shards.
+Then you can open a PR in this repository. Make sure to run tests, CI will do this for you as well.
+Please have respect for the developer's time and do not submit PRs that can not be reasonably reviewed (even with the help of agents).
 
 ## Repository layout
 
@@ -213,3 +168,12 @@ tests/              library and release tests
 The library is licensed under the [Apache License 2.0](LICENSE). TORAX and
 packaged third-party data/model assets retain their own attribution and license
 terms; the relevant notices are shipped adjacent to those assets.
+
+## Agents
+
+An AGENTS.md file is included, which has my own personal code preferences. We recommend users who want to use agents to obtain an explicit JAX skill (I've written my own, that I will open-source, when I'm happy with it), as current agents are still not great at this.
+Agents were utilized throughout this work, while I did my best to check the code, mistakes remain.
+In my experience, the most dangerous are comments that state mistakes or bad assumption as facts, this then further reinforce the agents in their bad ideas.
+
+## Citation
+Coming soon, once I get the paper out...
