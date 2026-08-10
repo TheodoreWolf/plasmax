@@ -13,7 +13,7 @@ reset_reference: iter_advanced_hot_slide25
 
 task:
   reward: rampdown
-  terminal_penalty: -329.20634693386705
+  terminal_penalty: -330
 
 torax:
   profile_conditions:

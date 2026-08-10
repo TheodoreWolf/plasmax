@@ -19,7 +19,7 @@ class DisruptionPenaltyTest:
                 "sparc/prd/rampup",
                 "bohm_gyrobohm",
             ),
-            -10.143482539628325,
+            -10,
             atol=0.0,
             rtol=0.0,
         )
@@ -57,14 +57,14 @@ class DisruptionSweepJobsTest:
         assert by_env["iter/baseline/rampup"].reward == "lh_transition"
         np.testing.assert_allclose(
             by_env["iter/baseline/rampup"].task_terminal_penalty,
-            -99.75949907086881,
+            -100,
             atol=0.0,
             rtol=0.0,
         )
         assert by_env["sparc/prd/rampdown"].reward == "rampdown"
         np.testing.assert_allclose(
             by_env["sparc/prd/rampdown"].penalty,
-            -379.1941755479648,
+            -380,
             atol=0.0,
             rtol=0.0,
         )

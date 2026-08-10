@@ -4,7 +4,7 @@ phase: rampdown
 reset_reference: sparc_h8_hot_figure16
 task:
   reward: rampdown
-  terminal_penalty: -462.14290144908205
+  terminal_penalty: -462
 torax:
   profile_conditions:
     Ip: {0: 5.7e+6, 5: 1.0e+6}

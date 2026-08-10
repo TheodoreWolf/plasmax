@@ -3,7 +3,7 @@ phase: rampup
 reset_reference: sparc_prd_cold_1ma
 task:
   reward: lh_transition
-  terminal_penalty: -10.143482539628325
+  terminal_penalty: -10
 torax:
   profile_conditions:
     Ip: {0: 1.0e+6, 10: 8.7e+6}

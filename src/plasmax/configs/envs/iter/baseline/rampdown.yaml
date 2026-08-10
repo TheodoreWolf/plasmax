@@ -14,7 +14,7 @@ reset_reference: iter_baseline_hot_450s
 
 task:
   reward: rampdown
-  terminal_penalty: -1325.766753078688
+  terminal_penalty: -1325
 
 torax:
   profile_conditions:

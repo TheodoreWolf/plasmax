@@ -22,21 +22,21 @@ from plasmax.environment.factory import make
 from plasmax.environment.schema import TaskConfig
 
 _EXPECTED_TASKS: dict[str, tuple[str, float | None]] = {
-    "iter/advanced/rampup": ("lh_transition", -99.99568287525884),
+    "iter/advanced/rampup": ("lh_transition", -100),
     "iter/advanced/flattop": ("P_diff", 0.0),
-    "iter/advanced/rampdown": ("rampdown", -329.20634693386705),
-    "iter/baseline/rampup": ("lh_transition", -99.75949907086881),
+    "iter/advanced/rampdown": ("rampdown", -330),
+    "iter/baseline/rampup": ("lh_transition", -100),
     "iter/baseline/flattop": ("P_diff", 0.0),
-    "iter/baseline/rampdown": ("rampdown", -1325.766753078688),
-    "iter/hybrid/rampup": ("lh_transition", -99.99568287525884),
+    "iter/baseline/rampdown": ("rampdown", -1325),
+    "iter/hybrid/rampup": ("lh_transition", -100),
     "iter/hybrid/flattop": ("P_diff", 0.0),
-    "iter/hybrid/rampdown": ("rampdown", -997.5949907086881),
-    "sparc/prd/rampup": ("lh_transition", -10.143482539628325),
+    "iter/hybrid/rampdown": ("rampdown", -1000),
+    "sparc/prd/rampup": ("lh_transition", -10),
     "sparc/prd/flattop": ("P_diff", 0.0),
-    "sparc/prd/rampdown": ("rampdown", -379.1941755479648),
-    "sparc/reduced_field/rampup": ("lh_transition", -15.849191468169257),
+    "sparc/prd/rampdown": ("rampdown", -380),
+    "sparc/reduced_field/rampup": ("lh_transition", -16),
     "sparc/reduced_field/flattop": ("P_diff", 0.0),
-    "sparc/reduced_field/rampdown": ("rampdown", -462.14290144908205),
+    "sparc/reduced_field/rampdown": ("rampdown", -462),
     "step": ("P_diff", 0.0),
     "kstar": ("native", None),
 }
@@ -114,12 +114,8 @@ def test_explicit_zero_terminal_penalty_overrides_nonzero_metadata(tmp_path):
 def test_phase_defaults_are_available_without_duplicated_reward_maps():
     rampup = parse_env_and_backend("iter/advanced/rampup", "cgm")
     rampdown = parse_env_and_backend("sparc/prd/rampdown", "cgm")
-    assert rampup.task == TaskConfig(
-        reward="lh_transition", terminal_penalty=-99.99568287525884
-    )
-    assert rampdown.task == TaskConfig(
-        reward="rampdown", terminal_penalty=-379.1941755479648
-    )
+    assert rampup.task == TaskConfig(reward="lh_transition", terminal_penalty=-100)
+    assert rampdown.task == TaskConfig(reward="rampdown", terminal_penalty=-380)
 
 
 def test_kstar_inherits_native_reward_and_rejects_terminal_penalties():

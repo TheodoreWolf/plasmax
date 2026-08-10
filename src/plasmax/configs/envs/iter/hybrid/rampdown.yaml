@@ -14,7 +14,7 @@ reset_reference: iter_hybrid_hot_v1_4_2
 
 task:
   reward: rampdown
-  terminal_penalty: -997.5949907086881
+  terminal_penalty: -1000
 
 torax:
   profile_conditions:

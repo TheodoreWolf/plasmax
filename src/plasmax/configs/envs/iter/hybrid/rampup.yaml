@@ -14,7 +14,7 @@ reset_reference: iter_hybrid_cold_v1_4_2
 
 task:
   reward: lh_transition
-  terminal_penalty: -99.99568287525884
+  terminal_penalty: -100
 
 torax:
   profile_conditions:
