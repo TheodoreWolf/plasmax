@@ -8,17 +8,20 @@ disruption or solver termination is a valid control outcome.
 ## Commands
 
 ```bash
-# Unit and fast regression tests; integration tests are excluded by pyproject.
+# Full library suite, including integration tests.
 uv run pytest
+
+# Unit and fast regression tests only.
+uv run pytest -m "not integration" tests/
 
 # Clone-only publication, plotting, transfer, and study tests.
 uv run pytest experiments/tests/
 
 # The full integration suite.
-uv run pytest -o addopts="" -m integration tests/
+uv run pytest -m integration tests/
 
 # One of the seven CI shards.
-uv run pytest -o addopts="" -m integration -k iter_hybrid tests/
+uv run pytest -m integration -k iter_hybrid tests/
 
 # Lint all installed and clone-only code.
 uv run ruff check .
@@ -29,14 +32,14 @@ Tests use pytest. Test classes use `Test*` or `*Test` names, such as
 
 ## Test tiers
 
-The default suite contains fast behavior, schema, reward, wrapper, control,
-collection, and packaging regressions. Prefer the packaged `test` scenario for
-these tests.
+The fast suite contains behavior, schema, reward, wrapper, control, collection,
+and packaging regressions. Prefer the packaged `test` scenario for these tests.
 
-Integration tests use `@pytest.mark.integration` for the full environment,
-backend, geometry, STEP, KSTAR, fixed-duration, and TORAX-reference checks. The
-default pytest configuration intentionally excludes them. CI opts in explicitly
-and preserves seven shards:
+The default pytest configuration includes tests marked `integration`. Focused
+geometry, STEP, KSTAR, and fixed-duration contracts remain in the fast suite;
+full environment/backend matrices and external-reference parity checks use
+`@pytest.mark.integration`. CI partitions the fast and integration selections
+explicitly and preserves seven integration shards:
 
 1. ITER baseline
 2. ITER hybrid

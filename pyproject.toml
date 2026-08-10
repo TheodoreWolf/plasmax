@@ -22,13 +22,12 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
+    "jax>=0.10.1",
     "jax-envelope~=0.6.1",
-    "torax>=1.4.1,<1.5",
-    "pyyaml",
-    "pydantic>=2",
     "numpy>2",
-    "jax==0.10.1",
-    "jaxlib==0.10.1",
+    "pydantic>=2",
+    "pyyaml",
+    "torax>=1.4.1",
 ]
 
 [dependency-groups]
@@ -61,9 +60,10 @@ artifacts = [
 Repository = "https://github.com/TheodoreWolf/plasmax"
 
 [tool.uv]
-# Retain the draft override until the compatible TGLFNN release reaches PyPI.
+# TORAX 1.4.3 still pins fusion-surrogates 0.4.6, whose TGLFNN extra pins 0.1.0.
+# Retain the compatible final weights until TORAX adopts fusion-surrogates 0.4.7.
 override-dependencies = [
-    "tglfnn-ukaea @ git+https://github.com/ukaea/tglfnn-ukaea.git@v0.2.0-draft",
+    "tglfnn-ukaea==0.2.0",
 ]
 
 [tool.ruff.lint]
@@ -79,4 +79,3 @@ python_classes = ["Test*", "*Test"]
 markers = [
     "integration: slow integration tests over the full env x backend x variant matrix",
 ]
-addopts = "-m 'not integration'"

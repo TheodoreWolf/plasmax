@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [manifest]
-overrides = [{ name = "tglfnn-ukaea", git = "https://github.com/ukaea/tglfnn-ukaea.git?rev=v0.2.0-draft" }]
+overrides = [{ name = "tglfnn-ukaea", specifier = "==0.2.0" }]
 
 [[package]]
 name = "absl-py"
@@ -803,21 +803,24 @@ wheels = [
 
 [[package]]
 name = "imas-core"
-version = "5.6.0"
+version = "5.7.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/78/7f52bd24399e2a7778f1169331637f2ef88bd285a0e99ca6dd4d2ee7f707/imas_core-5.6.0-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:2954879f97a9bf99609519fd08f07f286f5c3f80b8767cc933dd3a870674cca2", size = 5890638 },
-    { url = "https://files.pythonhosted.org/packages/34/db/f2da8ce17f112582079114fef00ac610834a40fd1b525c752b2d12ac2afa/imas_core-5.6.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:810e4876a3faf2ead9355a6225c6417fa4d269bfd56aac68c17c8834effebdab", size = 8104311 },
-    { url = "https://files.pythonhosted.org/packages/5b/d1/df6854a50ba0dc16157528bfd953ed4278149f4b4bddf6f9a235ebf1ddd4/imas_core-5.6.0-cp312-cp312-win_amd64.whl", hash = "sha256:78ecff07bd256cf91a983b158161ebd70cad84774ffb6e1d708a9a207df165fd", size = 5710998 },
-    { url = "https://files.pythonhosted.org/packages/53/80/35195b44ebd51ad7895eee798fdd56246daf8b776e57161b56e132f97183/imas_core-5.6.0-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:bbfdc8e86fb38672a84d6faf24571f9ce88092b5e9890681123e1df706735abb", size = 5890278 },
-    { url = "https://files.pythonhosted.org/packages/84/fe/d9bf1bf8720fdc3c89cc28134c96fbe93385db5ffdb23fad8e6c255f03a1/imas_core-5.6.0-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:de4395a637e6bea5b76d781fa0b925108accd052fbc8abf7f9e7a2b82de3a9c1", size = 8105219 },
-    { url = "https://files.pythonhosted.org/packages/5f/62/894b02450df6af0291e5bcdabf90557bc10573bebc14a4f5ece5444f1fcd/imas_core-5.6.0-cp313-cp313-win_amd64.whl", hash = "sha256:ef1bc4d9da0b421c219cb7de0cfb844d5f38d24ff9ad5292f82dccb063e99863", size = 5646361 },
-    { url = "https://files.pythonhosted.org/packages/3d/89/a7bd6d7691fa311f1e7532bf50bcd78bc21b80e6cd1c24efe1711c9b45b4/imas_core-5.6.0-cp314-cp314-macosx_14_0_arm64.whl", hash = "sha256:7b1d07d5ce173abf8f577a017f08ceb9c14b1e9a158ce49ab4ae220205ca29b1", size = 5891100 },
-    { url = "https://files.pythonhosted.org/packages/ea/89/7b1a3b9f62c31ccfd78aaf7df8600b670b78d03162fd304f2d2c720e9e58/imas_core-5.6.0-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:df278e0ba1810d39183e9bf4646bdfe76967585cd69f6b8c6194e6c7a90a7894", size = 8104972 },
-    { url = "https://files.pythonhosted.org/packages/63/8e/29968fc6f699216ec9ebaf1a5dfa56400f903b38be96a6ec5f3212f0a7b6/imas_core-5.6.0-cp314-cp314-win_amd64.whl", hash = "sha256:fbbfde24fee479b8a0bb4895f8d7a7e350bc262bae394b70aab702c90e64d330", size = 6048393 },
+    { url = "https://files.pythonhosted.org/packages/fb/88/bad61578474834453cbb35ce272076acd5ae55d1f26414006136c9175ca2/imas_core-5.7.2-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:6f5724e3053dfdf32d838335186f6586a00424748625712cef9f43cf1ac788d3", size = 14009309 },
+    { url = "https://files.pythonhosted.org/packages/b6/62/76b4edc7e744964ca9cf14cc6fb974fa22949a6bb050bcf5e79171770cc9/imas_core-5.7.2-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:b07fef6461e68663e78e5f7712800458bd47157d0e81408641b388ea7dae6c00", size = 7838889 },
+    { url = "https://files.pythonhosted.org/packages/08/03/2235d7a80d7f6bfcf08566d50007e34c4887208f07a7cb0c1d7cca2d266c/imas_core-5.7.2-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:00816c8b769ef020838f8c44a7d6c181eb8c1f170e5e95ab3fff067da648ec6f", size = 8312824 },
+    { url = "https://files.pythonhosted.org/packages/4b/e1/439279b844274c3cddb96385179c5a0455698e42b954c02399e002f53503/imas_core-5.7.2-cp312-cp312-win_amd64.whl", hash = "sha256:dde933b4640588b741b7d989c477a8f2db0a1d881e69dad8d7b8e77ffda78e26", size = 5092510 },
+    { url = "https://files.pythonhosted.org/packages/a6/c0/fb9c0863d38b6fd5e6cf243f3227e21f267c640a0ebbdb30066f1d5148bb/imas_core-5.7.2-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:d0f2d90e714425a4214a4208d935fdf35a41cb2712a361793f618094ebef324c", size = 14008880 },
+    { url = "https://files.pythonhosted.org/packages/db/6b/2e85284f5c4e769e385e92cbecf768a77258a4e96cf9eb354f7eb8cfcd06/imas_core-5.7.2-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:e630a49dafa837921d4ca41f90af2f91fbce39bcae45cd38f1acb00dc99076dc", size = 7837480 },
+    { url = "https://files.pythonhosted.org/packages/7c/ff/879e9fffc6e4335499b5d83f9106ab76dd6e75dcbbdb0d71dbaa630e0b56/imas_core-5.7.2-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:5525915ec1ff9822abc838adbfe9fa821989a01244a2e93523c33e34d4f0a788", size = 8311081 },
+    { url = "https://files.pythonhosted.org/packages/e1/0f/d0f5c29bb03d848606b411e18cd1c56ca285d48125ebd3f360713baac25a/imas_core-5.7.2-cp313-cp313-win_amd64.whl", hash = "sha256:90019371e9b691eb07023b2ac2416bcc0e74c862409d6ebef551814399019db7", size = 5028190 },
+    { url = "https://files.pythonhosted.org/packages/8f/b3/a61ed08366732746ee24832b84e4b0e8e9fef9e52d5fa68a1ac50110ca09/imas_core-5.7.2-cp314-cp314-macosx_14_0_arm64.whl", hash = "sha256:620e6244d68bae9d9f6d4891f8ac5557d6e9418f4f706dce91495b22263ebfd0", size = 14009932 },
+    { url = "https://files.pythonhosted.org/packages/59/0b/6564d9a79b63f770c8621c9e0334716cd8eb07afaafc910aa466c89a9a05/imas_core-5.7.2-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:a9709f73e1304f5c40ccca4e8f49f3b402fd6190bf8aa975828f1504303e0404", size = 7839510 },
+    { url = "https://files.pythonhosted.org/packages/84/a1/75fee110122c8eb9c1709c1d143296a8e0022cf0f5dfb6cf81e7eaa0bace/imas_core-5.7.2-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:23922e19681ced77f7189a02adec77057352d356d205ff6eccc9550f3d53084b", size = 8311629 },
+    { url = "https://files.pythonhosted.org/packages/17/22/974c3c0610995ff329c3264d98fec858ad0c7facbd7d16c902fc456c54f5/imas_core-5.7.2-cp314-cp314-win_amd64.whl", hash = "sha256:215964968fa96c6de0ff51be3e8b54bf86ebb85d3f112694a2221b1f1ac9d9e1", size = 5428418 },
 ]
 
 [[package]]
@@ -1723,7 +1726,6 @@ source = { editable = "." }
 dependencies = [
     { name = "jax" },
     { name = "jax-envelope" },
-    { name = "jaxlib" },
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -1769,13 +1771,12 @@ research = [
 
 [package.metadata]
 requires-dist = [
-    { name = "jax", specifier = "==0.10.1" },
+    { name = "jax", specifier = ">=0.10.1" },
     { name = "jax-envelope", specifier = "~=0.6.1" },
-    { name = "jaxlib", specifier = "==0.10.1" },
     { name = "numpy", specifier = ">2" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pyyaml" },
-    { name = "torax", specifier = ">=1.4.1,<1.5" },
+    { name = "torax", specifier = ">=1.4.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -2435,9 +2436,13 @@ wheels = [
 [[package]]
 name = "tglfnn-ukaea"
 version = "0.2.0"
-source = { git = "https://github.com/ukaea/tglfnn-ukaea.git?rev=v0.2.0-draft#df2a80b3f43f904b8bd1058458f3f7a7f2097db9" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/38/7b/f16a59defdc66d0abf998996aa333cae9dc1ae2a02a44fe4c53020c6439f/tglfnn_ukaea-0.2.0.tar.gz", hash = "sha256:7a27eba077ba96b2810ddd021c58e4acc91cc69edc085f1aae728d3786d59418", size = 118874946 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9e/af/19989fad0e1418bf789d32e1ae84d0557a3d724a8303449c03213b755a6f/tglfnn_ukaea-0.2.0-py3-none-any.whl", hash = "sha256:b0765ec8aabdfbf60f96dd895388f7088a591167d9737f3599853d29f39b09fd", size = 118872259 },
 ]
 
 [[package]]

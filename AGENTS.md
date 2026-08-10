@@ -23,7 +23,7 @@ uv sync --no-dev --group artifacts
 
 uv run pytest
 uv run pytest experiments/tests/
-uv run pytest -o addopts="" -m integration tests/
+uv run pytest -m integration tests/
 uv run ruff check .
 uv run ruff format .
 uv build
@@ -124,7 +124,7 @@ Every leaf YAML stores task defaults:
 ```yaml
 task:
   reward: lh_transition
-  terminal_penalty: -99.99568287525884
+  terminal_penalty: -100
 ```
 
 Loaders default to `variant="realistic"`. Omitted reward and disruption-penalty
@@ -137,9 +137,14 @@ existing sensor-noise behavior. Do not add new noise validation, clipping,
 reset-state positivity/quasineutrality gates, disruption gates, or stricter core
 schema constraints.
 
-The uv-only TGLFNN override remains in `pyproject.toml` until a compatible
-release is available from the package index. Published metadata itself must not
-contain a direct Git dependency. Keep the current TORAX and JAX pins.
+The uv-only TGLFNN override remains in `pyproject.toml` until TORAX adopts
+`fusion-surrogates` 0.4.7 and its compatible TGLFNN 0.2.0 dependency. Keep the
+override index-hosted; published metadata cannot express uv overrides.
+
+Runtime metadata uses tested lower bounds while `uv.lock` keeps clone and CI
+installs exact. Do not add a TORAX upper bound without a demonstrated
+incompatibility. Envelope is pre-1.0, so keep it within a tested compatible
+minor series. Depend on JAX rather than duplicating its matching `jaxlib` pin.
 
 ## Tests
 
@@ -150,10 +155,11 @@ Tests use pytest and NumPy testing helpers. Prefer:
 - `chex.assert_trees_all_close` for pytrees;
 - `pytest.raises(..., match=...)` for error behavior.
 
-The default command excludes tests marked `integration`. Do not change that
-policy: CI runs the integration suite explicitly in seven shards. Keep geometry,
-STEP, KSTAR, fixed-duration stepping, and TORAX-reference parity in the
-appropriate integration tier.
+The default `uv run pytest` command includes tests marked `integration`. CI
+partitions execution explicitly: the fast job selects `not integration`, and the
+integration suite runs in seven shards. Keep focused geometry, STEP, KSTAR, and
+fixed-duration tests in the fast suite; keep full-matrix and external-reference
+parity checks marked `integration`.
 
 Release checks build a wheel and a source distribution and run `twine check` on
 them. Nothing installs or smoke-tests the built artifacts.

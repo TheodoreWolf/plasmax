@@ -31,4 +31,5 @@ CLAUDE.md
 # Local-only research infrastructure and notes.
 /experiments/cluster/
 /docs/
-/tools/manifests/make_baseline_manifest.py
+/tools/manifests/*
+.flairignore

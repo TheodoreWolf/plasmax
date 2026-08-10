@@ -62,8 +62,8 @@ jobs:
       - name: Install development dependencies
         run: uv sync --locked --group dev
 
-      - name: Run test suite
-        run: uv run pytest tests/
+      - name: Run fast test suite
+        run: uv run pytest -m "not integration" tests/
 
       - name: Run clone-only experiment tests
         run: uv run pytest experiments/tests/
@@ -110,7 +110,7 @@ jobs:
         run: uv sync --locked --group dev
 
       - name: Run integration test suite
-        run: uv run pytest -o addopts="" -m integration -k "${{ matrix.selector }}" tests/
+        run: uv run pytest -m integration -k "${{ matrix.selector }}" tests/
 
   distributions:
     name: Installed distributions
