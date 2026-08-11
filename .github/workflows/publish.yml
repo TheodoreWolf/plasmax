@@ -36,7 +36,7 @@ jobs:
         run: uv build
 
       - name: Check distribution metadata
-        run: uvx --from "twine==6.2.0" twine check dist/*
+        run: uvx --from "twine==7.0.0" twine check dist/*
 
       - name: Upload distributions
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
