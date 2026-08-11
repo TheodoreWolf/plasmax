@@ -17,6 +17,9 @@ Both tiers share :func:`_assert_step_contract`, the single source of truth
 for "what a healthy env must do".
 """
 
+import gc
+from collections.abc import Iterator
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -139,6 +142,13 @@ class EnvCanaryTest:
 @pytest.mark.integration
 class EnvMatrixSmokeTest:
     """Every registered (env, backend, variant). Opt-in (~10-15 min cold)."""
+
+    @pytest.fixture(autouse=True)
+    def _release_jax_compilations(self) -> Iterator[None]:
+        """Release compiled state retained by each independent matrix case."""
+        yield
+        jax.clear_caches()
+        gc.collect()
 
     @pytest.mark.parametrize("variant", _VARIANTS)
     @pytest.mark.parametrize(

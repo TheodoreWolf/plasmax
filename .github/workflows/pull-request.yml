@@ -74,7 +74,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      # Separate runners release JAX compilation caches between scenario families.
+      # Matrix cases release JAX compilation caches after each independent test.
       matrix:
         include:
           - name: iter-baseline
@@ -88,7 +88,7 @@ jobs:
           - name: sparc-reduced-field
             selector: sparc_reduced_field
           - name: step
-            selector: step
+            selector: "EnvMatrixSmokeTest and step"
           - name: other
             selector: not EnvMatrixSmokeTest
 
