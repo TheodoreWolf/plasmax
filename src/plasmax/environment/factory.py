@@ -18,13 +18,16 @@ from plasmax import rewards as rewards_lib
 from plasmax import spaces as spaces_lib
 from plasmax import wrappers as wrappers_lib
 from plasmax.environment import core as env_lib
+from plasmax.environment import initialization as initialization_lib
 from plasmax.environment import registry as registry_lib
 from plasmax.environment.config import (
-    _parse_world_model_sources,
+    PhaseInitializationConfig,
+    WorldModelBackendConfig,
+    WorldModelEnvironmentConfig,
     backend_kind,
-    parse_env_and_backend,
     parse_scenario,
-    validate_env_backend,
+    parse_torax_sources,
+    parse_world_model_sources,
 )
 from plasmax.environment.merge import (
     _apply_imas_init,
@@ -120,8 +123,8 @@ def _with_quantized_actions(
 
 
 def _load_world_model_env(
-    env_cfg: dict[str, Any],
-    backend_cfg: dict[str, Any],
+    env_cfg: WorldModelEnvironmentConfig,
+    backend_cfg: WorldModelBackendConfig,
     *,
     max_steps: int | None,
     time_aware: bool,
@@ -129,21 +132,10 @@ def _load_world_model_env(
     """Build a scalar Envelope environment around learned KSTAR dynamics."""
     from plasmax.models import world_model_env as wm_env_lib
 
-    name = backend_cfg.get("name")
-    if name != "kstar_lstm":
-        raise ValueError(
-            f"unknown world_model backend {name!r}; only 'kstar_lstm' is supported"
-        )
-    if "max_steps_in_episode" not in env_cfg:
-        raise ValueError(
-            "world_model_env.max_steps_in_episode is required to define the "
-            "KSTAR simulator-safe horizon"
-        )
-    safe_max_steps = env_cfg["max_steps_in_episode"]
+    safe_max_steps = env_cfg.max_steps_in_episode
     episode_max_steps = _resolve_max_steps(max_steps, safe_max_steps)
-    env: Environment = wm_env_lib.WorldModelEnv(
-        random_target=env_cfg.get("random_target", True)
-    )
+    env_type = {"kstar_lstm": wm_env_lib.WorldModelEnv}[backend_cfg.name]
+    env: Environment = env_type(random_target=env_cfg.random_target)
     if time_aware:
         env = wrappers_lib.TimeAwareWrapper(env=env)
     return wrappers_lib.PlasmaxTruncationWrapper(env=env, max_steps=episode_max_steps)
@@ -209,6 +201,22 @@ def _resolve_task_settings(
     return resolved_reward, resolved_penalty
 
 
+def _load_phase_snapshot(
+    env_path: str,
+    spec: PhaseInitializationConfig | None,
+    *,
+    expected_environment: str,
+) -> initialization_lib.PhaseSnapshot | None:
+    """Resolve and validate one phase-owned NPZ snapshot."""
+    if spec is None:
+        return None
+    return initialization_lib.load_snapshot(
+        spec.resolve_path(env_path),
+        expected_sha256=spec.sha256,
+        expected_environment=expected_environment,
+    )
+
+
 def _build_env(
     cfg: ScenarioConfig,
     torax_config: model_config.ToraxConfig,
@@ -218,6 +226,7 @@ def _build_env(
     disruption_penalty: float,
     ablate: str | None = None,
     time_aware: bool = False,
+    phase_snapshot: initialization_lib.PhaseSnapshot | None = None,
 ) -> Environment:
     """Assembles the wrapper stack from a validated ScenarioConfig and RL settings.
 
@@ -280,6 +289,7 @@ def _build_env(
             cfg.physics_randomization if variant == "realistic" else {}
         ),
         stepping=cfg.stepping,
+        _initialization=phase_snapshot,
         profile_obs_specs=profile_obs_specs,
         scalar_obs_specs=scalar_obs_specs,
     )
@@ -467,9 +477,7 @@ def _load_env(
             f"unknown variant {variant!r}; expected 'oracle' or 'realistic'"
         )
     if backend_kind(backend_path) == "world_model":
-        if validate:
-            validate_env_backend(env_path, backend_path)
-        sources = _parse_world_model_sources(env_path, backend_path)
+        sources = parse_world_model_sources(env_path, backend_path, validate=validate)
         resolved_reward = sources.task.reward if reward is None else reward
         resolved_penalty = (
             sources.task.terminal_penalty
@@ -495,7 +503,8 @@ def _load_env(
             max_steps=max_steps,
             time_aware=time_aware,
         )
-    cfg = parse_env_and_backend(env_path, backend_path, validate=validate)
+    sources = parse_torax_sources(env_path, backend_path, validate=validate)
+    cfg = sources.scenario
     cfg = _with_quantized_actions(cfg, variant, quantize_bins)
     _validate_realistic_obs_names(cfg)
     _validate_quantize_names(cfg)
@@ -504,6 +513,11 @@ def _load_env(
     torax_dict = _apply_imas_init(dict(cfg.torax), env_path)
     torax_dict = _resolve_geometry_dir(torax_dict, env_path)
     torax_config = model_config.ToraxConfig.from_dict(torax_dict)
+    phase_snapshot = _load_phase_snapshot(
+        env_path,
+        sources.initialization,
+        expected_environment=sources.environment_key,
+    )
     resolved_reward, resolved_penalty = _resolve_task_settings(
         cfg, reward, disruption_penalty
     )
@@ -516,4 +530,5 @@ def _load_env(
         resolved_penalty,
         ablate,
         time_aware,
+        phase_snapshot,
     )

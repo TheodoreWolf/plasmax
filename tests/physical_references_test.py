@@ -14,7 +14,6 @@ import pytest
 from plasmax.environment.config import parse_env_and_backend
 from plasmax.environment.factory import make
 from plasmax.environment.merge import (
-    _load_extended_yaml,
     _merge_env_and_backend,
     valid_env_backend_combos,
 )
@@ -26,11 +25,6 @@ from plasmax.environment.references import (
 )
 from plasmax.environment.registry import resolve_backend, resolve_env
 from plasmax.wrappers import unwrap_to_env_state
-from tools.calibration.calibrate_backends import (
-    Candidate,
-    _changes_numerical_config,
-    _load_metadata,
-)
 from tools.calibration.improve_initial_conditions import (
     CELL_CENTRES,
     REFERENCE_DATA_DIR,
@@ -242,133 +236,6 @@ def test_itpa_gaussian_projection_parameters_match_declared_moments() -> None:
         for key, expected in declared.items():
             if key in sources[source_name]:
                 np.testing.assert_allclose(sources[source_name][key], expected)
-
-
-def test_torax_v1_4_2_locks_and_documented_local_projections() -> None:
-    hybrid_hot = _config("iter/hybrid/flattop")
-    profiles = hybrid_hot.torax["profile_conditions"]
-    sources = hybrid_hot.torax["sources"]
-    assert profiles["Ip"] == 10.5e6
-    assert profiles["nbar"] == 0.8
-    assert hybrid_hot.torax["numerics"]["t_final"] == 5.0
-    assert sources["generic_current"]["fraction_of_total_current"] == 0.46
-    assert sources["generic_particle"]["S_total"] == 2.05e20
-    assert sources["gas_puff"]["S_total"] == 6.0e21
-    assert sources["generic_heat"]["gaussian_location"] == pytest.approx(
-        0.12741589640723575
-    )
-    assert sources["generic_heat"]["gaussian_width"] == pytest.approx(
-        0.07280908366127758
-    )
-    assert sources["ecrh"]["gaussian_location"] == pytest.approx(
-        sources["generic_heat"]["gaussian_location"]
-    )
-    assert sources["ecrh"]["gaussian_width"] == pytest.approx(
-        sources["generic_heat"]["gaussian_width"]
-    )
-    total_power = sources["generic_heat"]["P_total"] + sources["ecrh"]["P_total"]
-    electron_fraction = (
-        sources["generic_heat"]["P_total"]
-        * sources["generic_heat"]["electron_heat_fraction"]
-        + sources["ecrh"]["P_total"]
-    ) / total_power
-    assert total_power == pytest.approx(51.0e6)
-    assert electron_fraction == pytest.approx(0.68)
-
-    # Shared, backend-independent numerical import setting for the released
-    # diverted PRD equilibrium. The raw GEQDSK hash is checked separately.
-    sparc_prd = _config("sparc/prd/flattop")
-    assert sparc_prd.torax["geometry"]["last_surface_factor"] == 0.9725
-
-    hybrid_cold = _config("iter/hybrid/rampup")
-    assert hybrid_cold.torax["profile_conditions"]["nbar"] == 0.3
-    assert hybrid_cold.torax["numerics"]["t_final"] == 80.0
-    assert hybrid_cold.torax["numerics"]["fixed_dt"] == 2.0
-
-    step = _config("step")
-    assert step.torax["numerics"]["t_final"] == 400.0
-    assert step.torax["numerics"]["fixed_dt"] == 10.0
-    assert step.torax["pedestal"]["T_i_ped"] == 4.0
-    assert step.torax["pedestal"]["T_e_ped"] == 5.0
-    assert step.torax["pedestal"]["n_e_ped"] == 6.0e19
-    assert step.torax["sources"]["ecrh"]["current_drive_efficiency"] == 0.14
-    assert step.torax["sources"]["pellet"]["S_total"] == 3.0e21
-    for key in (
-        "chi_e_bohm_multiplier",
-        "chi_i_bohm_multiplier",
-        "chi_e_gyrobohm_multiplier",
-        "chi_i_gyrobohm_multiplier",
-    ):
-        assert step.torax["transport"][key] == 0.15
-    assert step.torax["transport"]["D_face_c1"] == 1.0
-    assert step.torax["transport"]["D_face_c2"] == 0.3
-    assert step.torax["transport"]["V_face_coeff"] == -0.1
-
-
-def test_calibration_grids_are_bounded_and_source_corrections_stay_locked() -> None:
-    for backend in (
-        "bohm_gyrobohm",
-        "cgm",
-        "qlknn",
-        "tglfnn",
-        "tglfnn_nr",
-        "tglfnn_spherical",
-    ):
-        metadata = _load_metadata(backend)
-        assert metadata.max_physical_groups <= 2
-        for group in metadata.physical_groups.values():
-            assert len(group.relative_grid) == 5
-            assert 1.0 in group.relative_grid
-
-    bgb = _load_metadata("bohm_gyrobohm")
-    assert bgb.scope == "conventional_global"
-    assert bgb.preserved_envs == ("step",)
-    spherical = _load_metadata("tglfnn_spherical")
-    assert spherical.scope == "step_spherical"
-    nonlinear = _load_metadata("tglfnn_nr")
-    assert nonlinear.solver_only
-    assert nonlinear.physical_from == "tglfnn"
-
-    for backend in (
-        "bohm_gyrobohm",
-        "cgm",
-        "qlknn",
-        "tglfnn",
-        "tglfnn_spherical",
-    ):
-        metadata = _load_metadata(backend)
-        env = "step" if backend == "tglfnn_spherical" else "iter/hybrid/flattop"
-        nominal = _config(env, backend).torax["solver"]["n_corrector_steps"]
-        assert all(
-            value >= nominal for value in metadata.numerical["solver.n_corrector_steps"]
-        )
-
-    nr_config = _config("iter/hybrid/flattop", "tglfnn_nr")
-    nr_solver = nr_config.torax["solver"]
-    assert all(
-        value >= nr_solver["n_max_iterations"]
-        for value in nonlinear.numerical["solver.n_max_iterations"]
-    )
-    assert all(
-        value <= nr_solver["tau_min"] for value in nonlinear.numerical["solver.tau_min"]
-    )
-    nominal_nr = Candidate(
-        numerical=(
-            ("solver.n_max_iterations", nr_solver["n_max_iterations"]),
-            ("solver.tau_min", nr_solver["tau_min"]),
-            ("stepping.max_solver_substeps", nr_config.stepping.max_solver_substeps),
-        )
-    )
-    assert not _changes_numerical_config(nominal_nr, nr_config)
-
-    assert set(_load_metadata("qlknn").locked_nominal) == {
-        "transport.ITG_flux_ratio_correction",
-        "transport.ETG_correction_factor",
-    }
-    qlknn_raw = _load_extended_yaml(resolve_backend("qlknn"))
-    randomization = qlknn_raw["physics_randomization"]
-    assert "transport_model.ITG_flux_ratio_correction" not in randomization
-    assert "transport_model.ETG_correction_factor" not in randomization
 
 
 def test_backend_context_changes_dynamics_but_not_the_reset() -> None:

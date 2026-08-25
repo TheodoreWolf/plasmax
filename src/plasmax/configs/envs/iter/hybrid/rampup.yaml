@@ -1,13 +1,15 @@
 # ITER hybrid — ramp-up phase.
 #
 # The episode ends as soon as the current reaches the flat-top value — no
-# flat-top hold, no ramp-down. The plasma starts cold and only the 0–80 s Ip
+# flat-top hold, no ramp-down. The plasma starts cold and only the 0–100 s Ip
 # ramp (3 → 10.5 MA) is simulated. Isolates the cold-start ramp-up as its own
 # control problem, side-by-side with flattop (stationary) and rampdown
 # (terminal).
 #
 # Geometry:  Per-Ip FreeGSnke EQDSKs (3 / 4.5 / 10.5 MA).
-# Episode:   exact upstream t_final = 80 s, fixed_dt = 2 s → 40 steps.
+# The reset state and sources retain the calibrated TORAX v1.4.2 reference,
+# while the control task uses the original 100 s horizon and the shared ITER
+# fixed_dt = 0.1 s -> 1000 steps.
 
 phase: rampup
 reset_reference: iter_hybrid_cold_v1_4_2
@@ -18,12 +20,12 @@ task:
 
 torax:
   profile_conditions:
-    Ip: {0: 3.0e+6, 80: 10.5e+6}
+    Ip: {0: 3.0e+6, 100: 10.5e+6}
     T_i: {0.0: {0.0: 6.0, 1.0: 0.1}}
     T_i_right_bc: 0.1
     T_e: {0.0: {0.0: 6.0, 1.0: 0.1}}
     T_e_right_bc: 0.1
-    n_e_right_bc: {0: 0.1, 80: 0.3}
+    n_e_right_bc: {0: 0.1, 100: 0.3}
     n_e_right_bc_is_fGW: true
     n_e: {0.0: {0.0: 1.5, 1.0: 1.0}}
     nbar: 0.3
@@ -31,13 +33,12 @@ torax:
     normalize_n_e_to_nbar: true
     n_e_nbar_is_fGW: true
   numerics:
-    t_final: 80.0
-    fixed_dt: 2.0
+    t_final: 100.0               # full ramp-up control horizon [s] -> 1000 steps
   geometry:
     geometry_configs:
       0.0: {geometry_file: iter_hybrid_ip030.eqdsk}
-      16.0: {geometry_file: iter_hybrid_ip045.eqdsk}
-      80.0: {geometry_file: iter_hybrid_ip105.eqdsk}
+      20.0: {geometry_file: iter_hybrid_ip045.eqdsk}
+      100.0: {geometry_file: iter_hybrid_ip105.eqdsk}
   sources:
     generic_current:
       fraction_of_total_current: 0.15
@@ -55,7 +56,7 @@ torax:
   pedestal:
     T_i_ped: 1.0
     T_e_ped: 1.0
-    n_e_ped: {0: 0.3, 80: 0.7}
+    n_e_ped: {0: 0.3, 100: 0.7}
     n_e_ped_is_fGW: true
     rho_norm_ped_top: 0.9
 actuators:

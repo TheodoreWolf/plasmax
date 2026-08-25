@@ -21,6 +21,7 @@ from torax._src.physics import formulas
 from torax._src.torax_pydantic import interpolated_param_1d, model_config
 
 from plasmax.control import ControlInputs, _ControlInputsApplier, _PhysicsParamsApplier
+from plasmax.environment import initialization as initialization_lib
 from plasmax.environment import schema as scenario_models
 from plasmax.environment import validation as environment_validation
 from plasmax.environment.stepping import fixed_duration_step
@@ -275,6 +276,7 @@ class _ToraxDynamics:
             str, scenario_models.PhysicsRandomizationSpec
         ] = _NO_PHYSICS_RANDOMIZATION,
         stepping: scenario_models.SteppingConfig | None = None,
+        initialization: initialization_lib.PhaseSnapshot | None = None,
         *,
         profile_obs_specs: Sequence[ObsSpec],
         scalar_obs_specs: Sequence[ObsSpec],
@@ -387,7 +389,9 @@ class _ToraxDynamics:
         # between midpoint and the design operating point.
         initial_prev_action = self._build_initial_prev_action(self._step_fn)
         self._initial_obs, self._initial_env_state = self._compute_reset(
-            self._step_fn, initial_prev_action
+            self._step_fn,
+            initial_prev_action,
+            initialization,
         )
         self._obs_shape = self._initial_obs.shape
         # Keep TORAX physics in its configured precision while exposing a
@@ -489,10 +493,17 @@ class _ToraxDynamics:
         self,
         step_fn: SimulationStepFn,
         prev_action: jax.Array,
+        initialization: initialization_lib.PhaseSnapshot | None,
     ) -> tuple[jax.Array, EnvState]:
-        sim_state, postout = (
-            initial_state_lib.get_initial_state_and_post_processed_outputs(step_fn)
-        )
+        if initialization is None:
+            sim_state, postout = (
+                initial_state_lib.get_initial_state_and_post_processed_outputs(step_fn)
+            )
+        else:
+            sim_state, postout = initialization_lib.rebuild_state_from_snapshot(
+                initialization,
+                step_fn=step_fn,
+            )
         # Seed phys_params with each path's nominal value at t=0, so reset and
         # transition states have the same pytree structure.
         phys_params = dict(self._physics_nominals)
@@ -771,6 +782,7 @@ class PlasmaxEnv(Environment):
         *,
         profile_obs_specs: Sequence[ObsSpec],
         scalar_obs_specs: Sequence[ObsSpec],
+        _initialization: initialization_lib.PhaseSnapshot | None = None,
     ) -> Self:
         """Constructs and validates the private TORAX transition component."""
         return cls(
@@ -785,6 +797,7 @@ class PlasmaxEnv(Environment):
                 state_noise_config=state_noise_config,
                 physics_randomization=physics_randomization,
                 stepping=stepping,
+                initialization=_initialization,
                 profile_obs_specs=profile_obs_specs,
                 scalar_obs_specs=scalar_obs_specs,
             )

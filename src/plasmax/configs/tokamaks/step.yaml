@@ -7,6 +7,30 @@
 # scenario sets `tokamak: step` to inherit this.
 
 torax:
+  # STEP does not inherit the conventional ITER/SPARC base. Keep its complete
+  # shared physics explicit here so its BgB and spherical-TGLFNN variants differ
+  # only in turbulent transport and solver implementation.
+  numerics:
+    max_dt: 0.1
+    chi_timestep_prefactor: 50
+    dt_reduction_factor: 3
+  neoclassical:
+    bootstrap_current:
+      model_name: redl
+      bootstrap_multiplier: 1.0
+    conductivity:
+      model_name: sauter
+    transport:
+      model_name: angioni_sauter
+      use_shaing_ion_correction: true
+  pedestal:
+    model_name: set_T_ped_n_ped
+    set_pedestal: true
+    mode: ADAPTIVE_TRANSPORT
+    formation_model:
+      model_name: martin_scaling
+  time_step_calculator:
+    calculator_type: fixed
   geometry:
     geometry_type: imas
     geometry_directory: ${DATA_DIR}
@@ -48,7 +72,8 @@ state_noise:
 # Shared STEP uncertainty. The radiation fraction is a scenario-calibration
 # prior; transport-model ranges come from the selected backend.
 physics_randomization:
-  numerics.resistivity_multiplier: {relative: [0.95, 1.05]}
+  neoclassical.bootstrap_current.bootstrap_multiplier:
+    {relative: [0.95, 1.05]}
   pedestal.T_i_ped: {relative: [0.8, 1.2]}
   pedestal.T_e_ped: {relative: [0.8, 1.2]}
   pedestal.n_e_ped: {relative: [0.8, 1.2]}

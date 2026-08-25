@@ -31,6 +31,7 @@ from plasmax.environment.config import (
     ObsFilterSpec,
     ObsProfileConfig,
     ObsScalarConfig,
+    PhaseInitializationConfig,
     RealisticObsConfig,
     ScenarioConfig,
     SteppingConfig,
@@ -139,6 +140,31 @@ class ScenarioConfigRoundTripTest:
             assert raw["actuators"][0]["max_delta"] == float("inf")
             loaded = config_lib.parse_scenario(path)
             assert loaded.actuators[0].max_delta == float("inf")
+
+
+class PhaseInitializationConfigTest:
+    def test_validates_and_freezes_snapshot_reference(self):
+        config = PhaseInitializationConfig(
+            path="${DATA_DIR}/initializations/state.npz",
+            sha256="A" * 64,
+        )
+
+        assert config.sha256 == "a" * 64
+        with pytest.raises(pydantic.ValidationError, match="frozen"):
+            config.path = "other.npz"
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            {"path": "", "sha256": "0" * 64},
+            {"path": 1, "sha256": "0" * 64},
+            {"path": "state.npz", "sha256": "not-a-checksum"},
+            {"path": "state.npz", "sha256": "0" * 64, "unknown": True},
+        ],
+    )
+    def test_rejects_invalid_snapshot_reference(self, values):
+        with pytest.raises(pydantic.ValidationError):
+            PhaseInitializationConfig.model_validate(values)
 
 
 class SteppingConfigTest:
@@ -808,7 +834,7 @@ class TglfnnMachineConfigTest:
         assert cfg.torax["solver"]["tau_min"] == 1.0e-6
 
         nr_randomization = cfg.physics_randomization
-        assert "transport_model.collisionality_multiplier" not in nr_randomization
+        assert "transport_model.collisionality_multiplier" in nr_randomization
 
     def test_spherical_backend_declares_step(self):
         cfg = parse_env_and_backend("step", "tglfnn_spherical")

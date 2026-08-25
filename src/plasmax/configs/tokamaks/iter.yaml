@@ -10,6 +10,8 @@
 # scaling / disruption thresholds below are the unified ITER RL interface (the
 # hybrid values, adopted as the source of truth for all ITER scenarios).
 
+extends: conventional_base.yaml
+
 torax:
   # Ion mix + impurity species are common to all ITER scenarios; each scenario
   # sets its own Z_eff (impurity content) on top.
@@ -90,7 +92,6 @@ state_noise:
 # ranges multiply each scenario's own nominal value; model-specific ranges live
 # with the backends. See physics_randomization/README.md for provenance.
 physics_randomization:
-  numerics.resistivity_multiplier: {relative: [0.95, 1.05]}
   pedestal.T_i_ped: {relative: [0.8, 1.2]}
   pedestal.T_e_ped: {relative: [0.8, 1.2]}
   pedestal.n_e_ped: {relative: [0.8, 1.2]}

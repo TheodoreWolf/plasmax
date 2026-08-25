@@ -23,6 +23,7 @@ _META_KEYS = (
     "scenario",
     "phase",
     "reset_reference",
+    "initialization",
 )
 
 
@@ -39,6 +40,33 @@ def _configs_root(path: str) -> Path:
             return anc.parent
     # Fallback for non-envs paths (e.g. the single-file test.yaml scenario).
     return p.parent
+
+
+def resolve_config_asset(
+    reference: str | Path,
+    yaml_path: str | Path,
+) -> Path:
+    """Resolve a config-owned asset against its declaring YAML file.
+
+    ``${DATA_DIR}`` names the packaged ``configs/data`` directory and
+    ``${SCENARIO_DIR}`` names the declaring YAML's directory. Other relative
+    paths are also interpreted relative to the declaring YAML. The path need
+    not exist yet so artifact-generation tools can resolve their destination.
+    """
+    declaring_path = Path(yaml_path).resolve()
+    resolved_reference = str(reference)
+    resolved_reference = resolved_reference.replace(
+        _DATA_DIR_TOKEN,
+        str(_configs_root(str(declaring_path)) / "data"),
+    )
+    resolved_reference = resolved_reference.replace(
+        _SCENARIO_DIR_TOKEN,
+        str(declaring_path.parent),
+    )
+    asset_path = Path(resolved_reference)
+    if not asset_path.is_absolute():
+        asset_path = declaring_path.parent / asset_path
+    return asset_path.resolve()
 
 
 def _env_key(env_path: str) -> str:
@@ -72,8 +100,7 @@ def _load_tokamak_defaults(env_path: str, env_raw: dict[str, Any]) -> dict[str, 
             f"env {_env_key(env_path)!r} sets tokamak: {name!r} but "
             f"{str(tokamak_path)!r} does not exist"
         )
-    with open(tokamak_path) as f:
-        return yaml.safe_load(f) or {}
+    return _load_extended_yaml(tokamak_path)
 
 
 def _load_scenario_base(env_path: str) -> dict[str, Any]:
@@ -313,7 +340,12 @@ def _merge_env_and_backend(env_path: str, backend_path: str) -> dict[str, Any]:
         "physics_randomization",
         "stepping",
     }
-    extra = set(backend_raw) - allowed_backend_blocks
+    extra = {
+        key
+        for key, value in backend_raw.items()
+        if key not in allowed_backend_blocks
+        and not (key == "initialization" and value is None)
+    }
     if extra:
         raise ValueError(
             f"Backend YAML {backend_path!r} may only contain "
@@ -332,6 +364,21 @@ def _merge_env_and_backend(env_path: str, backend_path: str) -> dict[str, Any]:
     env_raw = _deep_merge(base_raw, phase_raw)
     tokamak_raw = _load_tokamak_defaults(env_path, env_raw)
     wrapper_raw = _load_wrapper_defaults(env_path)
+
+    initialization = phase_raw.get("initialization")
+    if initialization is not None and not isinstance(initialization, dict):
+        raise ValueError(
+            f"initialization in phase env {env_path!r} must contain a mapping"
+        )
+    for layer_name, layer in (
+        ("scenario base", base_raw),
+        ("tokamak", tokamak_raw),
+    ):
+        if layer.get("initialization") is not None:
+            raise ValueError(
+                "initialization is phase-only metadata and cannot be declared "
+                f"by the {layer_name} layer for env {_env_key(env_path)!r}"
+            )
 
     def _non_torax(d: dict[str, Any]) -> dict[str, Any]:
         return {k: v for k, v in d.items() if k != "torax" and k not in _META_KEYS}
@@ -428,6 +475,7 @@ def env_key(env_path: str) -> str:
 __all__ = [
     "backend_kind",
     "env_key",
+    "resolve_config_asset",
     "valid_env_backend_combos",
     "validate_env_backend",
 ]

@@ -38,7 +38,7 @@ torax:
   numerics:
     t_final: 0.5
     fixed_dt: 0.1
-    resistivity_multiplier: 200
+    resistivity_multiplier: 1
     evolve_ion_heat: true
     evolve_electron_heat: true
     evolve_current: true
@@ -67,6 +67,9 @@ torax:
   pedestal:
     model_name: set_T_ped_n_ped
     set_pedestal: false
+    # Keep the source-free mode explicit so enabling the pedestal later cannot
+    # silently activate TORAX's adaptive-source default.
+    mode: ADAPTIVE_TRANSPORT
   transport:
     model_name: constant
     chi_i: 1.0

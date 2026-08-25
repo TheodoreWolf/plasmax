@@ -2,24 +2,7 @@
 
 extends: tglfnn_base.yaml
 
-physics_randomization:
-  transport_model.collisionality_multiplier: {relative: [0.8, 1.2]}
-  transport_model.chi_i_inner: {relative: [0.9, 1.1]}
-  transport_model.chi_e_inner: {relative: [0.9, 1.1]}
-  transport_model.D_e_inner: {relative: [0.9, 1.1]}
-  transport_model.chi_i_outer: {relative: [0.9, 1.1]}
-  transport_model.chi_e_outer: {relative: [0.9, 1.1]}
-  transport_model.D_e_outer: {relative: [0.9, 1.1]}
-  neoclassical.bootstrap_current.bootstrap_multiplier: {relative: [0.95, 1.05]}
-  pedestal.formation_model.P_LH_prefactor: {relative: [0.8, 1.25]}
-
 torax:
-  pedestal:
-    model_name: set_T_ped_n_ped
-    set_pedestal: true
-    mode: ADAPTIVE_TRANSPORT
-    formation_model:
-      model_name: martin_scaling
   transport:
     machine: multimachine
   solver:
