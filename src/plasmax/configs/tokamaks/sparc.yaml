@@ -6,6 +6,8 @@
 # field H-mode 12.2 T / 8.7 MA) and `reduced_field` (early-ops H-mode 8 T /
 # 5.7 MA). B0 is set per scenario by the EQDSK geometry (fvac), not here.
 
+extends: conventional_base.yaml
+
 torax:
   plasma_composition:
     main_ion: {D: 0.5, T: 0.5}
@@ -72,7 +74,6 @@ state_noise:
 # Shared experimental/model uncertainty; backend-specific transport ranges are
 # merged in from backends/*.yaml. See physics_randomization/README.md.
 physics_randomization:
-  numerics.resistivity_multiplier: {relative: [0.95, 1.05]}
   pedestal.T_i_ped: {relative: [0.8, 1.2]}
   pedestal.T_e_ped: {relative: [0.8, 1.2]}
   pedestal.n_e_ped: {relative: [0.8, 1.2]}

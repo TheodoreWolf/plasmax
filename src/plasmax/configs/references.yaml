@@ -159,12 +159,17 @@ references:
       method: torax_config
       grid: TORAX v1.4.2 analytic profiles evaluated by TORAX
       notes:
-      - Upstream profiles, composition, pedestal, current fraction, source totals, and schedules are locked.
+      - Upstream profiles, composition, pedestal targets, current fraction, source totals, and schedules are locked.
+      - Controller dynamics retain the prescribed pedestal targets but enforce them through adaptive transport rather than hidden sources/sinks.
     profile_sha256: b991a79d06af13c7fb8b7b739a3e92a023a437ee421c4dbf88e2d096d6b62bd4
     locked_paths:
     - torax.profile_conditions
     - torax.plasma_composition
-    - torax.pedestal
+    - torax.pedestal.T_i_ped
+    - torax.pedestal.T_e_ped
+    - torax.pedestal.n_e_ped
+    - torax.pedestal.n_e_ped_is_fGW
+    - torax.pedestal.rho_norm_ped_top
     - torax.sources.generic_current
     - torax.sources.generic_particle
     - torax.sources.gas_puff
@@ -210,7 +215,8 @@ references:
       method: constrained_template
       grid: TORAX profile endpoints with geometry-derived psi
       notes:
-      - The upstream current, pedestal, source and geometry schedules are retained; the common ITER cold state uses 6-to-0.1 keV and f_GW=0.30.
+      - The upstream current, pedestal targets, source and geometry schedules are retained; the common ITER cold state uses 6-to-0.1 keV and f_GW=0.30.
+      - Controller dynamics retain the prescribed pedestal targets but enforce them through adaptive transport rather than hidden sources/sinks.
     profile_sha256: 2479c90397765042bbdc08f6f03ccb379d6587ff7e21e1ed6d4bcff844862462
     locked_paths:
     - torax.profile_conditions.Ip
@@ -220,7 +226,11 @@ references:
     - torax.profile_conditions.nbar
     - torax.profile_conditions.initial_psi_mode
     - torax.sources
-    - torax.pedestal
+    - torax.pedestal.T_i_ped
+    - torax.pedestal.T_e_ped
+    - torax.pedestal.n_e_ped
+    - torax.pedestal.n_e_ped_is_fGW
+    - torax.pedestal.rho_norm_ped_top
     - actuators
     targets:
       Ip_A: 3000000.0
@@ -548,7 +558,8 @@ references:
       grid: OpenSTEP IMAS profiles and equilibrium imported by TORAX at n_rho=25
       notes:
       - The released IMAS state is used without backend relaxation.
-      - TORAX v1.4.2 pedestal, source, current-efficiency and BgB settings are locked.
+      - TORAX v1.4.2 pedestal targets, source, current-efficiency and BgB settings are locked.
+      - Controller dynamics retain the prescribed pedestal targets but enforce them through adaptive transport rather than hidden sources/sinks.
     profile_sha256: cfbefa59510c570a71975ea866d69eb99d574342aed22937f66fdcdb8d24f9e6
     artifacts:
       data/STEP_SPP_001_ECHD_ftop.nc: 64fe9e0d7f634be8ce4b748c08090ecdca2a4a5212473fb5a2c33cb2b6fd4bad
@@ -557,7 +568,10 @@ references:
     - torax.profile_conditions
     - torax.plasma_composition
     - torax.geometry
-    - torax.pedestal
+    - torax.pedestal.T_i_ped
+    - torax.pedestal.T_e_ped
+    - torax.pedestal.n_e_ped
+    - torax.pedestal.rho_norm_ped_top
     - torax.sources.ecrh
     - torax.sources.pellet
     - torax.transport

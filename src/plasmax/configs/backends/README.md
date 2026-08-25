@@ -1,11 +1,13 @@
 # Backends
 
-A **backend** is the simulator engine: it defines the transport model, the
-solver, the neoclassical model, and the radiation sources. It is deep-merged
-with an **env** (the RL task — actuators, observations, geometry, scenario) at
-load time via `make(env_path, backend_path)`; the backend supplies
-defaults and the env wins on any leaf it sets explicitly. Not every env pairs
-with every backend — the allowed pairs are enforced by
+A TORAX **backend** is deliberately narrow: it selects the turbulent transport
+model and its model-specific guards, the solver and its fixed-duration substep
+budget, and uncertainty ranges specific to that transport model. It is
+deep-merged with an **env** (the RL task — actuators, observations, geometry,
+scenario) at load time via `make(env_path, backend_path)`. Shared physics and
+numerics live in the tokamak/scenario layers, so changing a backend does not
+silently change the rest of the simulated plant. Not every env pairs with every
+backend — the allowed pairs are enforced by
 `plasmax.environment.merge._VALID_ENV_BACKEND_COMBOS`
 (`valid_env_backend_combos()`).
 
@@ -43,11 +45,15 @@ A TORAX backend is essentially a choice on two independent axes.
 | **CGM** | analytic, theory-based | ITG critical-gradient (Guo–Romanelli); gyro-Bohm scaling with a critical-threshold nonlinearity | Fast, differentiable, no out-of-distribution (OOD) risk — a useful analytic cross-check on the default. |
 | **QLKNN** | ML surrogate | NN (`qlknn_7_11_v1`) trained on QuaLiKiz; ITG + TEM + ETG modes | High fidelity but valid only inside its training range; an exploring policy can drive it OOD, so inner/outer patches + chi/D/V clipping guard against runaway fluxes. |
 | **TGLFNN-UKAEA** | ML surrogate | NN surrogate of TGLF (Trapped-Gyro-Landau-Fluid) | Independent high-fidelity check on the QuaLiKiz-lineage QLKNN. Conventional and STEP-trained weights are selected by explicit backend files. |
-| **Bohm–GyroBohm (BgB)** | analytic, semi-empirical | Bohm + gyro-Bohm turbulent transport | **Current default.** Geometry-agnostic TORAX model; STEP's OpenSTEP-calibrated coefficients + pedestal live env-side in `envs/step.yaml`. |
+| **Bohm–GyroBohm (BgB)** | analytic, semi-empirical | Bohm + gyro-Bohm turbulent transport | **Current default.** Geometry-agnostic TORAX model with an OpenSTEP-calibrated STEP transport specialization. |
 
-All ITER/SPARC backends use **Redl bootstrap + Angioni–Sauter** neoclassical
-transport (Sauter-family analytic, differentiable), except `cgm` which uses a
-simple `bootstrap_multiplier`.
+All ITER/SPARC backends inherit the same conventional tokamak stack: **Redl
+bootstrap current, Sauter conductivity, and Angioni–Sauter neoclassical
+transport**. The common adaptive-transport pedestal uses prescribed targets and
+Martin L–H formation; common numerics, timestep settings, and backend-independent
+physics randomization are inherited from the same conventional base. CGM does
+not select a different neoclassical model. STEP owns its corresponding common
+neoclassical, pedestal, numerical, and randomization stack in `tokamaks/step.yaml`.
 
 ### Solver — how the coupled transport PDEs are advanced each step
 
@@ -88,13 +94,13 @@ TGLFNN, CGM) at the cost of accuracy over short transients.
 |------|-----------|--------|-----------|-----------|
 | `cgm.yaml` | CGM | linear | ITER/SPARC | Fast analytic alternative and robustness cross-check (~5 s compile, ~15 ms/step). |
 | `qlknn.yaml` | QLKNN | linear | ITER/SPARC | ML-fidelity transport, cheap solver — preferred for vectorised QLKNN rollouts/training. |
-| `bohm_gyrobohm.yaml` | Bohm–GyroBohm | linear | ITER/SPARC/STEP | **Default training/rollout backend.** Generic BgB model + guards; machine-specific calibration lives env-side. |
+| `bohm_gyrobohm.yaml` | Bohm–GyroBohm | linear | ITER/SPARC/STEP | **Default training/rollout backend.** Generic BgB model + guards; the resolved STEP pair applies its OpenSTEP transport calibration. |
 | `tglfnn.yaml` | TGLFNN-UKAEA | linear | ITER/SPARC | Conventional TGLFNN on the cheap solver; independent check on QLKNN. |
-| `tglfnn_nr.yaml` | TGLFNN-UKAEA | Newton-Raphson | ITER/SPARC | Nonlinear reference backend for validation rollouts; too costly for vectorized training. |
-| `tglfnn_spherical.yaml` | TGLFNN-UKAEA | linear | STEP | STEP-trained TGLFNN weights plus STEP pedestal values. |
+| `tglfnn_nr.yaml` | TGLFNN-UKAEA | Newton-Raphson | ITER/SPARC | Nonlinear reference backend; realistic runs share the linear TGLF backend's transport uncertainty, while oracle runs remain nominal and deterministic. |
+| `tglfnn_spherical.yaml` | TGLFNN-UKAEA | linear | STEP | STEP-trained TGLFNN weights on the fixed-cost linear solver; the common STEP plant stack remains tokamak-owned. |
 | `fusion_lstm.yaml` | — (learned dynamics) | — | KSTAR only | **Not a TORAX backend** — see below. |
 
-The three TGLFNN files extend the private `_common/tglfnn.yaml` fragment.
+The three TGLFNN files extend the private `tglfnn_base.yaml` fragment.
 That fragment is packaging-only configuration reuse, not a registered backend;
 each public backend still resolves to the same complete TORAX mapping.
 
@@ -112,8 +118,8 @@ reference case.
 | Magnetic geometry | Time-keyed EQDSK equilibria for ITER/SPARC; IMAS equilibrium for STEP | No self-consistent equilibrium solve; FBT is unused and CHEASE is reference-only. |
 | Composition and evolved profiles | D–T main-ion mix plus one impurity mixture; evolving Ti, Te, ne, and psi | ITER/SPARC currently use Ne as the single impurity and prescribe Zeff. Heavy-impurity transport is not modelled. |
 | Turbulent transport | Default BgB; optional CGM, QLKNN, and TGLFNN-UKAEA | Surrogates need OOD guards; BgB/CGM require calibration and do not reproduce all gyrokinetic effects. |
-| Neoclassical physics | Redl bootstrap plus Angioni–Sauter transport on BgB/QLKNN/TGLFNN; CGM uses a bootstrap multiplier | Model choice is currently backend-owned even though machine/scenario calibration may differ. |
-| Pedestal and L–H transition | Prescribed `set_T_ped_n_ped`; Martin formation model with adaptive source or transport | This is not a predictive ELMy-H pedestal model. |
+| Neoclassical physics | Redl bootstrap, Sauter conductivity, and Angioni–Sauter transport shared by every ITER/SPARC backend; STEP has one corresponding tokamak-owned stack | These are common plant assumptions, not transport-backend ablations. |
+| Pedestal and L–H transition | Tokamak-owned `set_T_ped_n_ped`/Martin/adaptive-transport semantics with scenario-owned targets | This is not a predictive ELMy-H pedestal model. `ADAPTIVE_SOURCE` is rejected because it can inject unreported heat and particles; pedestal targets are enforced through transport instead. |
 | Auxiliary heating/current | Gaussian generic heat/current plus Gaussian Lin–Liu ECCD | ITER NBI and SPARC ICRF are deposition approximations, not dedicated source solvers. |
 | Particle sources | Gas puff plus generic Gaussian source for ITER/SPARC; pellet model for STEP | Deposition is prescribed rather than coupled to neutral/pellet ablation physics. |
 | Core heat sources | Bosch–Hale D–T fusion, ion–electron heat exchange, and ohmic heating for ITER/SPARC/STEP | Ohmic uses the standard resistive model wherever current is evolved. |
@@ -132,12 +138,16 @@ The merge precedence is, from lowest to highest:
 Use the narrowest layer that owns the physics:
 
 - **Backend:** transport implementation, transport-specific corrections and
-  bounds, transport-dependent neoclassical choices, solver, and numerical
-  stabilization. A backend must remain usable by every registered compatible
-  machine.
-- **Tokamak (`tokamaks/*.yaml`):** machine-wide geometry plumbing, composition,
-  wall/edge constants, and source-model choices that are valid for every
-  scenario on that machine.
+  bounds, solver implementation and settings, fixed-duration solver budget, and
+  `transport_model.*` uncertainty. A backend must not choose neoclassical,
+  pedestal, source, radiation, or common numerical assumptions.
+- **Conventional tokamak base:** the common ITER/SPARC Redl/Sauter/
+  Angioni–Sauter stack, adaptive-transport Martin pedestal, timestep and common
+  numerical settings, and backend-independent physics randomization.
+- **Machine tokamak (`tokamaks/iter.yaml`, `tokamaks/sparc.yaml`):** geometry
+  plumbing, composition, wall/edge constants, source-model choices, disruption
+  limits, and the RL interface that are valid for every scenario on that
+  machine. `tokamaks/step.yaml` owns the corresponding full common STEP stack.
 - **Scenario base (`envs/<tokamak>/<scenario>/base.yaml`):** discharge-specific
   Zeff, source powers and deposition, minority fractions, pedestal targets, and
   other physics shared by ramp-up, flat-top, and ramp-down. Initial profiles
@@ -145,14 +155,13 @@ Use the narrowest layer that owns the physics:
 - **Phase YAML:** phase schedules, boundary conditions, geometry sequence,
   horizon, ramp-up profile overrides, and genuine phase-specific overrides.
 
-For SPARC specifically, models common to both PRD and reduced-field operation
-are selected once in `tokamaks/sparc.yaml`. Their operating points belong
-in `envs/sparc/prd/base.yaml` and `envs/sparc/reduced_field/base.yaml`. The
-bremsstrahlung/Mavrin/cyclotron model selection now lives at the tokamak layer
-(shared with ITER), while Zeff, radiation multipliers, ICRH power, minority
-concentration, and pedestal values remain scenario-level. Deep merge then keeps
-the backend focused on transport and avoids duplicating the same SPARC physics
-in every backend.
+For SPARC specifically, conventional models shared with ITER come from the
+conventional tokamak base; SPARC-only machine settings common to PRD and
+reduced-field operation live in `tokamaks/sparc.yaml`. Their operating points
+belong in `envs/sparc/prd/base.yaml` and
+`envs/sparc/reduced_field/base.yaml`. Zeff, radiation multipliers, ICRH power,
+minority concentration, and pedestal targets remain scenario-level. Deep merge
+therefore keeps a backend comparison confined to transport and solver.
 
 ## Fidelity roadmap
 
@@ -162,9 +171,9 @@ and comparison against a published or upstream TORAX reference case.
 
 | Priority | Addition | Recommended owner | Rationale and validation gate |
 |----------|----------|-------------------|-------------------------------|
-| Done | `sources.ohmic` for ITER and SPARC | `tokamaks/iter.yaml`, `tokamaks/sparc.yaml` | Landed at the tokamak layer (standard resistive model). Resistive heating now enters the power balance wherever current is evolved. |
-| Done | Bremsstrahlung and Mavrin impurity radiation backend-independent | ITER/SPARC tokamak files; scenario bases retain Zeff/multipliers | Moved to the tokamak layer, closing the ITER+BgB omission. STEP keeps its env-side lumped-radiation sink (no backend brems), removing a double-count against its OpenSTEP reference. |
-| Done | Cyclotron radiation (Albajar) | `tokamaks/iter.yaml`, `tokamaks/sparc.yaml` | Enabled for ITER and SPARC at the tokamak layer. **Not** on STEP: its lumped `P_in_scaled_flat_profile` sink already includes synchrotron. Wall reflection is the TORAX default (0.9) pending machine calibration. |
+| Done | `sources.ohmic` for ITER and SPARC | `tokamaks/iter.yaml`, `tokamaks/sparc.yaml` | Landed at the machine-tokamak layer (standard resistive model). Resistive heating now enters the power balance wherever current is evolved. |
+| Done | Bremsstrahlung and Mavrin impurity radiation backend-independent | ITER/SPARC machine-tokamak files; scenario bases retain Zeff/multipliers | Moved out of backends and into `tokamaks/iter.yaml` and `tokamaks/sparc.yaml`, closing the ITER+BgB omission. STEP keeps its tokamak-owned lumped-radiation sink (no backend brems), removing a double-count against its OpenSTEP reference. |
+| Done | Cyclotron radiation (Albajar) | `tokamaks/iter.yaml`, `tokamaks/sparc.yaml` | Enabled for ITER and SPARC at the machine-tokamak layer. **Not** on STEP: its lumped `P_in_scaled_flat_profile` sink already includes synchrotron. Wall reflection is the TORAX default (0.9) pending machine calibration. |
 | P1 | Replace SPARC's generic ICRF stand-in with ToricNN ICRH | Model/machine constants in `tokamaks/sparc.yaml`; power and minority mix in each SPARC scenario base | TORAX's ToricNN model is SPARC-specific and supplies species-resolved deposition. Validate supported field range, He3 composition, absorbed power, and deposition profiles before removing `generic_heat`. |
 | P1 | Enable fast-ion pressure, dilution, and ITG stabilization after ICRH | Fast-ion source/composition in SPARC; stabilization switches in `qlknn.yaml` and `tglfnn*.yaml` | Restores important ICRH confinement effects. Verify that zero-fast-ion cases are unchanged and avoid double-counting fusion-alpha heating. |
 | P1 | Couple the Extended Lengyel edge model | Machine constants in tokamak files; target temperature/seeding policy in scenario bases | Gives core boundary conditions and impurity seeding a physical divertor response. Start with SPARC, where compact high-power exhaust is central; validate explicit-coupling stability. |
@@ -175,15 +184,18 @@ and comparison against a published or upstream TORAX reference case.
 
 ## Reference Checks
 
-- `envs/step.yaml` (on `bohm_gyrobohm.yaml`) matches TORAX
+- The resolved `step` + `bohm_gyrobohm` pair matches TORAX
   `step_flattop_bgb.py` for the OpenSTEP BgB multiplier (`0.15`), base BgB
-  coefficients, clipping bounds, and pedestal values; the backend supplies the
-  Redl + Angioni-Sauter neoclassical models and the linear solver.
+  coefficients, and clipping bounds. The STEP tokamak supplies its common
+  neoclassical, pedestal, numerical, and randomization stack; the backend
+  supplies only the selected transport and solver.
 - `qlknn.yaml` uses the ITER hybrid QLKNN patch and clipping values from
   the TORAX ITER examples with a fixed-cost linear solver for rollouts/training.
 - `tglfnn.yaml`, `tglfnn_nr.yaml`, and `tglfnn_spherical.yaml` share the same
-  transport guards. The NR variant changes only the nonlinear solver controls;
-  the spherical variant selects the STEP-trained TGLFNN machine weights.
+  transport guards. The NR variant changes only the nonlinear solver and its
+  substep budget; realistic linear and NR runs use the same TGLF transport
+  uncertainty, while oracle runs use nominal values. The spherical variant
+  selects the STEP-trained TGLFNN machine weights.
 
 ### `fusion_lstm` is not a TORAX backend
 

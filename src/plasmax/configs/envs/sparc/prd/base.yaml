@@ -61,7 +61,6 @@ torax:
     model_name: set_T_ped_n_ped
     set_pedestal: true
     mode: ADAPTIVE_TRANSPORT
-    use_formation_model_with_adaptive_source: false
     formation_model:
       model_name: martin_scaling
     T_i_ped: 4.2825268

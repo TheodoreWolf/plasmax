@@ -808,7 +808,7 @@ class TglfnnMachineConfigTest:
         assert cfg.torax["solver"]["tau_min"] == 1.0e-6
 
         nr_randomization = cfg.physics_randomization
-        assert "transport_model.collisionality_multiplier" not in nr_randomization
+        assert "transport_model.collisionality_multiplier" in nr_randomization
 
     def test_spherical_backend_declares_step(self):
         cfg = parse_env_and_backend("step", "tglfnn_spherical")

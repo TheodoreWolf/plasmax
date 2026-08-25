@@ -21,8 +21,8 @@
 #            Ip is the initial condition only.
 # Sources:   ECCD (P_eccd, rho_eccd — Gaussian), pellet fuelling
 #            (pellet_rate), ohmic, fusion, ei_exchange, impurity radiation.
-# Episode:   t_final = 400 s, dt = 10 s -> 40 steps. Heavy impurity radiation,
-#            very long current diffusion time (resistivity_multiplier = 10).
+# Episode:   t_final = 400 s, dt = 10 s -> 40 steps. Heavy impurity radiation
+#            and the physical current-diffusion timescale.
 # Reference: Tholerus et al., Nucl. Fusion 2024 (10.1088/1741-4326/ad6ea2);
 #            OpenSTEP data release (DOI 10.14468/07jt-s540);
 #            TORAX step_flattop_bgb.py example.
@@ -67,7 +67,7 @@ torax:
   numerics:
     t_final: 400.0
     fixed_dt: 10.0
-    resistivity_multiplier: 10.0
+    resistivity_multiplier: 1.0
     min_rho_norm: 0.015
     evolve_ion_heat: true
     evolve_electron_heat: true
@@ -125,8 +125,8 @@ torax:
     model_name: set_T_ped_n_ped
     set_pedestal: true
     # Values interpolated from the released profiles at rho_tor_norm = 0.95.
-    mode: ADAPTIVE_SOURCE
-    use_formation_model_with_adaptive_source: false
+    # Enforce them through adaptive transport, not hidden particle/energy sources.
+    mode: ADAPTIVE_TRANSPORT
     rho_norm_ped_top: 0.95
     T_i_ped: 4.0
     T_e_ped: 5.0

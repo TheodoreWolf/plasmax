@@ -1,0 +1,37 @@
+# Physics shared by conventional-aspect-ratio ITER and SPARC tasks.
+#
+# Turbulent transport and the PDE solver are backend choices. Neoclassical
+# physics, pedestal semantics, generic numerics, and their uncertainties define
+# the common physical problem and must not vary with that backend choice.
+
+physics_randomization:
+  neoclassical.bootstrap_current.bootstrap_multiplier:
+    {relative: [0.95, 1.05]}
+  pedestal.formation_model.P_LH_prefactor: {relative: [0.8, 1.25]}
+
+torax:
+  numerics:
+    # max_dt is inert under the fixed calculator, but keep the literature-
+    # qualified 0.1 s limit explicit for every backend and future calculator.
+    max_dt: 0.1
+    chi_timestep_prefactor: 50
+    dt_reduction_factor: 3
+  neoclassical:
+    bootstrap_current:
+      model_name: redl
+      bootstrap_multiplier: 1.0
+    conductivity:
+      model_name: sauter
+    transport:
+      model_name: angioni_sauter
+      use_shaing_ion_correction: true
+  pedestal:
+    model_name: set_T_ped_n_ped
+    set_pedestal: true
+    # Enforce pedestal targets through transport, never hidden heat/particle
+    # sources. Scenarios provide the machine/discharge-specific target values.
+    mode: ADAPTIVE_TRANSPORT
+    formation_model:
+      model_name: martin_scaling
+  time_step_calculator:
+    calculator_type: fixed

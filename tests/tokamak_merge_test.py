@@ -67,8 +67,10 @@ class TokamakMergeTest:
         assert rampup_actuators["P_nbi"]["init"] == 20.0e6
         assert flattop_actuators["P_nbi"]["init"] == 23_314_285.714285713
         # Phase deltas differ and win over base.
-        assert rampup["torax"]["numerics"]["t_final"] == 80.0
-        assert flattop["torax"]["numerics"]["t_final"] == 5.0
+        assert rampup["torax"]["numerics"]["t_final"] == 100.0
+        assert rampup["torax"]["numerics"]["fixed_dt"] == 0.1
+        assert flattop["torax"]["numerics"]["t_final"] == 440.0
+        assert flattop["torax"]["numerics"]["fixed_dt"] == 0.1
         assert "geometry_configs" in rampup["torax"]["geometry"]
         assert (
             flattop["torax"]["geometry"]["geometry_file"] == "iter_hybrid_ip105.eqdsk"
@@ -82,6 +84,19 @@ class RadiationBackendIndependenceTest:
     """Ohmic + brems + Mavrin impurity radiation are tokamak-owned, so every
     transport backend resolves the same source stack (closes the old ITER+BgB
     impurity-radiation omission)."""
+
+    def test_hybrid_control_horizons_identical_across_backends(self):
+        for backend in (
+            "cgm",
+            "qlknn",
+            "tglfnn",
+            "tglfnn_nr",
+            "bohm_gyrobohm",
+        ):
+            rampup = _merge("iter/hybrid/rampup", backend)["torax"]["numerics"]
+            flattop = _merge("iter/hybrid/flattop", backend)["torax"]["numerics"]
+            assert (rampup["t_final"], rampup["fixed_dt"]) == (100.0, 0.1)
+            assert (flattop["t_final"], flattop["fixed_dt"]) == (440.0, 0.1)
 
     def test_iter_source_stack_identical_across_backends(self):
         for backend in (

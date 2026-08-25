@@ -64,7 +64,7 @@ torax:
     ei_exchange:
       Qei_multiplier: 1.0
   # pedestal — ITER hybrid H-mode target values. The backend supplies the
-  # pedestal model and L-H formation rule for the transport family.
+  # pedestal model and source-free L-H formation rule for the transport family.
   pedestal:
     T_i_ped: 4.5
     T_e_ped: 4.5

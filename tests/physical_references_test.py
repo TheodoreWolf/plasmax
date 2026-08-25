@@ -27,9 +27,11 @@ from plasmax.environment.references import (
 from plasmax.environment.registry import resolve_backend, resolve_env
 from plasmax.wrappers import unwrap_to_env_state
 from tools.calibration.calibrate_backends import (
+    CalibrationMetadata,
     Candidate,
     _changes_numerical_config,
-    _load_metadata,
+    _load_search_spaces,
+    _validate_physical_bounds,
 )
 from tools.calibration.improve_initial_conditions import (
     CELL_CENTRES,
@@ -80,6 +82,25 @@ def _time_zero_geometry_file(env: str) -> str:
     return str(geometry["geometry_file"])
 
 
+def _calibration_metadata(backend: str) -> CalibrationMetadata:
+    """Validate calibration grids against the resolved environment priors."""
+    raw = _load_search_spaces().get(backend)
+    assert isinstance(raw, dict)
+    metadata = CalibrationMetadata.model_validate(raw)
+    reference_env = (
+        "step" if metadata.scope == "step_spherical" else "iter/hybrid/flattop"
+    )
+    randomization = {
+        path: spec.model_dump(mode="python")
+        for path, spec in _config(
+            reference_env,
+            backend,
+        ).physics_randomization.items()
+    }
+    _validate_physical_bounds(backend, metadata, randomization)
+    return metadata
+
+
 def test_manifest_covers_every_physical_environment_and_pins_artifacts() -> None:
     manifest = load_reference_manifest()
     used_references = {reset_reference_id(env) for env in PHYSICAL_ENVS}
@@ -111,6 +132,15 @@ def test_reference_metadata_is_stripped_before_validation() -> None:
             merged = _merge_env_and_backend(resolve_env(env), resolve_backend(backend))
             assert "reset_reference" not in merged
             _config(env, backend)
+
+
+def test_every_torax_environment_uses_source_free_pedestal_feedback() -> None:
+    for env in PHYSICAL_ENVS:
+        for backend in valid_env_backend_combos()[env]:
+            config = _config(env, backend)
+            pedestal = config.torax.get("pedestal") or {}
+            assert pedestal.get("mode") == "ADAPTIVE_TRANSPORT", (env, backend)
+            assert pedestal.get("set_pedestal") is True, (env, backend)
 
 
 def test_nominal_profile_and_actuator_reset_is_identical_across_backends() -> None:
@@ -250,7 +280,10 @@ def test_torax_v1_4_2_locks_and_documented_local_projections() -> None:
     sources = hybrid_hot.torax["sources"]
     assert profiles["Ip"] == 10.5e6
     assert profiles["nbar"] == 0.8
-    assert hybrid_hot.torax["numerics"]["t_final"] == 5.0
+    # Reference provenance fixes the reset state and sources, not the RL task
+    # horizon. The control task retains the original full flat-top duration.
+    assert hybrid_hot.torax["numerics"]["t_final"] == 440.0
+    assert hybrid_hot.torax["numerics"]["fixed_dt"] == 0.1
     assert sources["generic_current"]["fraction_of_total_current"] == 0.46
     assert sources["generic_particle"]["S_total"] == 2.05e20
     assert sources["gas_puff"]["S_total"] == 6.0e21
@@ -282,8 +315,8 @@ def test_torax_v1_4_2_locks_and_documented_local_projections() -> None:
 
     hybrid_cold = _config("iter/hybrid/rampup")
     assert hybrid_cold.torax["profile_conditions"]["nbar"] == 0.3
-    assert hybrid_cold.torax["numerics"]["t_final"] == 80.0
-    assert hybrid_cold.torax["numerics"]["fixed_dt"] == 2.0
+    assert hybrid_cold.torax["numerics"]["t_final"] == 100.0
+    assert hybrid_cold.torax["numerics"]["fixed_dt"] == 0.1
 
     step = _config("step")
     assert step.torax["numerics"]["t_final"] == 400.0
@@ -314,18 +347,18 @@ def test_calibration_grids_are_bounded_and_source_corrections_stay_locked() -> N
         "tglfnn_nr",
         "tglfnn_spherical",
     ):
-        metadata = _load_metadata(backend)
+        metadata = _calibration_metadata(backend)
         assert metadata.max_physical_groups <= 2
         for group in metadata.physical_groups.values():
             assert len(group.relative_grid) == 5
             assert 1.0 in group.relative_grid
 
-    bgb = _load_metadata("bohm_gyrobohm")
+    bgb = _calibration_metadata("bohm_gyrobohm")
     assert bgb.scope == "conventional_global"
     assert bgb.preserved_envs == ("step",)
-    spherical = _load_metadata("tglfnn_spherical")
+    spherical = _calibration_metadata("tglfnn_spherical")
     assert spherical.scope == "step_spherical"
-    nonlinear = _load_metadata("tglfnn_nr")
+    nonlinear = _calibration_metadata("tglfnn_nr")
     assert nonlinear.solver_only
     assert nonlinear.physical_from == "tglfnn"
 
@@ -336,7 +369,7 @@ def test_calibration_grids_are_bounded_and_source_corrections_stay_locked() -> N
         "tglfnn",
         "tglfnn_spherical",
     ):
-        metadata = _load_metadata(backend)
+        metadata = _calibration_metadata(backend)
         env = "step" if backend == "tglfnn_spherical" else "iter/hybrid/flattop"
         nominal = _config(env, backend).torax["solver"]["n_corrector_steps"]
         assert all(
@@ -361,7 +394,7 @@ def test_calibration_grids_are_bounded_and_source_corrections_stay_locked() -> N
     )
     assert not _changes_numerical_config(nominal_nr, nr_config)
 
-    assert set(_load_metadata("qlknn").locked_nominal) == {
+    assert set(_calibration_metadata("qlknn").locked_nominal) == {
         "transport.ITG_flux_ratio_correction",
         "transport.ETG_correction_factor",
     }

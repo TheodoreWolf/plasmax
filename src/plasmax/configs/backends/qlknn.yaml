@@ -10,26 +10,8 @@ physics_randomization:
   transport_model.chi_i_outer: {relative: [0.9, 1.1]}
   transport_model.chi_e_outer: {relative: [0.9, 1.1]}
   transport_model.D_e_outer: {relative: [0.9, 1.1]}
-  neoclassical.bootstrap_current.bootstrap_multiplier: {relative: [0.95, 1.05]}
-  pedestal.formation_model.P_LH_prefactor: {relative: [0.8, 1.25]}
 
 torax:
-  pedestal:
-    model_name: set_T_ped_n_ped
-    set_pedestal: true
-    mode: ADAPTIVE_TRANSPORT
-    formation_model:
-      model_name: martin_scaling
-  numerics:
-    max_dt: 0.5
-    chi_timestep_prefactor: 50
-    dt_reduction_factor: 3
-  neoclassical:
-    bootstrap_current:
-      model_name: redl
-    transport:
-      model_name: angioni_sauter
-      use_shaing_ion_correction: true
   transport:
     model_name: qlknn
     include_ITG: true
@@ -75,5 +57,3 @@ torax:
     chi_pereverzev: 30
     D_pereverzev: 15
     use_pereverzev: true
-  time_step_calculator:
-    calculator_type: fixed

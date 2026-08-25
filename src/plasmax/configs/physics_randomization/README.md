@@ -10,11 +10,24 @@ shipped targets are time-constant):
 ```yaml
 physics_randomization:
   pedestal.T_e_ped: {relative: [0.8, 1.2]}
-  numerics.resistivity_multiplier: {absolute: [0.95, 1.05]}
+  neoclassical.bootstrap_current.bootstrap_multiplier: {relative: [0.95, 1.05]}
 ```
 
-Device/scenario uncertainties live in `tokamaks/`; transport-model
-uncertainties live in `backends/`, and the loader deep-merges them.
+Backend-independent uncertainty for ITER and SPARC lives in their conventional
+tokamak base; STEP owns its corresponding common uncertainty in
+`tokamaks/step.yaml`. Backend files contain only transport-model uncertainty
+(`transport_model.*`). The loader deep-merges the common and selected transport
+ranges for a realistic environment.
+
+`numerics.resistivity_multiplier` is deliberately not randomized. Registered
+physical tasks hold it at 1.0; changing it alters the resistive diffusion
+timescale and values above one are reserved for explicit unphysical studies.
+
+`tglfnn_nr` deliberately inherits the same TGLF transport uncertainty as the
+linear `tglfnn` backend. It is a solver ablation, not a different stochastic
+plant. Thus realistic linear and Newton–Raphson runs sample the same uncertainty
+families; `variant="oracle"` disables both common and transport physics
+randomization and evaluates the nominal deterministic configuration.
 
 ## Evidence and interpretation
 
@@ -30,11 +43,11 @@ trajectory, rather than selecting one stationary perturbed MDP per episode.
 
 | Parameters | Range | Kind | Basis |
 |---|---:|---|---|
-| `numerics.resistivity_multiplier`, `neoclassical.bootstrap_current.bootstrap_multiplier` | 0.95-1.05 x nominal | fit envelope | Sauter et al. report their conductivity/bootstrap formulae reproduce the numerical Fokker-Planck results to within about 5%. |
+| `neoclassical.bootstrap_current.bootstrap_multiplier` | 0.95-1.05 x nominal | common fit envelope | Sauter et al. report their bootstrap formulae reproduce numerical Fokker-Planck results to within about 5%. |
 | `pedestal.T_i_ped`, `pedestal.T_e_ped`, `pedestal.n_e_ped` | 0.8-1.2 x nominal | validation envelope mapped to inputs | Cross-machine EPED validation reports roughly 20-25% scatter in pedestal predictions. TORAX exposes prescribed pedestal temperatures and density rather than an EPED pressure output, so the envelope is applied independently to those primitives. This is deliberately conservative for pedestal pressure. |
-| `pedestal.formation_model.P_LH_prefactor` | 0.8-1.25 x nominal | propagated fit uncertainty | Martin scaling is `0.0488 exp(+-0.057) n^0.717+-0.035 B^0.803+-0.032 S^0.941+-0.019`. Combining coefficient/exponent extremes at ITER-like values gives approximately 0.81-1.23 x nominal, rounded outward. |
+| `pedestal.formation_model.P_LH_prefactor` | 0.8-1.25 x nominal | common propagated fit uncertainty | Martin scaling is `0.0488 exp(+-0.057) n^0.717+-0.035 B^0.803+-0.032 S^0.941+-0.019`. Combining coefficient/exponent extremes at ITER-like values gives approximately 0.81-1.23 x nominal, rounded outward. The adaptive-transport Martin pedestal is shared across conventional backends. |
 | QLKNN `collisionality_multiplier` | 0.85-1.15 x nominal | sensitivity proxy | QLKNN reports profile discrepancies of about 1-15% and dynamic errors of about 4-10% against QuaLiKiz/JETTO. Source-defined ITG/ETG nominal corrections stay locked; collisionality is the declared local calibration/randomization proxy. |
-| TGLFNN `collisionality_multiplier` | 0.8-1.2 x nominal | sensitivity proxy | Published TGLF validation shows profile errors around 15-26%. TORAX has no global TGLFNN flux multiplier, so collisionality is randomized as a proxy, not claimed as a measured uncertainty on collisionality itself. |
+| TGLFNN `collisionality_multiplier` | 0.8-1.2 x nominal | sensitivity proxy | Published TGLF validation shows profile errors around 15-26%. TORAX has no global TGLFNN flux multiplier, so collisionality is randomized as a proxy, not claimed as a measured uncertainty on collisionality itself. The range applies equally to realistic `tglfnn` and `tglfnn_nr` runs. |
 | CGM stiffness/partition coefficients | 0.9-1.1 x nominal | interim engineering model-form prior | TORAX describes CGM's stiffness and exponent as free coefficients in a deliberately simplified critical-gradient model. No calibrated uncertainty is supplied, so the training prior is capped at +/-10% pending calibration. |
 | BgB transport multipliers | 0.9-1.1 x nominal | interim engineering model-form prior | Bohm-GyroBohm is semi-empirical and its coefficients are machine/calibration dependent. No transferable statistical uncertainty is available, so the training prior is capped at +/-10% pending calibration. |
 | Fixed inner/outer transport patches | 0.9-1.1 x nominal | interim engineering model-form prior | TORAX adds these patches specifically where the surrogate transport model is not validated (magnetic axis/sawtooth core and outer edge). The training prior is capped at +/-10% pending calibration. |
