@@ -3,7 +3,7 @@
 import dataclasses
 from collections.abc import Callable, Sequence
 from functools import cached_property
-from typing import Any, Self
+from typing import Self
 
 import jax
 import numpy as np
@@ -500,7 +500,7 @@ class _ToraxDynamics:
                 initial_state_lib.get_initial_state_and_post_processed_outputs(step_fn)
             )
         else:
-            sim_state, postout = initialization_lib.materialize_snapshot(
+            sim_state, postout = initialization_lib.rebuild_state_from_snapshot(
                 initialization,
                 step_fn=step_fn,
             )
@@ -765,21 +765,6 @@ class PlasmaxEnv(Environment):
     _dynamics: _ToraxDynamics = static_field(repr=False)
 
     @classmethod
-    def _from_config(
-        cls,
-        *,
-        initialization: initialization_lib.PhaseSnapshot | None,
-        **dynamics_kwargs: Any,
-    ) -> Self:
-        """Constructs the environment with an optional private phase reset."""
-        return cls(
-            _dynamics=_ToraxDynamics(
-                initialization=initialization,
-                **dynamics_kwargs,
-            )
-        )
-
-    @classmethod
     def from_config(
         cls,
         config: model_config.ToraxConfig,
@@ -797,22 +782,25 @@ class PlasmaxEnv(Environment):
         *,
         profile_obs_specs: Sequence[ObsSpec],
         scalar_obs_specs: Sequence[ObsSpec],
+        _initialization: initialization_lib.PhaseSnapshot | None = None,
     ) -> Self:
         """Constructs and validates the private TORAX transition component."""
-        return cls._from_config(
-            config=config,
-            actuator_specs=actuator_specs,
-            reward_fn=reward_fn,
-            disruption_penalty=disruption_penalty,
-            clip_by_max_action_delta=clip_by_max_action_delta,
-            disruption=disruption,
-            obs_fn=obs_fn,
-            state_noise_config=state_noise_config,
-            physics_randomization=physics_randomization,
-            stepping=stepping,
-            initialization=None,
-            profile_obs_specs=profile_obs_specs,
-            scalar_obs_specs=scalar_obs_specs,
+        return cls(
+            _dynamics=_ToraxDynamics(
+                config=config,
+                actuator_specs=actuator_specs,
+                reward_fn=reward_fn,
+                disruption_penalty=disruption_penalty,
+                clip_by_max_action_delta=clip_by_max_action_delta,
+                disruption=disruption,
+                obs_fn=obs_fn,
+                state_noise_config=state_noise_config,
+                physics_randomization=physics_randomization,
+                stepping=stepping,
+                initialization=_initialization,
+                profile_obs_specs=profile_obs_specs,
+                scalar_obs_specs=scalar_obs_specs,
+            )
         )
 
     def init(self, key: jax.Array) -> tuple[EnvState, Info]:

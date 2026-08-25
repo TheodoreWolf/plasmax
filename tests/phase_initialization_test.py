@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 
 import jax
@@ -12,18 +11,17 @@ import yaml
 from helpers import make_test_config, make_test_env
 
 from plasmax import make
-from plasmax.environment.config import parse_env_and_backend
+from plasmax.environment.config import parse_env_and_backend, parse_torax_sources
 from plasmax.environment.factory import _load_env
 from plasmax.environment.initialization import (
     PhaseSnapshot,
-    capture_snapshot,
     load_snapshot,
+    snapshot_from_state,
     write_snapshot,
 )
 from plasmax.environment.merge import (
-    _load_phase_initialization,
     _merge_env_and_backend,
-    _resolve_config_asset,
+    resolve_config_asset,
 )
 from plasmax.environment.registry import CONFIGS_DIR, resolve_backend, resolve_env
 from plasmax.environment.schema import ScenarioConfig
@@ -34,6 +32,17 @@ _SNAPSHOT_PEDESTAL = {
     "set_pedestal": False,
     "mode": "ADAPTIVE_TRANSPORT",
 }
+_ENCODED_STATE_FIELDS = (
+    "rho_norm",
+    "rho_face_norm",
+    "T_i",
+    "T_e",
+    "n_e",
+    "psi",
+    "dW_thermal_i_dt_smoothed",
+    "dW_thermal_e_dt_smoothed",
+    "confinement_mode",
+)
 
 
 def _snapshot_test_config(**overrides):
@@ -50,7 +59,7 @@ def captured_snapshot() -> PhaseSnapshot:
     )
     assert bool(info.control_step_complete)
     assert not bool(info.terminated)
-    return capture_snapshot(
+    return snapshot_from_state(
         source_state.plasma.sim,
         environment="test",
         source_backend="constant",
@@ -78,7 +87,7 @@ def _valid_archive(
     return path, _read_archive(path)
 
 
-def test_capture_write_load_round_trip(
+def test_snapshot_write_load_round_trip(
     tmp_path: Path,
     captured_snapshot: PhaseSnapshot,
 ) -> None:
@@ -91,9 +100,9 @@ def test_capture_write_load_round_trip(
         expected_environment="test",
     )
 
-    for field in dataclasses.fields(PhaseSnapshot):
-        expected = getattr(captured_snapshot, field.name)
-        actual = getattr(restored, field.name)
+    for name in PhaseSnapshot.model_fields:
+        expected = getattr(captured_snapshot, name)
+        actual = getattr(restored, name)
         if isinstance(expected, np.ndarray):
             np.testing.assert_array_equal(actual, expected)
         else:
@@ -120,7 +129,7 @@ def test_load_rejects_unsupported_schema(
     path = tmp_path / "wrong_schema.npz"
     _write_archive(path, arrays)
 
-    with pytest.raises(ValueError, match="unsupported phase snapshot schema 2"):
+    with pytest.raises(ValueError, match="schema_version"):
         load_snapshot(path)
 
 
@@ -226,7 +235,7 @@ def test_phase_reset_rebases_clock_horizon_and_action_then_jits_first_step(
     )
     state, _ = env.init(jax.random.key(1))
 
-    assert captured_snapshot.source_time_s == pytest.approx(0.1)
+    assert captured_snapshot.metadata.source_time_s == pytest.approx(0.1)
     assert float(state.plasma.sim.t) == pytest.approx(1.25)
     assert env.safe_max_steps == 2
     np.testing.assert_array_equal(state.prev_action, [7.0e6, 2.0e21])
@@ -262,12 +271,52 @@ def test_phase_reset_rebases_clock_horizon_and_action_then_jits_first_step(
     assert float(next_state.plasma.sim.t) == pytest.approx(1.35)
 
 
-def test_materialization_rejects_grid_mismatch(
+def test_rebuild_then_projection_preserves_only_encoded_state_payload(
     captured_snapshot: PhaseSnapshot,
 ) -> None:
-    snapshot = dataclasses.replace(
-        captured_snapshot,
-        rho_norm=captured_snapshot.rho_norm + 0.001,
+    destination_t_initial = 1.25
+    env = make_test_env(
+        config=_snapshot_test_config(
+            numerics={
+                "t_initial": destination_t_initial,
+                "t_final": 1.45,
+                "fixed_dt": 0.1,
+            }
+        ),
+        initialization=captured_snapshot,
+    )
+    state, _ = env.init(jax.random.key(1))
+    projected = snapshot_from_state(
+        state.plasma.sim,
+        environment=captured_snapshot.metadata.environment,
+        source_backend="destination",
+        source_step=0,
+        seed=1,
+        source_config_sha256="1" * 64,
+    )
+
+    for name in _ENCODED_STATE_FIELDS:
+        expected = getattr(captured_snapshot, name)
+        actual = getattr(projected, name)
+        if isinstance(expected, np.ndarray):
+            np.testing.assert_array_equal(actual, expected)
+        else:
+            assert actual == pytest.approx(expected)
+
+    # Time and provenance are deliberately destination-owned, so this is a
+    # projection/reconstruction invariant rather than a whole-state bijection.
+    assert projected.metadata.source_time_s == pytest.approx(destination_t_initial)
+    assert projected.metadata.source_time_s != pytest.approx(
+        captured_snapshot.metadata.source_time_s
+    )
+    assert projected.metadata.source_backend == "destination"
+
+
+def test_rebuild_rejects_grid_mismatch(
+    captured_snapshot: PhaseSnapshot,
+) -> None:
+    snapshot = captured_snapshot.model_copy(
+        update={"rho_norm": captured_snapshot.rho_norm + 0.001}
     )
 
     with pytest.raises(ValueError, match="does not match destination geometry"):
@@ -278,14 +327,18 @@ def test_materialization_rejects_grid_mismatch(
 
 
 def test_missing_snapshot_uses_native_reset(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert _load_phase_initialization(resolve_env("iter/hybrid/rampup")) is None
+    sources = parse_torax_sources(
+        resolve_env("iter/hybrid/rampup"),
+        resolve_backend("cgm"),
+    )
+    assert sources.initialization is None
 
-    def unexpected_materialization(*_args, **_kwargs):
-        raise AssertionError("native reset attempted snapshot materialization")
+    def unexpected_rebuild(*_args, **_kwargs):
+        raise AssertionError("native reset attempted a snapshot rebuild")
 
     monkeypatch.setattr(
-        "plasmax.environment.initialization.materialize_snapshot",
-        unexpected_materialization,
+        "plasmax.environment.initialization.rebuild_state_from_snapshot",
+        unexpected_rebuild,
     )
     env = make_test_env()
     state, _ = env.init(jax.random.key(0))
@@ -298,10 +351,10 @@ def test_phase_metadata_is_not_part_of_scenario_config(
 ) -> None:
     env_path = resolve_env("iter/hybrid/flattop")
     backend_path = resolve_backend("cgm")
-    metadata = _load_phase_initialization(env_path)
+    metadata = parse_torax_sources(env_path, backend_path).initialization
 
     assert metadata is not None
-    assert set(metadata) == {"path", "sha256"}
+    assert set(metadata.model_dump()) == {"path", "sha256"}
     assert "initialization" not in _merge_env_and_backend(env_path, backend_path)
     assert "initialization" not in ScenarioConfig.model_fields
     assert (
@@ -313,7 +366,7 @@ def test_phase_metadata_is_not_part_of_scenario_config(
     )
 
     monkeypatch.chdir(tmp_path)
-    path = _resolve_config_asset(metadata["path"], env_path)
+    path = resolve_config_asset(metadata.path, env_path)
     assert (
         path
         == (
@@ -327,12 +380,12 @@ def test_phase_metadata_is_not_part_of_scenario_config(
     )
     snapshot = load_snapshot(
         path,
-        expected_sha256=metadata["sha256"],
+        expected_sha256=metadata.sha256,
         expected_environment="iter/hybrid/flattop",
     )
-    assert snapshot.source_backend == "bohm_gyrobohm"
-    assert snapshot.source_step == 1000
-    assert snapshot.source_time_s == pytest.approx(100.0)
+    assert snapshot.metadata.source_backend == "bohm_gyrobohm"
+    assert snapshot.metadata.source_step == 1000
+    assert snapshot.metadata.source_time_s == pytest.approx(100.0)
 
 
 def test_initialization_metadata_is_phase_owned(tmp_path: Path) -> None:
@@ -372,35 +425,43 @@ def test_world_model_yamls_reject_initialization(tmp_path: Path) -> None:
     initialization = {"path": "phase.npz", "sha256": "0" * 64}
     env_path = tmp_path / "world_env.yaml"
     backend_path = tmp_path / "world_backend.yaml"
-    backend_path.write_text("type: world_model\n")
-    env_path.write_text(yaml.safe_dump({"initialization": initialization}))
+    valid_env = {
+        "task": {"reward": "kstar", "terminal_penalty": None},
+        "world_model_env": {"max_steps_in_episode": 1},
+    }
+    valid_backend = {
+        "type": "world_model",
+        "world_model": {"name": "kstar_lstm"},
+    }
+    backend_path.write_text(yaml.safe_dump(valid_backend))
+    env_path.write_text(yaml.safe_dump({**valid_env, "initialization": initialization}))
 
-    with pytest.raises(ValueError, match="world-model environments"):
+    with pytest.raises(ValueError, match="initialization"):
         _load_env(str(env_path), str(backend_path), validate=False)
 
-    env_path.write_text("{}\n")
+    env_path.write_text(yaml.safe_dump(valid_env))
     backend_path.write_text(
         yaml.safe_dump(
             {
-                "type": "world_model",
+                **valid_backend,
                 "initialization": initialization,
             }
         )
     )
-    with pytest.raises(ValueError, match="phase-only metadata"):
+    with pytest.raises(ValueError, match="initialization"):
         _load_env(str(env_path), str(backend_path), validate=False)
 
     base_path = tmp_path / "world_base.yaml"
     base_path.write_text(
         yaml.safe_dump(
             {
-                "type": "world_model",
+                **valid_backend,
                 "initialization": initialization,
             }
         )
     )
     backend_path.write_text("extends: world_base.yaml\n")
-    with pytest.raises(ValueError, match="phase-only metadata"):
+    with pytest.raises(ValueError, match="initialization"):
         _load_env(str(env_path), str(backend_path), validate=False)
 
 

@@ -14,6 +14,13 @@ from typing import Literal
 
 import numpy as np
 from jax import numpy as jnp
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from torax._src import jax_utils
 from torax._src.config import build_runtime_params
 from torax._src.core_profiles import profile_conditions as profile_conditions_lib
@@ -23,12 +30,19 @@ from torax._src.orchestration.step_function import SimulationStepFn
 from torax._src.output_tools import post_processing
 from torax._src.transport_model import transport_coefficients_builder
 
+_GRID_FIELDS = ("rho_norm", "rho_face_norm")
+_PROFILE_FIELDS = ("T_i", "T_e", "n_e", "psi")
+_ENERGY_HISTORY_FIELDS = (
+    "dW_thermal_i_dt_smoothed",
+    "dW_thermal_e_dt_smoothed",
+)
 
-@dataclasses.dataclass(frozen=True)
-class PhaseSnapshot:
-    """Backend-agnostic physical state stored by a phase NPZ."""
 
-    schema_version: int
+class SnapshotMetadata(BaseModel):
+    """Provenance encoded by the snapshot's ``metadata_json`` scalar."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
     environment: str
     source_backend: str
     source_step: int
@@ -36,6 +50,26 @@ class PhaseSnapshot:
     seed: int
     source_config_sha256: str
     torax_version: str
+
+    @field_validator("source_time_s")
+    @classmethod
+    def _validate_finite_source_time(cls, value: float) -> float:
+        if not np.isfinite(value):
+            raise ValueError("snapshot source_time_s must be finite")
+        return value
+
+
+class PhaseSnapshot(BaseModel):
+    """Backend-agnostic physical state stored by a phase NPZ."""
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+        strict=True,
+    )
+
+    schema_version: Literal[1]
     rho_norm: np.ndarray
     rho_face_norm: np.ndarray
     T_i: np.ndarray
@@ -45,113 +79,136 @@ class PhaseSnapshot:
     dW_thermal_i_dt_smoothed: float
     dW_thermal_e_dt_smoothed: float
     confinement_mode: int
+    metadata: SnapshotMetadata
+
+    @field_validator("schema_version", "confinement_mode", mode="before")
+    @classmethod
+    def _normalize_integer_scalar(
+        cls,
+        value: object,
+        info: ValidationInfo,
+    ) -> object:
+        if not isinstance(value, np.ndarray):
+            return value
+        if value.shape != ():
+            raise ValueError(
+                f"snapshot {info.field_name} has shape {value.shape}; expected ()"
+            )
+        if value.dtype.kind not in "iu":
+            raise ValueError(
+                f"snapshot {info.field_name} has incompatible dtype {value.dtype}"
+            )
+        return value.item()
+
+    @field_validator(*_ENERGY_HISTORY_FIELDS, mode="before")
+    @classmethod
+    def _normalize_float_scalar(
+        cls,
+        value: object,
+        info: ValidationInfo,
+    ) -> object:
+        if not isinstance(value, np.ndarray):
+            return value
+        if value.shape != ():
+            raise ValueError(
+                f"snapshot {info.field_name} has shape {value.shape}; expected ()"
+            )
+        if value.dtype.kind != "f":
+            raise ValueError(
+                f"snapshot {info.field_name} has incompatible dtype {value.dtype}"
+            )
+        return value.item()
+
+    @model_validator(mode="after")
+    def _validate_numpy_payload(self) -> PhaseSnapshot:
+        arrays = {
+            name: getattr(self, name) for name in (*_GRID_FIELDS, *_PROFILE_FIELDS)
+        }
+        for name, array in arrays.items():
+            if array.ndim != 1:
+                raise ValueError(
+                    f"snapshot {name} must be one-dimensional, got {array.shape}"
+                )
+            if array.dtype.kind != "f":
+                raise ValueError(
+                    f"snapshot {name} has incompatible dtype {array.dtype}"
+                )
+            if not np.all(np.isfinite(array)):
+                raise ValueError(f"snapshot {name} must be finite")
+
+        n_rho = self.rho_norm.shape[0]
+        expected_shapes = {
+            "rho_norm": (n_rho,),
+            "rho_face_norm": (n_rho + 1,),
+            **{name: (n_rho,) for name in _PROFILE_FIELDS},
+        }
+        for name, shape in expected_shapes.items():
+            actual = getattr(self, name).shape
+            if actual != shape:
+                raise ValueError(
+                    f"snapshot {name} has shape {actual}; expected {shape}"
+                )
+
+        for name in _ENERGY_HISTORY_FIELDS:
+            if not np.isfinite(getattr(self, name)):
+                raise ValueError(f"snapshot {name} must be finite")
+        return self
 
 
-@dataclasses.dataclass(frozen=True)
-class _ArrayField:
-    dtype_kinds: str
-    shape: Literal["scalar", "rho", "face"]
-    finite: bool = False
-    value: object | None = None
-    metadata: Mapping[str, type | tuple[type, ...]] | None = None
+def _archive_value_fields() -> tuple[str, ...]:
+    """Fields stored directly rather than inside ``metadata_json``."""
+    return tuple(name for name in PhaseSnapshot.model_fields if name != "metadata")
 
 
-_NPZ_SCHEMA = {
-    "schema_version": _ArrayField("iu", "scalar", value=1),
-    "rho_norm": _ArrayField("f", "rho", finite=True),
-    "rho_face_norm": _ArrayField("f", "face", finite=True),
-    "T_i": _ArrayField("f", "rho", finite=True),
-    "T_e": _ArrayField("f", "rho", finite=True),
-    "n_e": _ArrayField("f", "rho", finite=True),
-    "psi": _ArrayField("f", "rho", finite=True),
-    "dW_thermal_i_dt_smoothed": _ArrayField("f", "scalar", finite=True),
-    "dW_thermal_e_dt_smoothed": _ArrayField("f", "scalar", finite=True),
-    "confinement_mode": _ArrayField("iu", "scalar"),
-    "metadata_json": _ArrayField(
-        "US",
-        "scalar",
-        metadata={
-            "environment": str,
-            "source_backend": str,
-            "source_step": int,
-            "source_time_s": (int, float),
-            "seed": int,
-            "source_config_sha256": str,
-            "torax_version": str,
-        },
-    ),
-}
-
-
-def _validate_snapshot(
+def _snapshot_from_archive(
     arrays: Mapping[str, np.ndarray],
     expected_environment: str | None,
 ) -> PhaseSnapshot:
-    """Apply the complete NPZ schema once and return its typed value."""
+    """Decode one NPZ mapping and validate it against ``PhaseSnapshot``."""
     keys = set(arrays)
-    expected_keys = set(_NPZ_SCHEMA)
-    if len(arrays) != len(_NPZ_SCHEMA) or keys != expected_keys:
+    expected_keys = {*_archive_value_fields(), "metadata_json"}
+    if len(arrays) != len(expected_keys) or keys != expected_keys:
         raise ValueError(
             "snapshot fields differ; "
             f"missing={sorted(expected_keys - keys)}, "
             f"extra={sorted(keys - expected_keys)}"
         )
 
-    rho_norm = arrays["rho_norm"]
-    if rho_norm.ndim != 1:
+    metadata_array = arrays["metadata_json"]
+    if metadata_array.shape != ():
         raise ValueError(
-            f"snapshot rho_norm must be one-dimensional, got {rho_norm.shape}"
+            f"snapshot metadata_json has shape {metadata_array.shape}; expected ()"
         )
-    n_rho = rho_norm.shape[0]
-    shapes = {"scalar": (), "rho": (n_rho,), "face": (n_rho + 1,)}
-    metadata: dict[str, object] = {}
-    for name, field in _NPZ_SCHEMA.items():
-        array = arrays[name]
-        if array.shape != shapes[field.shape]:
-            raise ValueError(
-                f"snapshot {name} has shape {array.shape}; "
-                f"expected {shapes[field.shape]}"
-            )
-        if array.dtype.kind not in field.dtype_kinds:
-            raise ValueError(f"snapshot {name} has incompatible dtype {array.dtype}")
-        if field.finite and not np.all(np.isfinite(array)):
-            raise ValueError(f"snapshot {name} must be finite")
-        if field.value is not None and array.item() != field.value:
-            raise ValueError(
-                f"unsupported phase snapshot schema {array.item()}; "
-                f"expected {field.value}"
-            )
-        if field.metadata is not None:
-            encoded = array.item()
-            if isinstance(encoded, bytes):
-                encoded = encoded.decode("utf-8")
-            try:
-                decoded = json.loads(encoded)
-            except (json.JSONDecodeError, TypeError) as error:
-                raise ValueError("snapshot metadata_json is not valid JSON") from error
-            if not isinstance(decoded, dict):
-                raise ValueError("snapshot metadata_json must encode an object")
-            if set(decoded) != set(field.metadata) or any(
-                not isinstance(decoded[key], expected_type)
-                for key, expected_type in field.metadata.items()
-            ):
-                raise ValueError("snapshot metadata_json does not match its schema")
-            metadata = decoded
+    if metadata_array.dtype.kind not in "US":
+        raise ValueError(
+            f"snapshot metadata_json has incompatible dtype {metadata_array.dtype}"
+        )
+    encoded = metadata_array.item()
+    if isinstance(encoded, bytes):
+        try:
+            encoded = encoded.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ValueError("snapshot metadata_json is not valid UTF-8") from error
+    try:
+        metadata = json.loads(encoded)
+    except (json.JSONDecodeError, TypeError) as error:
+        raise ValueError("snapshot metadata_json is not valid JSON") from error
+    if not isinstance(metadata, dict):
+        raise ValueError("snapshot metadata_json must encode an object")
+
+    values = {name: arrays[name] for name in _archive_value_fields()}
+    values["metadata"] = metadata
+    snapshot = PhaseSnapshot.model_validate(values, strict=True)
 
     if (
         expected_environment is not None
-        and metadata["environment"] != expected_environment
+        and snapshot.metadata.environment != expected_environment
     ):
         raise ValueError(
-            f"snapshot environment {metadata['environment']!r} does not match "
+            f"snapshot environment {snapshot.metadata.environment!r} does not match "
             f"{expected_environment!r}"
         )
-    values = {
-        name: array.item() if array.shape == () else array
-        for name, array in arrays.items()
-        if name != "metadata_json"
-    }
-    return PhaseSnapshot(**values, **metadata)
+    return snapshot
 
 
 def snapshot_sha256(path: str | Path) -> str:
@@ -176,7 +233,7 @@ def load_snapshot(
             )
     with np.load(source, allow_pickle=False) as archive:
         arrays = {name: np.array(archive[name], copy=True) for name in archive.files}
-    return _validate_snapshot(arrays, expected_environment)
+    return _snapshot_from_archive(arrays, expected_environment)
 
 
 def write_snapshot(snapshot: PhaseSnapshot, path: str | Path) -> str:
@@ -184,9 +241,7 @@ def write_snapshot(snapshot: PhaseSnapshot, path: str | Path) -> str:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        name: np.asarray(getattr(snapshot, name))
-        for name in _NPZ_SCHEMA
-        if name != "metadata_json"
+        name: np.asarray(getattr(snapshot, name)) for name in _archive_value_fields()
     }
     payload["schema_version"] = np.asarray(snapshot.schema_version, dtype=np.int32)
     payload["confinement_mode"] = np.asarray(
@@ -195,16 +250,13 @@ def write_snapshot(snapshot: PhaseSnapshot, path: str | Path) -> str:
     )
     payload["metadata_json"] = np.asarray(
         json.dumps(
-            {
-                name: getattr(snapshot, name)
-                for name in _NPZ_SCHEMA["metadata_json"].metadata or ()
-            },
+            snapshot.metadata.model_dump(mode="python"),
             allow_nan=False,
             separators=(",", ":"),
             sort_keys=True,
         )
     )
-    _validate_snapshot(payload, snapshot.environment)
+    _snapshot_from_archive(payload, snapshot.metadata.environment)
 
     temporary_path: Path | None = None
     try:
@@ -225,7 +277,7 @@ def write_snapshot(snapshot: PhaseSnapshot, path: str | Path) -> str:
     return snapshot_sha256(destination)
 
 
-def capture_snapshot(
+def snapshot_from_state(
     sim_state: sim_state_lib.SimState,
     *,
     environment: str,
@@ -239,28 +291,34 @@ def capture_snapshot(
     pedestal_state = sim_state.pedestal_transition_state
     if energy is None or pedestal_state is None:
         raise ValueError("TORAX state is missing phase-snapshot fields")
+    profiles = {
+        name: np.asarray(getattr(sim_state.core_profiles, name).value)
+        for name in _PROFILE_FIELDS
+    }
+    energy_history = {
+        name: float(np.asarray(getattr(energy, name)))
+        for name in _ENERGY_HISTORY_FIELDS
+    }
     return PhaseSnapshot(
-        schema_version=int(_NPZ_SCHEMA["schema_version"].value),
-        environment=environment,
-        source_backend=source_backend,
-        source_step=source_step,
-        source_time_s=float(np.asarray(sim_state.t)),
-        seed=seed,
-        source_config_sha256=source_config_sha256,
-        torax_version=importlib.metadata.version("torax"),
+        schema_version=1,
         rho_norm=np.asarray(sim_state.geometry.rho_norm),
         rho_face_norm=np.asarray(sim_state.geometry.rho_face_norm),
-        T_i=np.asarray(sim_state.core_profiles.T_i.value),
-        T_e=np.asarray(sim_state.core_profiles.T_e.value),
-        n_e=np.asarray(sim_state.core_profiles.n_e.value),
-        psi=np.asarray(sim_state.core_profiles.psi.value),
-        dW_thermal_i_dt_smoothed=float(np.asarray(energy.dW_thermal_i_dt_smoothed)),
-        dW_thermal_e_dt_smoothed=float(np.asarray(energy.dW_thermal_e_dt_smoothed)),
         confinement_mode=int(np.asarray(pedestal_state.confinement_mode)),
+        metadata=SnapshotMetadata(
+            environment=environment,
+            source_backend=source_backend,
+            source_step=source_step,
+            source_time_s=float(np.asarray(sim_state.t)),
+            seed=seed,
+            source_config_sha256=source_config_sha256,
+            torax_version=importlib.metadata.version("torax"),
+        ),
+        **profiles,
+        **energy_history,
     )
 
 
-def materialize_snapshot(
+def rebuild_state_from_snapshot(
     snapshot: PhaseSnapshot,
     *,
     step_fn: SimulationStepFn,
@@ -289,16 +347,17 @@ def materialize_snapshot(
                 f"snapshot shape {expected.shape}, destination shape {actual.shape}"
             )
 
+    profile_overrides = {
+        name: jnp.asarray(getattr(snapshot, name), dtype=jax_utils.get_dtype())
+        for name in _PROFILE_FIELDS
+    }
     profile_conditions = dataclasses.replace(
         runtime_params.profile_conditions,
-        T_i=jnp.asarray(snapshot.T_i, dtype=jax_utils.get_dtype()),
-        T_e=jnp.asarray(snapshot.T_e, dtype=jax_utils.get_dtype()),
-        n_e=jnp.asarray(snapshot.n_e, dtype=jax_utils.get_dtype()),
-        psi=jnp.asarray(snapshot.psi, dtype=jax_utils.get_dtype()),
         n_e_nbar_is_fGW=False,
         normalize_n_e_to_nbar=False,
         initial_psi_from_j=False,
         initial_psi_mode=profile_conditions_lib.InitialPsiMode.PROFILE_CONDITIONS,
+        **profile_overrides,
     )
     runtime_params = dataclasses.replace(
         runtime_params,
@@ -314,20 +373,20 @@ def materialize_snapshot(
     pedestal_state = sim_state.pedestal_transition_state
     if energy is None or pedestal_state is None:
         raise ValueError("TORAX initialization produced incomplete state")
+    energy_history = {
+        name: jnp.asarray(
+            getattr(snapshot, name),
+            dtype=getattr(energy, name).dtype,
+        )
+        for name in _ENERGY_HISTORY_FIELDS
+    }
     core_profiles = dataclasses.replace(
         sim_state.core_profiles,
         internal_plasma_energy=dataclasses.replace(
             energy,
             dW_thermal_i_dt=jnp.zeros_like(energy.dW_thermal_i_dt),
             dW_thermal_e_dt=jnp.zeros_like(energy.dW_thermal_e_dt),
-            dW_thermal_i_dt_smoothed=jnp.asarray(
-                snapshot.dW_thermal_i_dt_smoothed,
-                dtype=energy.dW_thermal_i_dt_smoothed.dtype,
-            ),
-            dW_thermal_e_dt_smoothed=jnp.asarray(
-                snapshot.dW_thermal_e_dt_smoothed,
-                dtype=energy.dW_thermal_e_dt_smoothed.dtype,
-            ),
+            **energy_history,
         ),
     )
     pedestal_state = dataclasses.replace(
@@ -376,9 +435,10 @@ def materialize_snapshot(
 
 __all__ = [
     "PhaseSnapshot",
-    "capture_snapshot",
+    "SnapshotMetadata",
     "load_snapshot",
-    "materialize_snapshot",
+    "rebuild_state_from_snapshot",
     "snapshot_sha256",
+    "snapshot_from_state",
     "write_snapshot",
 ]

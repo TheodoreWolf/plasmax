@@ -42,7 +42,7 @@ def _configs_root(path: str) -> Path:
     return p.parent
 
 
-def _resolve_config_asset(
+def resolve_config_asset(
     reference: str | Path,
     yaml_path: str | Path,
 ) -> Path:
@@ -67,23 +67,6 @@ def _resolve_config_asset(
     if not asset_path.is_absolute():
         asset_path = declaring_path.parent / asset_path
     return asset_path.resolve()
-
-
-def _load_phase_initialization(
-    env_path: str | Path,
-) -> dict[str, Any] | None:
-    """Load initialization metadata declared directly by one phase YAML."""
-    resolved = Path(env_path)
-    with resolved.open() as stream:
-        raw = yaml.safe_load(stream) or {}
-    if not isinstance(raw, dict):
-        raise ValueError(f"env config {str(resolved)!r} must contain a mapping")
-    initialization = raw.get("initialization")
-    if initialization is None:
-        return None
-    if not isinstance(initialization, dict):
-        raise ValueError(f"initialization in {str(resolved)!r} must contain a mapping")
-    return dict(initialization)
 
 
 def _env_key(env_path: str) -> str:
@@ -492,6 +475,7 @@ def env_key(env_path: str) -> str:
 __all__ = [
     "backend_kind",
     "env_key",
+    "resolve_config_asset",
     "valid_env_backend_combos",
     "validate_env_backend",
 ]

@@ -363,7 +363,7 @@ class KstarLoaderTest:
                 }
             )
         )
-        with pytest.raises(ValueError, match="configured safe horizon.*integer"):
+        with pytest.raises(ValueError, match="max_steps_in_episode"):
             make(str(env_path), self._BACKEND, validate=False)
 
     def test_loader_requires_yaml_safe_horizon(self, tmp_path):
@@ -378,10 +378,75 @@ class KstarLoaderTest:
                 }
             )
         )
-        with pytest.raises(
-            ValueError, match="world_model_env.max_steps_in_episode.*required"
-        ):
+        with pytest.raises(ValueError, match="max_steps_in_episode"):
             make(str(env_path), self._BACKEND, validate=False)
+
+    @pytest.mark.parametrize("owner", ["environment", "backend"])
+    def test_world_model_yaml_rejects_initialization(self, tmp_path, owner):
+        from plasmax.environment.factory import make
+
+        initialization = {"path": "state.npz", "sha256": "0" * 64}
+        env: str = self._ENV
+        backend: str = self._BACKEND
+        if owner == "environment":
+            env_path = tmp_path / "kstar.yaml"
+            env_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "task": {"reward": "native", "terminal_penalty": None},
+                        "world_model_env": {
+                            "max_steps_in_episode": 100,
+                            "random_target": False,
+                        },
+                        "initialization": initialization,
+                    }
+                )
+            )
+            env = str(env_path)
+        else:
+            backend_path = tmp_path / "fusion_lstm.yaml"
+            backend_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "type": "world_model",
+                        "world_model": {"name": "kstar_lstm"},
+                        "initialization": initialization,
+                    }
+                )
+            )
+            backend = str(backend_path)
+
+        with pytest.raises(ValueError, match="initialization"):
+            make(env, backend, validate=False)
+
+    def test_world_model_yaml_allows_null_initialization(self, tmp_path):
+        from plasmax.environment.config import parse_world_model_sources
+
+        env_path = tmp_path / "kstar.yaml"
+        env_path.write_text(
+            yaml.safe_dump(
+                {
+                    "task": {"reward": "native", "terminal_penalty": None},
+                    "world_model_env": {"max_steps_in_episode": 100},
+                    "initialization": None,
+                }
+            )
+        )
+        backend_path = tmp_path / "fusion_lstm.yaml"
+        backend_path.write_text(
+            yaml.safe_dump(
+                {
+                    "type": "world_model",
+                    "world_model": {"name": "kstar_lstm"},
+                    "initialization": None,
+                }
+            )
+        )
+
+        sources = parse_world_model_sources(
+            str(env_path), str(backend_path), validate=False
+        )
+        assert sources.backend.name == "kstar_lstm"
 
     @pytest.mark.parametrize(
         "kwargs, message",

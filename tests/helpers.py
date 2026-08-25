@@ -6,7 +6,7 @@ Not collected by pytest (no ``*_test`` suffix); import as ``from helpers
 import ...`` — pytest puts ``tests/`` on ``sys.path`` during collection.
 """
 
-from functools import cached_property, partial
+from functools import cached_property
 from typing import Any
 
 import jax
@@ -179,18 +179,12 @@ def make_test_env(config=None, **kwargs) -> PlasmaxEnv:
     if config is None:
         config = make_test_config()
     initialization = kwargs.pop("initialization", None)
-    if initialization is None:
-        constructor = PlasmaxEnv.from_config
-    else:
-        constructor = partial(
-            PlasmaxEnv._from_config,
-            initialization=initialization,
-        )
-    return constructor(
+    return PlasmaxEnv.from_config(
         config=config,
         actuator_specs=kwargs.pop("actuator_specs", DEFAULT_ACTUATOR_SPECS),
         reward_fn=kwargs.pop("reward_fn", rewards_lib.Q_fusion),
         profile_obs_specs=kwargs.pop("profile_obs_specs", PROFILE_OBS_SPECS),
         scalar_obs_specs=kwargs.pop("scalar_obs_specs", SCALAR_OBS_SPECS),
+        _initialization=initialization,
         **kwargs,
     )
