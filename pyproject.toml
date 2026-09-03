@@ -16,7 +16,7 @@ include = ["/src/plasmax", "/LICENSE", "/README.md", "/pyproject.toml"]
 [project]
 name = "plasmax"
 version = "0.1.0"
-description = "JAX-native fusion-control environments built on TORAX"
+description = "Differentiable & parallelizable environments for kinetic control in Tokamaks"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

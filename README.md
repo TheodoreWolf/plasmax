@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/TheodoreWolf/plasmax/main/assets/plasmax-logo.png" alt="plasmax logo" width="520">
 </p>
 
-# Plasmax: differentiable & parallelizable environments for transport control in Tokamaks
+# Plasmax: differentiable & parallelizable environments for kinetic control in Tokamaks
 
 `plasmax` provides JAX-native fusion-control environments built on
 [TORAX](https://github.com/google-deepmind/torax).
