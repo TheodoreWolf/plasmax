@@ -41,7 +41,6 @@ class EnvConfig:
     variant: Literal["oracle", "realistic"] = "realistic"
     eval_n_envs: int = 16
     disruption_penalty: float | None = None
-    ablate: str = "none"
 
 
 @dataclasses.dataclass
@@ -155,7 +154,6 @@ def _load_env(cfg: Config):
         reward=cfg.env.reward,
         variant=cfg.env.variant,
         disruption_penalty=cfg.env.disruption_penalty,
-        ablate=cfg.env.ablate,
     )
 
 

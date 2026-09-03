@@ -1,7 +1,7 @@
 """Smoke tests for the env x backend x variant matrix.
 
 Driven by the env-backend compatibility registry in
-:mod:`plasmax.environment.config` so only valid pairs are exercised — adding
+:mod:`plasmax.environment.merge` so only valid pairs are exercised — adding
 an env / backend YAML plus an entry in ``_VALID_ENV_BACKEND_COMBOS``
 automatically expands both tiers below.
 
@@ -10,8 +10,8 @@ Two tiers:
 - :class:`EnvCanaryTest` — one representative phase per ITER/SPARC scenario,
   plus STEP, using a cheap valid backend in oracle mode. Runs on every commit.
 - :class:`EnvMatrixSmokeTest` — every registered ``(env, backend, variant)``
-  combination. Marked ``integration``; excluded from the default pytest
-  run. Trigger explicitly with ``pytest -m integration``.
+  combination. Marked ``integration`` so CI can run it separately from the
+  fast suite with ``pytest -m integration``.
 
 Both tiers share :func:`_assert_step_contract`, the single source of truth
 for "what a healthy env must do".
@@ -25,11 +25,8 @@ import jax.numpy as jnp
 import pytest
 from envelope import AutoResetWrapper, Environment, Info, VmapWrapper
 
-from plasmax.environment.config import (
-    backend_kind,
-    valid_env_backend_combos,
-)
 from plasmax.environment.factory import make
+from plasmax.environment.merge import valid_env_backend_combos
 from plasmax.wrappers import (
     PlasmaxTruncationWrapper,
     iter_wrappers,
@@ -38,14 +35,12 @@ from plasmax.wrappers import (
 
 _VARIANTS = ("oracle", "realistic")
 
-# TORAX env x backend matrix only: world-model backends (e.g. fusion_lstm) use a
-# different state contract (no plasma) and have their own smoke tests in
-# tests/world_model_env_test.py.
+# TORAX env x backend matrix only. The standalone KSTAR world model has no
+# backend entry and its different state contract is covered separately.
 _VALID_PAIRS: list[tuple[str, str]] = [
     (env, backend)
     for env, backends in sorted(valid_env_backend_combos().items())
     for backend in sorted(backends)
-    if backend_kind(backend) == "torax"
 ]
 
 
@@ -63,7 +58,8 @@ _CANARY_BACKENDS_BY_ENV: dict[str, str] = {
     "iter/advanced/flattop": "cgm",
     "sparc/prd/flattop": "cgm",
     "sparc/reduced_field/flattop": "cgm",
-    "step": "bohm_gyrobohm",
+    "step/spp_001_ec_hd/flattop": "bohm_gyrobohm_step",
+    "mock/circular/smoke": "mock",
 }
 
 _CANARY_PAIRS: list[tuple[str, str]] = [

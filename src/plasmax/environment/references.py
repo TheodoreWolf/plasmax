@@ -148,6 +148,8 @@ def _canonical_json_value(value: Any) -> Any:
         }
     if isinstance(value, tuple | list):
         return [_canonical_json_value(item) for item in value]
+    if hasattr(value, "tolist"):
+        return _canonical_json_value(value.tolist())
     if isinstance(value, numbers.Real) and not isinstance(value, bool):
         result = float(value)
         if not math.isfinite(result):
@@ -156,23 +158,21 @@ def _canonical_json_value(value: Any) -> Any:
     return value
 
 
-def reset_reference_id(env: str | Path) -> str:
+def reset_reference_id(env: str) -> str:
     """Read an environment's metadata-only reset-reference identifier."""
 
-    from plasmax.environment import registry as registry_lib
+    from plasmax.environment.merge import load_env_layers
 
-    path = Path(registry_lib.resolve_env(str(env)))
-    with path.open() as stream:
-        raw = yaml.safe_load(stream) or {}
+    raw = load_env_layers(env)
     reference_id = raw.get("reset_reference")
     if not isinstance(reference_id, str) or not reference_id:
-        raise ValueError(f"environment {str(env)!r} has no reset_reference ID")
+        raise ValueError(f"environment {env!r} has no reset_reference ID")
     return reference_id
 
 
 def reset_reference_payload(
-    env: str | Path,
-    backend: str | Path = "bohm_gyrobohm",
+    env: str,
+    backend: str = "bohm_gyrobohm",
 ) -> dict[str, Any]:
     """Return the backend-independent time-zero state/action reset payload.
 
@@ -181,22 +181,28 @@ def reset_reference_payload(
     to each contextual backend, rather than the subsequent control task.
     """
 
-    from plasmax.environment.config import parse_env_and_backend
+    from plasmax.environment.merge import _merge_env_and_backend
+    from plasmax.environment.schema import ActuatorConfig
 
-    config = parse_env_and_backend(str(env), str(backend))
-    profile_conditions = dict(config.torax.get("profile_conditions") or {})
+    raw = _merge_env_and_backend(env, backend)
+    torax = raw.get("torax") or {}
+    profile_conditions = dict(torax.get("profile_conditions") or {})
     for field in _TIME_ZERO_PROFILE_FIELDS & profile_conditions.keys():
         profile_conditions[field] = _at_time_zero(profile_conditions[field])
     payload = {
         "profile_conditions": profile_conditions,
-        "actuators": {actuator.name: actuator.init for actuator in config.actuators},
+        "actuators": {
+            actuator.name: actuator.init
+            for item in raw.get("actuators", ())
+            for actuator in (ActuatorConfig.model_validate(item),)
+        },
     }
     return _canonical_json_value(payload)
 
 
 def reset_reference_sha256(
-    env: str | Path,
-    backend: str | Path = "bohm_gyrobohm",
+    env: str,
+    backend: str = "bohm_gyrobohm",
 ) -> str:
     """Hash the canonical time-zero state/action payload for an environment."""
 

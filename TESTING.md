@@ -33,7 +33,8 @@ Tests use pytest. Test classes use `Test*` or `*Test` names, such as
 ## Test tiers
 
 The fast suite contains behavior, schema, reward, wrapper, control, collection,
-and packaging regressions. Prefer the packaged `test` scenario for these tests.
+and packaging regressions. Prefer the packaged `mock/circular/smoke` environment
+with the `mock` backend for these tests.
 
 The default pytest configuration includes tests marked `integration`. Focused
 geometry, STEP, KSTAR, and fixed-duration contracts remain in the fast suite;
@@ -96,7 +97,7 @@ Tests cover:
 
 - the phase-appropriate reward for every leaf task;
 - all ten calibrated ITER/SPARC ramp penalties exactly;
-- explicit `0.0` penalties for flat-top, STEP, and the test fixture;
+- explicit `0.0` penalties for flat-top, STEP, and the mock smoke fixture;
 - KSTAR's native reward and null terminal penalty;
 - loader inheritance when reward and penalty are omitted;
 - string and callable reward overrides;

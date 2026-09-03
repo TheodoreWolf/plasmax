@@ -6,12 +6,12 @@ import pytest
 from helpers import make_test_env
 
 from plasmax.environment.merge import _merge_env_and_backend
-from plasmax.environment.registry import resolve_backend, resolve_env
 from plasmax.spaces import SCALAR_REGISTRY
 
 
 def _merge(env: str) -> dict:
-    return _merge_env_and_backend(resolve_env(env), resolve_backend("bohm_gyrobohm"))
+    backend = "bohm_gyrobohm_step" if env.startswith("step/") else "bohm_gyrobohm"
+    return _merge_env_and_backend(env, backend)
 
 
 def test_ip_registry_extracts_total_current_at_lcfs():
@@ -30,7 +30,7 @@ def test_ip_registry_extracts_total_current_at_lcfs():
         ("iter/baseline/rampdown", 2.0e7),
         ("sparc/prd/rampup", 1.0e7),
         ("sparc/prd/rampdown", 1.0e7),
-        ("step", 2.5e7),
+        ("step/spp_001_ec_hd/flattop", 2.5e7),
     ],
 )
 def test_tokamak_policy_interfaces_include_scaled_ip(env, upper_bound):

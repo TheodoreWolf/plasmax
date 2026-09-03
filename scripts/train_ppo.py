@@ -17,8 +17,8 @@ This subsumes ``train_ppo_wandb.py``, ``train_ppo_vmap.py``,
 ``train_transfer_ppo.py``, and ``train_transfer_ppo_vmap.py``.
 
 ``--env.env_setup`` / ``--env.backend`` / ``--env.transfer_backend`` accept
-either a ``plasmax.environment.registry`` alias (e.g. ``iter/hybrid/flattop``,
-``cgm``) or a raw YAML path — see ``registry.ENV_ALIASES`` / ``BACKEND_ALIASES``.
+a ``plasmax.environment.registry`` alias (e.g. ``iter/hybrid/flattop``,
+``cgm``) — see ``registry.ENV_ALIASES`` / ``BACKEND_ALIASES``.
 
 Run inside Docker, e.g.:
     python3 scripts/train_ppo.py \\
@@ -72,10 +72,8 @@ from experiments.studies.transfer_eval import (
 from experiments.studies.transfer_eval import (
     write_transfer_summary,
 )
-from plasmax.environment.config import backend_kind
 from plasmax.environment.factory import make
-from plasmax.environment.merge import env_key
-from plasmax.environment.registry import resolve_backend, resolve_env
+from plasmax.environment.registry import resolve_backend
 from training.envelope_gymnax import EnvelopeGymnax
 from training.vmap_logging import SeedBufferLogger
 
@@ -87,10 +85,10 @@ from training.vmap_logging import SeedBufferLogger
 @dataclasses.dataclass
 class EnvConfig:
     env_setup: str = "iter/hybrid/flattop"
-    backend: str = "bohm_gyrobohm"
+    backend: str | None = "bohm_gyrobohm"
     # If set, zero-shot evaluate the trained policy on this second, typically
     # higher-fidelity, backend after training (must share env_setup, and
-    # therefore obs/action spaces, with `backend`). registry alias or raw path.
+    # therefore obs/action spaces, with `backend`). Registry alias.
     transfer_backend: str | None = None
     reward: str | None = None
     variant: Literal["oracle", "realistic"] = "realistic"
@@ -108,9 +106,6 @@ class EnvConfig:
     # world-model envs, and always used when num_seeds > 1). Skips the
     # physics/geometry logging graph.
     force_minimal_callback: bool = False
-    # Leave-one-out ablation of the realistic obs stack (variant=realistic
-    # only): none | noise | resolution | filter | delay. See scenario_config._ABLATABLE.
-    ablate: str = "none"
     # Append the environment time coordinate as an extra observation scalar.
     time_aware: bool = False
     # Discretize every actuator into this many evenly spaced bins (MultiDiscrete
@@ -178,26 +173,27 @@ def _fmt_steps(n: int) -> str:
     return f"{mantissa}e{int(exp)}"
 
 
-def _stem(alias_or_path: str, resolve) -> str:
-    """Short label for a registry alias or raw YAML path, e.g. 'cgm'."""
+def _stem(alias_or_path: str | None, resolve) -> str:
+    """Short label for a registry alias, e.g. 'cgm'."""
+    if alias_or_path is None:
+        return "native"
     return Path(resolve(alias_or_path)).stem
 
 
 def _env_label(alias_or_path: str) -> str:
     """Run-name label for an env: its address with '/' flattened to '_', e.g.
-    'iter/hybrid/flattop' or '/path/to/custom_env.yaml' ->
-    'iter_hybrid_flattop'."""
-    return env_key(resolve_env(alias_or_path)).replace("/", "_")
+    'iter/hybrid/flattop' -> 'iter_hybrid_flattop'."""
+    return alias_or_path.replace("/", "_")
 
 
 def _backend_kind(alias_or_path: str) -> str:
-    return backend_kind(resolve_backend(alias_or_path))
+    return "world_model" if alias_or_path == "kstar_worldmodel" else "torax"
 
 
 def _run_name(cfg: Config) -> str:
     env_name = _env_label(cfg.env.env_setup)
     backend_name = _stem(cfg.env.backend, resolve_backend)
-    is_world_model = _backend_kind(cfg.env.backend) == "world_model"
+    is_world_model = _backend_kind(cfg.env.env_setup) == "world_model"
     reward_name = cfg.env.reward or "task"
 
     if cfg.env.transfer_backend is not None:
@@ -280,14 +276,16 @@ def _build_algo(cfg: Config, env):
     )
 
 
-def _load_env(cfg: Config, backend_alias_or_path: str):
+def _load_env(cfg: Config, backend_alias_or_path: str | None):
     # make resolves registry aliases for both env_setup and backend
     # internally (plasmax.environment.registry.resolve_env/resolve_backend).
     if cfg.env.disruption_penalty is not None:
         disruption_penalty = cfg.env.disruption_penalty
     elif cfg.env.disruption_kappa is not None:
+        if backend_alias_or_path is None:
+            raise ValueError("disruption_kappa is only valid for TORAX environments")
         disruption_penalty = calibrated_disruption_penalty(
-            env_key(resolve_env(cfg.env.env_setup)),
+            cfg.env.env_setup,
             backend_alias_or_path,
             kappa=cfg.env.disruption_kappa,
         )
@@ -299,7 +297,6 @@ def _load_env(cfg: Config, backend_alias_or_path: str):
         reward=cfg.env.reward,
         variant=cfg.env.variant,
         disruption_penalty=disruption_penalty,
-        ablate=cfg.env.ablate,
         time_aware=cfg.env.time_aware,
         quantize_bins=cfg.env.quantize_bins,
     )
@@ -324,7 +321,7 @@ def _train_single(cfg: Config, env, algo):
             n_seeds=cfg.env.eval_n_envs,
             **evaluator_options,
         )
-    elif _backend_kind(cfg.env.backend) == "world_model":
+    elif _backend_kind(cfg.env.env_setup) == "world_model":
         eval_cb = make_world_model_training_callback(
             num_steps=episode_steps,
             n_seeds=cfg.env.eval_n_envs,
@@ -462,7 +459,7 @@ def _run_vmap(cfg: Config, run_name: str) -> None:
     episode_steps = algo.env_params.max_steps_in_episode
 
     # World-model envs carry no TORAX postout; log returns-only.
-    is_world_model = _backend_kind(cfg.env.backend) == "world_model"
+    is_world_model = _backend_kind(cfg.env.env_setup) == "world_model"
     kind = (
         "minimal" if (is_world_model or cfg.env.force_minimal_callback) else "physics"
     )

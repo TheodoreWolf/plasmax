@@ -111,8 +111,8 @@ def test_10m_knot_study_replaces_original_1m_run():
 def test_10m_knot_contract_rejects_partial_priority_run():
     cell = Cell(
         algorithm="direct_knots_10",
-        env="step",
-        backend="bohm_gyrobohm",
+        env="step/spp_001_ec_hd/flattop",
+        backend="bohm_gyrobohm_step",
         variant="oracle",
         reward="P_diff",
     )
@@ -149,10 +149,10 @@ def test_bootstrap_interval_is_deterministic_and_contains_mean():
 def test_markdown_has_environment_rows_and_algorithm_columns():
     rows = [
         SummaryRow(
-            environment="step",
+            environment="step/spp_001_ec_hd/flattop",
             variant="oracle",
             algorithm=algorithm,
-            backend="bohm_gyrobohm",
+            backend="bohm_gyrobohm_step",
             reward="P_diff",
             train_steps=10_000_000,
             n_seeds=10,
@@ -179,9 +179,9 @@ def test_markdown_has_environment_rows_and_algorithm_columns():
     table = _markdown_table(
         rows,
         variant="oracle",
-        env_order=["step"],
+        env_order=["step/spp_001_ec_hd/flattop"],
         precision=1,
     )
 
     assert "| Environment | PPO | SAC | Direct policy |" in table
-    assert "| step | 1.0 [0.5, 1.5]" in table
+    assert "| step/spp_001_ec_hd/flattop | 1.0 [0.5, 1.5]" in table

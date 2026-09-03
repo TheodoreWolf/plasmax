@@ -29,7 +29,7 @@ from plasmax.environment.schema import (
     ObservationsConfig,
     ObsProfileConfig,
     ObsScalarConfig,
-    ScenarioConfig,
+    PlasmaxConfig,
     TaskConfig,
 )
 from plasmax.wrappers import unwrap_to_env_state
@@ -122,8 +122,10 @@ def _paper_scenario(geometry_directory: Path, t_final: float, dt: float):
             "calculator_type": "fixed",
         },
     }
-    return ScenarioConfig(
-        torax=torax_cfg,
+    torax_config = model_config.ToraxConfig.from_dict(torax_cfg)
+    return PlasmaxConfig(
+        environment_key="torax_paper_iter_stationary",
+        torax=torax_config,
         task=TaskConfig(reward="P_diff", terminal_penalty=0.0),
         actuators=[
             ActuatorConfig(
@@ -160,15 +162,15 @@ def _paper_scenario(geometry_directory: Path, t_final: float, dt: float):
 def _build_env(t_final: float, dt: float):
     geometry_directory = Path(torax.__file__).parent / "data" / "third_party" / "geo"
     scenario = _paper_scenario(geometry_directory, t_final, dt)
-    torax_config = model_config.ToraxConfig.from_dict(dict(scenario.torax))
     num_steps = int(round(t_final / dt))
     return env_config._build_env(  # noqa: SLF001 - script-local reproduction helper.
         scenario,
-        torax_config,
         reward="P_diff",
         variant="oracle",
         max_steps=num_steps,
         disruption_penalty=0.0,
+        time_aware=False,
+        quantize_bins=None,
     )
 
 

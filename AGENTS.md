@@ -44,7 +44,7 @@ The distribution is an environment-only library. Hatch builds only
 The supported top-level API is:
 
 ```text
-make, ScenarioConfig, PlasmaxEnv, EnvState,
+make, PlasmaxConfig, PlasmaxEnv, EnvState,
 TrajectoryStep, collect_episode, collect_episodes, registry
 ```
 
@@ -109,15 +109,23 @@ EQDSK/CHEASE geometry. Keep it until the upstream issue is resolved.
 Packaged aliases resolve paths relative to `src/plasmax/configs/` so installed
 artifacts work from any current directory.
 
-- `make` is the only public constructor. Single-file scenarios pass no backend,
-  including the fast `test` fixture; machine tasks pass an environment and a
-  compatible backend alias. The private `_load_scenario` / `_load_env` branches
-  behind it are not part of the API.
-- Environment values override backend defaults through the one canonical merge
-  path.
-- Keep the full registered ITER, SPARC, STEP, and KSTAR matrix and every packaged
-  data asset. A trajectory terminating is a control outcome, not a reason to
-  remove a task.
+- `make` is the only public constructor. TORAX environments use
+  `{tokamak}/{scenario}/{phase}` and require an explicit compatible backend;
+  `kstar_worldmodel` is standalone and takes no backend. Raw YAML paths are not
+  constructor inputs.
+- TORAX environment fragments compose as
+  `tokamak < scenario base < phase < wrappers`. Backend fragments are orthogonal:
+  they own transport, solver, solver-substep budget, and transport-model
+  randomization leaves, and duplicate environment/backend leaves are errors.
+- YAML fragments are not independently schema-validated. The loader resolves
+  assets, creates the upstream `ToraxConfig`, and validates the one complete
+  `PlasmaxConfig`. KSTAR instead validates one complete `WorldModelConfig`.
+- `make` validates the registered pair and options, loads the complete config,
+  builds the matching core environment, applies wrappers in the canonical
+  order, checks the requested horizon, and adds truncation.
+- Keep the full registered ITER, SPARC, STEP, KSTAR, and mock matrix and every
+  packaged data asset. A trajectory terminating is a control outcome, not a
+  reason to remove a task.
 
 Every leaf YAML stores task defaults:
 

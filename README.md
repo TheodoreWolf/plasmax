@@ -46,7 +46,9 @@ print(info.obs, info.reward)
 print(info.terminated, info.truncated)
 ```
 
-Environments are loaded through the `make` function, the environment name is structured as such `{tokamak}/{scenario}/{phase}.`
+Environments are loaded through the `make` function. TORAX environment names
+are structured as `{tokamak}/{scenario}/{phase}` and require an explicit
+compatible backend. KSTAR is a standalone environment and takes no backend.
 
 By default, it applies the modifications recommended by [Challenges of Real World Reinforcement Learning](https://arxiv.org/abs/1904.12901), use `variant="oracle"`, to remove these.
 
@@ -58,10 +60,16 @@ The environments use the [Envelope](https://github.com/keraJLi/envelope) API and
 |---|---|
 | `iter/{baseline,hybrid,advanced}/{rampup,flattop,rampdown}` | `cgm`, `qlknn`, `bohm_gyrobohm`, `tglfnn`, `tglfnn_nr` |
 | `sparc/{prd,reduced_field}/{rampup,flattop,rampdown}` | `cgm`, `qlknn`, `bohm_gyrobohm`, `tglfnn`, `tglfnn_nr` |
-| `step` | `bohm_gyrobohm`, `tglfnn_spherical` |
-| `kstar` | `fusion_lstm` |
+| `step/spp_001_ec_hd/flattop` | `bohm_gyrobohm_step`, `tglfnn_spherical` |
+| `mock/circular/smoke` | `mock` |
+| `kstar_worldmodel` | None; standalone environment |
 
 Unsupported environment/backend pairs are rejected before construction.
+
+```python
+smoke = plasmax.make("mock/circular/smoke", backend="mock")
+kstar = plasmax.make("kstar_worldmodel")
+```
 
 NB: the `tglfnn_spherical` backend requires a repository clone for now.
 [TGLFNN-UKAEA](https://github.com/ukaea/tglfnn-ukaea) is still an eager

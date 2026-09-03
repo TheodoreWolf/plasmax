@@ -23,9 +23,9 @@ import numpy as np
 import tyro
 from eqdsk import EQDSKInterface
 from matplotlib.path import Path as MplPath
-from ruamel.yaml import YAML
 
 from experiments.plotting.plot_equilibrium_shapes import _lcfs, _panel_title
+from plasmax.environment.config import parse_env_and_backend
 from scripts.project_paths import CONFIGS_DIR, PLOTS_DIR
 from tools.equilibria.equilibrium_specs import RAMP_IP_LEVELS_MA, ip_tag
 
@@ -68,8 +68,6 @@ class InitialState:
 class Args:
     """CLI for the poloidal initialization atlas."""
 
-    env_dir: Path = CONFIGS_DIR / "envs"
-    """Directory containing the environment YAMLs."""
     data_dir: Path = CONFIGS_DIR / "data"
     """Directory containing the generated EQDSK files."""
     out_path: Path = PLOTS_DIR / "initial_profile_poloidal.png"
@@ -78,10 +76,10 @@ class Args:
     """Scenario generator keys to include."""
 
 
-def _radial_profile(profile_conditions: dict[str, Any], name: str) -> RadialProfile:
-    time_values = profile_conditions[name]
+def _radial_profile(profile_conditions: Any, name: str) -> RadialProfile:
+    time_values = getattr(profile_conditions, name).value
     radial_values = time_values[min(time_values, key=float)]
-    ordered = sorted(radial_values.items(), key=lambda item: float(item[0]))
+    ordered = tuple(zip(*radial_values, strict=True))
     return RadialProfile(
         rho=np.asarray([float(rho) for rho, _ in ordered]),
         values=np.asarray([float(value) for _, value in ordered]),
@@ -92,13 +90,11 @@ def _load_state(
     scenario: str,
     phase: str,
     ip_index: int,
-    env_dir: Path,
     data_dir: Path,
 ) -> InitialState:
-    yaml = YAML(typ="safe")
-    env_path = env_dir / _SCENARIO_DIRS[scenario] / f"{phase}.yaml"
-    data = yaml.load(env_path.read_text())
-    profile_conditions = data["torax"]["profile_conditions"]
+    env_path = f"{_SCENARIO_DIRS[scenario]}/{phase}"
+    data = parse_env_and_backend(env_path, "bohm_gyrobohm")
+    profile_conditions = data.torax.profile_conditions
     ip_ma = RAMP_IP_LEVELS_MA[scenario][ip_index]
     equilibrium = EQDSKInterface.from_file(
         str(data_dir / f"{scenario}_{ip_tag(ip_ma)}.eqdsk"),
@@ -228,7 +224,6 @@ def main(args: Args) -> None:
             scenario,
             phase,
             ip_index,
-            args.env_dir,
             args.data_dir,
         )
         for scenario in args.scenarios

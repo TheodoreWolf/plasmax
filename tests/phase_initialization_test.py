@@ -7,24 +7,18 @@ from pathlib import Path
 import jax
 import numpy as np
 import pytest
-import yaml
 from helpers import make_test_config, make_test_env
 
 from plasmax import make
-from plasmax.environment.config import parse_env_and_backend, parse_torax_sources
-from plasmax.environment.factory import _load_env
+from plasmax.environment.config import parse_env_and_backend
 from plasmax.environment.initialization import (
     PhaseSnapshot,
     load_snapshot,
     snapshot_from_state,
     write_snapshot,
 )
-from plasmax.environment.merge import (
-    _merge_env_and_backend,
-    resolve_config_asset,
-)
-from plasmax.environment.registry import CONFIGS_DIR, resolve_backend, resolve_env
-from plasmax.environment.schema import ScenarioConfig
+from plasmax.environment.registry import CONFIGS_DIR
+from plasmax.environment.schema import PlasmaxConfig
 from plasmax.spaces import ActuatorSpec
 
 _SNAPSHOT_PEDESTAL = {
@@ -327,11 +321,9 @@ def test_rebuild_rejects_grid_mismatch(
 
 
 def test_missing_snapshot_uses_native_reset(monkeypatch: pytest.MonkeyPatch) -> None:
-    sources = parse_torax_sources(
-        resolve_env("iter/hybrid/rampup"),
-        resolve_backend("cgm"),
-    )
-    assert sources.initialization is None
+    config = parse_env_and_backend("iter/hybrid/rampup", "cgm")
+    assert isinstance(config, PlasmaxConfig)
+    assert config.initialization is None
 
     def unexpected_rebuild(*_args, **_kwargs):
         raise AssertionError("native reset attempted a snapshot rebuild")
@@ -345,28 +337,17 @@ def test_missing_snapshot_uses_native_reset(monkeypatch: pytest.MonkeyPatch) -> 
     assert float(state.plasma.t) == pytest.approx(0.0)
 
 
-def test_phase_metadata_is_not_part_of_scenario_config(
+def test_phase_snapshot_is_resolved_on_final_config(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    env_path = resolve_env("iter/hybrid/flattop")
-    backend_path = resolve_backend("cgm")
-    metadata = parse_torax_sources(env_path, backend_path).initialization
-
+    monkeypatch.chdir(tmp_path)
+    config = parse_env_and_backend("iter/hybrid/flattop", "cgm")
+    assert isinstance(config, PlasmaxConfig)
+    metadata = config.initialization
     assert metadata is not None
     assert set(metadata.model_dump()) == {"path", "sha256"}
-    assert "initialization" not in _merge_env_and_backend(env_path, backend_path)
-    assert "initialization" not in ScenarioConfig.model_fields
-    assert (
-        "initialization"
-        not in parse_env_and_backend(
-            env_path,
-            backend_path,
-        ).model_dump()
-    )
-
-    monkeypatch.chdir(tmp_path)
-    path = resolve_config_asset(metadata.path, env_path)
+    path = metadata.path
     assert (
         path
         == (
@@ -386,83 +367,6 @@ def test_phase_metadata_is_not_part_of_scenario_config(
     assert snapshot.metadata.source_backend == "bohm_gyrobohm"
     assert snapshot.metadata.source_step == 1000
     assert snapshot.metadata.source_time_s == pytest.approx(100.0)
-
-
-def test_initialization_metadata_is_phase_owned(tmp_path: Path) -> None:
-    config_root = tmp_path / "configs"
-    phase_path = config_root / "envs" / "device" / "scenario" / "flattop.yaml"
-    base_path = phase_path.parent / "base.yaml"
-    tokamak_path = config_root / "tokamaks" / "device.yaml"
-    backend_path = tmp_path / "backend.yaml"
-    initialization = {"path": "phase.npz", "sha256": "0" * 64}
-    phase_path.parent.mkdir(parents=True)
-    tokamak_path.parent.mkdir(parents=True)
-    backend_path.write_text("{}\n")
-
-    phase_path.write_text("{}\n")
-    base_path.write_text(yaml.safe_dump({"initialization": initialization}))
-    with pytest.raises(ValueError, match="scenario base layer"):
-        _merge_env_and_backend(str(phase_path), str(backend_path))
-
-    base_path.unlink()
-    phase_path.write_text(yaml.safe_dump({"tokamak": "device"}))
-    tokamak_path.write_text(yaml.safe_dump({"initialization": initialization}))
-    with pytest.raises(ValueError, match="tokamak layer"):
-        _merge_env_and_backend(str(phase_path), str(backend_path))
-
-    tokamak_path.unlink()
-    phase_path.write_text("initialization: null\n")
-    backend_path.write_text("initialization: null\n")
-    merged = _merge_env_and_backend(str(phase_path), str(backend_path))
-    assert "initialization" not in merged
-
-    backend_path.write_text(yaml.safe_dump({"initialization": initialization}))
-    with pytest.raises(ValueError, match="unexpected top-level keys"):
-        _merge_env_and_backend(str(phase_path), str(backend_path))
-
-
-def test_world_model_yamls_reject_initialization(tmp_path: Path) -> None:
-    initialization = {"path": "phase.npz", "sha256": "0" * 64}
-    env_path = tmp_path / "world_env.yaml"
-    backend_path = tmp_path / "world_backend.yaml"
-    valid_env = {
-        "task": {"reward": "kstar", "terminal_penalty": None},
-        "world_model_env": {"max_steps_in_episode": 1},
-    }
-    valid_backend = {
-        "type": "world_model",
-        "world_model": {"name": "kstar_lstm"},
-    }
-    backend_path.write_text(yaml.safe_dump(valid_backend))
-    env_path.write_text(yaml.safe_dump({**valid_env, "initialization": initialization}))
-
-    with pytest.raises(ValueError, match="initialization"):
-        _load_env(str(env_path), str(backend_path), validate=False)
-
-    env_path.write_text(yaml.safe_dump(valid_env))
-    backend_path.write_text(
-        yaml.safe_dump(
-            {
-                **valid_backend,
-                "initialization": initialization,
-            }
-        )
-    )
-    with pytest.raises(ValueError, match="initialization"):
-        _load_env(str(env_path), str(backend_path), validate=False)
-
-    base_path = tmp_path / "world_base.yaml"
-    base_path.write_text(
-        yaml.safe_dump(
-            {
-                **valid_backend,
-                "initialization": initialization,
-            }
-        )
-    )
-    backend_path.write_text("extends: world_base.yaml\n")
-    with pytest.raises(ValueError, match="initialization"):
-        _load_env(str(env_path), str(backend_path), validate=False)
 
 
 @pytest.mark.integration

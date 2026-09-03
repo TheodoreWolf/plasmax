@@ -10,7 +10,6 @@ from benchmarks import backend_agreement
 from benchmarks.backend_agreement import (
     Config,
     Rollout,
-    _backend_configs,
     _elementwise_error,
     _selected_sensor_mean,
     _sensor_balanced_mean,
@@ -135,18 +134,6 @@ def test_measured_throughput_counts_only_completed_control_intervals():
     assert _throughput_sps(cfg, rollouts) == {"tglfnn_nr": 4.0}
 
 
-def test_explicit_backend_configs_match_labels():
-    cfg = Config(
-        backends=("tglfnn", "tglfnn_newton"),
-        backend_configs=("tglfnn", "tglfnn_nr"),
-    )
-
-    assert _backend_configs(cfg) == {
-        "tglfnn": "tglfnn",
-        "tglfnn_newton": "tglfnn_nr",
-    }
-
-
 def test_solver_coarse_convergence_is_accepted():
     _validate_solver_error_states(np.array([0, 2, 0, 2]))
 
@@ -180,9 +167,7 @@ def test_multi_seed_failures_are_reported_without_pruning_other_pairs(
     monkeypatch.setattr(
         backend_agreement,
         "make",
-        lambda _env, backend, validate=True: SimpleNamespace(
-            unwrapped=FakeEnv(backend)
-        ),
+        lambda _env, backend: SimpleNamespace(unwrapped=FakeEnv(backend)),
     )
     monkeypatch.setattr(
         backend_agreement,

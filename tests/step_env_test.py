@@ -18,11 +18,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from plasmax.environment.config import parse_env_and_backend
 from plasmax.environment.factory import make
+from plasmax.environment.merge import load_backend
 
-_ENV = "step"
-_BACKEND = "bohm_gyrobohm"
+_ENV = "step/spp_001_ec_hd/flattop"
+_BACKEND = "bohm_gyrobohm_step"
 _OPENSTEP_PATH = (
     Path(__file__).parents[1]
     / "src"
@@ -48,7 +48,7 @@ class StepEnvOracleTest:
 
     @classmethod
     def setup_class(cls):
-        cls._env = make(_ENV, _BACKEND)
+        cls._env = make(_ENV, _BACKEND, variant="oracle")
         cls._base_env = cls._env.unwrapped
         cls._reset_state, _ = cls._base_env.init(jax.random.key(0))
 
@@ -316,7 +316,7 @@ class StepEnvOracleTest:
         )
 
     def test_bohm_gyrobohm_uses_exact_torax_v1_4_2_step_settings(self):
-        transport = parse_env_and_backend(_ENV, _BACKEND).torax["transport"]
+        transport = load_backend(_BACKEND)["torax"]["transport"]
         for name in (
             "chi_e_bohm_multiplier",
             "chi_i_bohm_multiplier",

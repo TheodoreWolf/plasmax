@@ -13,13 +13,12 @@ import yaml
 import plasmax
 from plasmax import rewards
 from plasmax.environment import registry
-from plasmax.environment.config import (
-    parse_env_and_backend,
-    parse_scenario,
-    scenario_to_yaml,
-)
+from plasmax.environment.config import parse_env_and_backend
 from plasmax.environment.factory import make
-from plasmax.environment.schema import TaskConfig
+from plasmax.environment.schema import TaskConfig, WorldModelConfig
+
+_MOCK_ENV = "mock/circular/smoke"
+_MOCK_BACKEND = "mock"
 
 _EXPECTED_TASKS: dict[str, tuple[str, float | None]] = {
     "iter/advanced/rampup": ("lh_transition", -100),
@@ -37,8 +36,9 @@ _EXPECTED_TASKS: dict[str, tuple[str, float | None]] = {
     "sparc/reduced_field/rampup": ("lh_transition", -16),
     "sparc/reduced_field/flattop": ("P_diff", 0.0),
     "sparc/reduced_field/rampdown": ("rampdown", -462),
-    "step": ("P_diff", 0.0),
-    "kstar": ("native", None),
+    "step/spp_001_ec_hd/flattop": ("P_diff", 0.0),
+    _MOCK_ENV: ("P_diff", 0.0),
+    "kstar_worldmodel": ("native", None),
 }
 
 
@@ -51,7 +51,7 @@ def _raw_task(path: str | Path) -> dict[str, object]:
 def test_every_leaf_environment_yaml_stores_task_metadata(alias):
     assert set(registry.ENV_ALIASES) == set(_EXPECTED_TASKS)
     expected_reward, expected_penalty = _EXPECTED_TASKS[alias]
-    task = _raw_task(registry.ENV_ALIASES[alias])
+    task = _raw_task(registry.resolve_env(alias))
     assert task["reward"] == expected_reward
     if expected_penalty is None:
         assert task["terminal_penalty"] is None
@@ -59,30 +59,12 @@ def test_every_leaf_environment_yaml_stores_task_metadata(alias):
         np.testing.assert_array_equal(task["terminal_penalty"], expected_penalty)
 
 
-def test_single_file_test_fixture_stores_uncalibrated_task_metadata():
-    task = _raw_task(registry.SCENARIO_ALIASES["test"])
-    assert task == {"reward": "P_diff", "terminal_penalty": 0.0}
-
-
-@pytest.mark.parametrize(
-    ("alias", "expected"),
-    [
-        (alias, penalty)
-        for alias, (_, penalty) in _EXPECTED_TASKS.items()
-        if alias.endswith(("rampup", "rampdown"))
-    ],
-)
-def test_ten_calibrated_terminal_penalties_are_exact(alias, expected):
-    actual = _raw_task(registry.ENV_ALIASES[alias])["terminal_penalty"]
-    np.testing.assert_array_equal(actual, expected)
-
-
 def test_public_constructor_defaults_to_realistic():
     assert inspect.signature(plasmax.make).parameters["variant"].default == "realistic"
 
 
 def test_omitted_reward_and_penalty_resolve_from_task_metadata():
-    env = make("test")
+    env = make(_MOCK_ENV, _MOCK_BACKEND)
     dynamics = env.unwrapped._dynamics
     assert dynamics._reward_fn is rewards.P_diff
     np.testing.assert_array_equal(dynamics._disruption_penalty, jnp.float32(0.0))
@@ -90,24 +72,28 @@ def test_omitted_reward_and_penalty_resolve_from_task_metadata():
 
 
 def test_string_and_callable_reward_overrides_are_preserved():
-    string_env = make("test", reward="Q_fusion")
+    string_env = make(_MOCK_ENV, _MOCK_BACKEND, reward="Q_fusion")
     assert string_env.unwrapped._dynamics._reward_fn is rewards.Q_fusion
 
     def custom_reward(last_action, state, action, next_state):
         del last_action, state, action, next_state
         return jnp.float32(7.0)
 
-    callable_env = make("test", reward=custom_reward)
+    callable_env = make(
+        _MOCK_ENV,
+        _MOCK_BACKEND,
+        reward=custom_reward,
+    )
     assert callable_env.unwrapped._dynamics._reward_fn is custom_reward
 
 
-def test_explicit_zero_terminal_penalty_overrides_nonzero_metadata(tmp_path):
-    config = parse_scenario("test").model_copy(
-        update={"task": TaskConfig(reward="P_diff", terminal_penalty=-123.0)}
+def test_explicit_zero_terminal_penalty_overrides_nonzero_metadata():
+    env = make(
+        "iter/advanced/rampup",
+        "cgm",
+        disruption_penalty=0.0,
+        max_steps=1,
     )
-    path = tmp_path / "explicit-zero.yaml"
-    scenario_to_yaml(config, path)
-    env = make(str(path), disruption_penalty=0.0)
     np.testing.assert_array_equal(env.unwrapped._dynamics._disruption_penalty, 0.0)
 
 
@@ -119,10 +105,15 @@ def test_phase_defaults_are_available_without_duplicated_reward_maps():
 
 
 def test_kstar_inherits_native_reward_and_rejects_terminal_penalties():
-    env = make("kstar", "fusion_lstm")
+    config = parse_env_and_backend("kstar_worldmodel")
+    assert isinstance(config, WorldModelConfig)
+    assert config.task == TaskConfig(reward="native", terminal_penalty=None)
+
+    env = make("kstar_worldmodel")
     assert env is not None
-    make("kstar", "fusion_lstm", reward="native")
-    with pytest.raises(ValueError, match="native reward"):
-        make("kstar", "fusion_lstm", reward="P_diff")
+    with pytest.raises(ValueError, match="native"):
+        make("kstar_worldmodel", reward="P_diff")
     with pytest.raises(ValueError, match="disruption_penalty"):
-        make("kstar", "fusion_lstm", disruption_penalty=0.0)
+        make("kstar_worldmodel", disruption_penalty=0.0)
+    with pytest.raises(ValueError, match="standalone|no backend"):
+        make("kstar_worldmodel", backend="mock")

@@ -1,144 +1,27 @@
-""":func:`make` constructs validated plasmax environments from configuration.
-
-Single-file scenarios take no backend; device scenarios take an env + backend
-pair, merging backend defaults with env overrides. Both accept registry aliases
-or paths.
-"""
+""":func:`make` constructs validated plasmax environments from configuration."""
 
 from __future__ import annotations
 
 import functools
+import math
+import numbers
 import operator
-from typing import Any, Literal
+from typing import Literal
 
 from envelope import Environment
-from torax._src.torax_pydantic import model_config
 
 from plasmax import rewards as rewards_lib
-from plasmax import spaces as spaces_lib
 from plasmax import wrappers as wrappers_lib
 from plasmax.environment import core as env_lib
 from plasmax.environment import initialization as initialization_lib
-from plasmax.environment import registry as registry_lib
-from plasmax.environment.config import (
-    PhaseInitializationConfig,
-    WorldModelBackendConfig,
-    WorldModelEnvironmentConfig,
-    backend_kind,
-    parse_scenario,
-    parse_torax_sources,
-    parse_world_model_sources,
-)
-from plasmax.environment.merge import (
-    _apply_imas_init,
-    _resolve_geometry_dir,
-)
+from plasmax.environment.config import parse_env_and_backend
+from plasmax.environment.merge import validate_env_backend
 from plasmax.environment.schema import (
-    ScenarioConfig,
+    PhaseInitializationConfig,
+    PlasmaxConfig,
+    WorldModelConfig,
 )
-
-__all__ = [
-    "make",
-]
-
-
-def _validate_realistic_obs_names(cfg: ScenarioConfig) -> None:
-    """Raises ValueError if filter/delay names reference unknown sensors.
-
-    Filter names must be declared profiles/scalars; delay names must be among
-    the sensors that survive the filter (the obs the delay wrapper sees).
-    """
-    profile_names = {p.name for p in cfg.observations.profiles}
-    scalar_names = {s.name for s in cfg.observations.scalars}
-    f = cfg.observations.realistic.filter
-    if f is not None:
-        for name in f.profiles or []:
-            if name not in profile_names:
-                raise ValueError(
-                    f"filter profile {name!r} not in observations.profiles: "
-                    f"{sorted(profile_names)}"
-                )
-        for name in f.scalars or []:
-            if name not in scalar_names:
-                raise ValueError(
-                    f"filter scalar {name!r} not in observations.scalars: "
-                    f"{sorted(scalar_names)}"
-                )
-        surviving = set(f.profiles or []) | set(f.scalars or [])
-    else:
-        surviving = profile_names | scalar_names
-
-    for name in cfg.observations.realistic.delay:
-        if name not in surviving:
-            qualifier = "filtered " if f is not None else ""
-            raise ValueError(
-                f"delay sensor {name!r} not in {qualifier}observations: "
-                f"{sorted(surviving)}"
-            )
-
-    for name in cfg.observations.realistic.resolution:
-        if name not in profile_names:
-            raise ValueError(
-                f"resolution profile {name!r} not in observations.profiles: "
-                f"{sorted(profile_names)}"
-            )
-
-
-def _validate_quantize_names(cfg: ScenarioConfig) -> None:
-    """Raises ValueError unless quantize is empty or covers every actuator.
-
-    The array-valued Envelope Discrete space needs one categorical dimension
-    per actuator, so quantization can't be applied to a subset — it's all
-    actuators or none.
-    """
-    quantize = cfg.actions.realistic.quantize
-    if not quantize:
-        return
-    actuator_names = {a.name for a in cfg.actuators}
-    quantize_names = set(quantize)
-    if quantize_names != actuator_names:
-        missing = actuator_names - quantize_names
-        extra = quantize_names - actuator_names
-        raise ValueError(
-            "actions.realistic.quantize must cover every actuator or none; "
-            f"missing: {sorted(missing)}, unknown: {sorted(extra)}"
-        )
-
-
-def _with_quantized_actions(
-    cfg: ScenarioConfig,
-    variant: Literal["oracle", "realistic"],
-    quantize_bins: int | None,
-) -> ScenarioConfig:
-    if quantize_bins is None:
-        return cfg
-    if variant == "oracle":
-        raise ValueError("quantize_bins requires variant='realistic'")
-    realistic = type(cfg.actions.realistic)(
-        quantize={a.name: quantize_bins for a in cfg.actuators}
-    )
-    return cfg.model_copy(
-        update={"actions": cfg.actions.model_copy(update={"realistic": realistic})}
-    )
-
-
-def _load_world_model_env(
-    env_cfg: WorldModelEnvironmentConfig,
-    backend_cfg: WorldModelBackendConfig,
-    *,
-    max_steps: int | None,
-    time_aware: bool,
-) -> Environment:
-    """Build a scalar Envelope environment around learned KSTAR dynamics."""
-    from plasmax.models import world_model_env as wm_env_lib
-
-    safe_max_steps = env_cfg.max_steps_in_episode
-    episode_max_steps = _resolve_max_steps(max_steps, safe_max_steps)
-    env_type = {"kstar_lstm": wm_env_lib.WorldModelEnv}[backend_cfg.name]
-    env: Environment = env_type(random_target=env_cfg.random_target)
-    if time_aware:
-        env = wrappers_lib.TimeAwareWrapper(env=env)
-    return wrappers_lib.PlasmaxTruncationWrapper(env=env, max_steps=episode_max_steps)
+from plasmax.models.world_model import load_bundle
 
 
 def _integral_step_count(value: object, *, name: str) -> int:
@@ -175,19 +58,85 @@ def _resolve_max_steps(requested: int | None, safe_max_steps: int) -> int:
     return max_steps
 
 
-# Degrading realistic wrappers that can be individually ablated (leave-one-out
-# from the realistic stack). Maps the ablation name to the RealisticObsConfig
-# field reset that disables it.
-_ABLATABLE: dict[str, Any] = {
-    "noise": {"noise": {}},
-    "resolution": {"resolution": {}},
-    "filter": {"filter": None},
-    "delay": {"delay": {}},
-}
+def _validate_options(
+    env: str,
+    backend: str | None,
+    reward: str | rewards_lib.RewardFn | None,
+    disruption_penalty: float | None,
+    variant: str,
+    max_steps: int | None,
+    time_aware: bool,
+    quantize_bins: int | None,
+) -> tuple[int | None, int | None]:
+    """Reject public-input errors before loading assets or constructing TORAX."""
+    validate_env_backend(env, backend)
+    if variant not in ("oracle", "realistic"):
+        raise ValueError(
+            f"Unknown variant {variant!r}; expected 'oracle' or 'realistic'"
+        )
+    if not isinstance(time_aware, bool):
+        raise ValueError(f"time_aware must be a boolean, got {time_aware!r}")
+    checked_max_steps = (
+        None if max_steps is None else _integral_step_count(max_steps, name="max_steps")
+    )
+    if checked_max_steps is not None and checked_max_steps < 1:
+        raise ValueError(f"max_steps must be positive, got {checked_max_steps}")
+    checked_bins = (
+        None
+        if quantize_bins is None
+        else _integral_step_count(quantize_bins, name="quantize_bins")
+    )
+    if checked_bins is not None and checked_bins < 2:
+        raise ValueError(f"quantize_bins must be at least 2, got {checked_bins}")
+    if disruption_penalty is not None and (
+        isinstance(disruption_penalty, bool)
+        or not isinstance(disruption_penalty, numbers.Real)
+        or not math.isfinite(float(disruption_penalty))
+    ):
+        raise ValueError("disruption_penalty must be a finite number or None")
+
+    if env == "kstar_worldmodel":
+        if variant != "realistic":
+            raise ValueError("kstar_worldmodel only supports the realistic variant")
+        if reward is not None:
+            raise ValueError("world-model environments use their native reward")
+        if disruption_penalty is not None:
+            raise ValueError(
+                "world-model environments do not support disruption_penalty"
+            )
+        if quantize_bins is not None:
+            raise ValueError("world-model environments do not support quantize_bins")
+    else:
+        if quantize_bins is not None and variant == "oracle":
+            raise ValueError("quantize_bins is a realistic action degradation")
+        if reward is not None:
+            rewards_lib.resolve_reward_fn(reward)
+    return checked_max_steps, checked_bins
+
+
+def _load_world_model_env(
+    cfg: WorldModelConfig,
+    *,
+    max_steps: int | None,
+    time_aware: bool,
+) -> Environment:
+    """Build a scalar Envelope environment around learned KSTAR dynamics."""
+    from plasmax.models import world_model_env as wm_env_lib
+
+    spec = cfg.world_model
+    safe_max_steps = spec.max_steps_in_episode
+    episode_max_steps = _resolve_max_steps(max_steps, safe_max_steps)
+    env: Environment = wm_env_lib.WorldModelEnv.from_bundle(
+        load_bundle(spec.weights_path),
+        random_target=spec.random_target,
+    )
+    if time_aware:
+        env = wrappers_lib.TimeAwareWrapper(env=env)
+    return wrappers_lib.PlasmaxTruncationWrapper(env=env, max_steps=episode_max_steps)
 
 
 def _resolve_task_settings(
-    cfg: ScenarioConfig,
+    cfg: PlasmaxConfig,
     reward: str | rewards_lib.RewardFn | None,
     disruption_penalty: float | None,
 ) -> tuple[str | rewards_lib.RewardFn, float]:
@@ -202,7 +151,6 @@ def _resolve_task_settings(
 
 
 def _load_phase_snapshot(
-    env_path: str,
     spec: PhaseInitializationConfig | None,
     *,
     expected_environment: str,
@@ -211,154 +159,122 @@ def _load_phase_snapshot(
     if spec is None:
         return None
     return initialization_lib.load_snapshot(
-        spec.resolve_path(env_path),
+        spec.path,
         expected_sha256=spec.sha256,
         expected_environment=expected_environment,
     )
 
 
 def _build_env(
-    cfg: ScenarioConfig,
-    torax_config: model_config.ToraxConfig,
-    reward: str | rewards_lib.RewardFn,
+    cfg: PlasmaxConfig,
+    *,
+    reward: str | rewards_lib.RewardFn | None,
+    disruption_penalty: float | None,
     variant: Literal["oracle", "realistic"],
     max_steps: int | None,
-    disruption_penalty: float,
-    ablate: str | None = None,
-    time_aware: bool = False,
-    phase_snapshot: initialization_lib.PhaseSnapshot | None = None,
+    time_aware: bool,
+    quantize_bins: int | None,
 ) -> Environment:
-    """Assembles the wrapper stack from a validated ScenarioConfig and RL settings.
+    """Assembles the wrapper stack from a validated config and RL settings.
 
-    ``ablate`` drops a single degrading wrapper from the realistic stack
-    (leave-one-out: one of ``noise``, ``resolution``, ``filter``, ``delay``);
-    ``None``/``"none"`` keeps the full stack. It only affects the realistic
-    variant (oracle has no degrading wrappers). Realistic also samples
-    ``cfg.physics_randomization`` independently for every transition.
-
-    ``time_aware`` appends the environment time coordinate via
-    ``TimeAwareWrapper``, applied in all variants.
+    The realistic variant samples ``cfg.physics_randomization`` independently
+    for every transition. ``time_aware`` appends the environment time
+    coordinate via ``TimeAwareWrapper``, applied in both variants.
     """
-    if variant not in ("oracle", "realistic"):
-        raise ValueError(
-            f"unknown variant {variant!r}; expected 'oracle' or 'realistic'"
-        )
-    if ablate not in (None, "none") and ablate not in _ABLATABLE:
-        raise ValueError(
-            f"unknown ablate target {ablate!r}; valid: {sorted(_ABLATABLE)} (or 'none')"
-        )
-    if variant == "oracle" and ablate not in (None, "none"):
-        raise ValueError("ablate only applies to the realistic variant")
-    actuator_specs = [
-        spaces_lib.ActuatorSpec(
-            a.name,
-            low=a.low,
-            high=a.high,
-            max_delta=a.max_delta,
-            init=a.init,
-        )
-        for a in cfg.actuators
-    ]
-    profile_obs_specs = tuple(
-        spaces_lib.ObsSpec(p.name, scale=p.scale, bounds=p.bounds)
-        for p in cfg.observations.profiles
+    resolved_reward, resolved_penalty = _resolve_task_settings(
+        cfg, reward, disruption_penalty
     )
-    scalar_obs_specs = tuple(
-        spaces_lib.ObsSpec(s.name, scale=s.scale, bounds=s.bounds)
-        for s in cfg.observations.scalars
-    )
-    if reward == "lh_transition":
+    reward_fn = rewards_lib.resolve_reward_fn(resolved_reward)
+    if resolved_reward == "lh_transition":
         # Ramp-up lengths differ substantially (e.g. 10 s SPARC, 60 s ITER
         # baseline, 100 s ITER hybrid/advanced). Bind the reward's elapsed-time
         # normalization to the loaded scenario instead of its historical 100 s
         # default, which would silently define different tasks.
-        t_final = float(cfg.torax["numerics"]["t_final"])
-        reward_fn = functools.partial(rewards_lib.lh_transition, t_final=t_final)
-    else:
-        reward_fn = rewards_lib.resolve_reward_fn(reward)
+        reward_fn = functools.partial(
+            rewards_lib.lh_transition,
+            t_final=float(cfg.torax.numerics.t_final),
+        )
+    phase_snapshot = _load_phase_snapshot(
+        cfg.initialization,
+        expected_environment=cfg.environment_key,
+    )
 
+    profile_obs_specs = [item.to_spec() for item in cfg.observations.profiles]
+    scalar_obs_specs = [item.to_spec() for item in cfg.observations.scalars]
+    actuator_specs = [item.to_spec() for item in cfg.actuators]
+    realistic = variant == "realistic"
     base_env = env_lib.PlasmaxEnv.from_config(
-        config=torax_config,
-        actuator_specs=actuator_specs,
-        reward_fn=reward_fn,
-        disruption_penalty=disruption_penalty,
+        cfg.torax,
+        actuator_specs,
+        reward_fn,
+        disruption_penalty=float(resolved_penalty),
         clip_by_max_action_delta=cfg.clip_by_max_action_delta,
         disruption=cfg.disruption,
         state_noise_config=cfg.state_noise,
-        physics_randomization=(
-            cfg.physics_randomization if variant == "realistic" else {}
-        ),
+        physics_randomization=(cfg.physics_randomization if realistic else {}),
         stepping=cfg.stepping,
-        _initialization=phase_snapshot,
         profile_obs_specs=profile_obs_specs,
         scalar_obs_specs=scalar_obs_specs,
+        _initialization=phase_snapshot,
     )
-    episode_max_steps = _resolve_max_steps(max_steps, base_env.safe_max_steps)
-
-    history = cfg.observations.history
-
-    def _finalize(
-        env: Environment,
-        quantize_bins: tuple[int, ...] | None = None,
-    ) -> Environment:
-        # ActionRescale (action-only) sits below the history stack so the
-        # frame-stacked action history records the policy's [-1, 1] actions.
-        # TimeAware and ObsHistory are both advantageous, so they are applied
-        # in both variants; TimeAware sits below ObsHistory so the stacked
-        # frames each carry their own elapsed-time value. Quantize (if
-        # configured) sits above both. The TORAX truncation wrapper is always
-        # outermost; loaders never add autoreset or vectorization.
-        env = wrappers_lib.ActionRescaleWrapper(env=env)
-        if time_aware:
-            env = wrappers_lib.TimeAwareWrapper(env=env)
-        if history is not None:
-            env = wrappers_lib.ObsHistoryWrapper(env=env, k=history.length)
-        if quantize_bins is not None:
-            env = wrappers_lib.QuantizeActionWrapper(env=env, bin_counts=quantize_bins)
-        return wrappers_lib.PlasmaxTruncationWrapper(
-            env=env, max_steps=episode_max_steps
-        )
-
-    if variant == "oracle":
-        # Oracle: only the advantageous wrappers (history), no degrading effects.
-        return _finalize(base_env)
 
     # Realistic: degrading sensor effects, applied to the obs from the base env:
     # noise → profile resolution → obs filter → delay.
     real = cfg.observations.realistic
-    if ablate in _ABLATABLE:
-        real = real.model_copy(update=_ABLATABLE[ablate])
     env: Environment = base_env
-    if real.noise:
+    if realistic and real.noise:
         noise_cfg = wrappers_lib.SensorNoiseConfig(relative_std=real.noise)
         noise_scale = noise_cfg.to_noise_scale(base_env.obs_layout())
         env = wrappers_lib.NoiseWrapper(env=env, noise_scale=noise_scale)
-
-    if real.resolution:
+    if realistic and real.resolution:
         res_cfg = wrappers_lib.ProfileResolutionConfig(n_obs=real.resolution)
         env = wrappers_lib.ObsFilterWrapper.from_resolution_config(env, res_cfg)
-
-    if real.filter is not None:
-        obs_filter = wrappers_lib.ObsFilterConfig(
-            profiles=real.filter.profiles or [],
-            scalars=real.filter.scalars or [],
+    if realistic and real.filter is not None:
+        obs_filter = real.filter
+        env = wrappers_lib.ObsFilterWrapper.from_obs_config(
+            env,
+            wrappers_lib.ObsFilterConfig(
+                profiles=list(obs_filter.profiles),
+                scalars=list(obs_filter.scalars),
+            ),
         )
-        env = wrappers_lib.ObsFilterWrapper.from_obs_config(env, obs_filter)
-
-    if real.delay:
+    if realistic and real.delay:
         # Build hold probabilities against the (possibly filtered/downsampled)
         # layout the delay wrapper actually sees.
         delay_cfg = wrappers_lib.ObsDelayConfig(repeat_prob=real.delay)
         hold_prob = delay_cfg.to_hold_prob(env.obs_layout())
         env = wrappers_lib.ObsDelayWrapper(env=env, hold_prob=hold_prob)
 
-    quantize_bins = None
-    action_realistic = cfg.actions.realistic
-    if action_realistic.quantize:
-        quantize_cfg = wrappers_lib.ActionQuantizeConfig(bins=action_realistic.quantize)
-        quantize_bins = quantize_cfg.to_bin_counts([a.name for a in cfg.actuators])
+    # ActionRescale (action-only) sits below the history stack so the
+    # frame-stacked action history records the policy's [-1, 1] actions.
+    # TimeAware and ObsHistory are both advantageous, so they are applied
+    # in both variants; TimeAware sits below ObsHistory so the stacked
+    # frames each carry their own elapsed-time value. Quantize (if
+    # configured) sits above both. The TORAX truncation wrapper is always
+    # outermost; loaders never add autoreset or vectorization.
+    env = wrappers_lib.ActionRescaleWrapper(env=env)
+    if time_aware:
+        env = wrappers_lib.TimeAwareWrapper(env=env)
+    if cfg.observations.history is not None:
+        env = wrappers_lib.ObsHistoryWrapper(env=env, k=cfg.observations.history.length)
 
-    return _finalize(env, quantize_bins)
+    configured_bins = (
+        cfg.actions.realistic.quantize if realistic and quantize_bins is None else {}
+    )
+    if quantize_bins is not None:
+        bin_counts = (quantize_bins,) * len(actuator_specs)
+    elif configured_bins:
+        quantize_cfg = wrappers_lib.ActionQuantizeConfig(bins=configured_bins)
+        bin_counts = quantize_cfg.to_bin_counts(
+            [actuator.name for actuator in actuator_specs]
+        )
+    else:
+        bin_counts = None
+    if bin_counts is not None:
+        env = wrappers_lib.QuantizeActionWrapper(env=env, bin_counts=bin_counts)
+
+    episode_max_steps = _resolve_max_steps(max_steps, env.unwrapped.safe_max_steps)
+    return wrappers_lib.PlasmaxTruncationWrapper(env=env, max_steps=episode_max_steps)
 
 
 # ---------------------------------------------------------------------------
@@ -374,161 +290,41 @@ def make(
     variant: Literal["oracle", "realistic"] = "realistic",
     disruption_penalty: float | None = None,
     max_steps: int | None = None,
-    validate: bool = True,
-    ablate: str | None = None,
     time_aware: bool = False,
     quantize_bins: int | None = None,
 ) -> Environment:
-    """Build an environment from registry aliases or YAML paths.
+    """Build an environment from registry aliases.
 
-    Omit ``backend`` for single-file scenarios such as ``"test"``; ``validate``
-    checks env/backend compatibility and is therefore ignored when no backend
-    is given. The realistic variant may override all actuator bin counts with
+    Omit ``backend`` for the standalone ``"kstar_worldmodel"`` environment.
+    The realistic variant may override all actuator bin counts with
     ``quantize_bins``.
     """
-    if backend is None:
-        return _load_scenario(
-            env,
-            reward=reward,
-            variant=variant,
-            disruption_penalty=disruption_penalty,
-            max_steps=max_steps,
-            ablate=ablate,
-            time_aware=time_aware,
-            quantize_bins=quantize_bins,
-        )
-    return _load_env(
+    max_steps, quantize_bins = _validate_options(
         env,
         backend,
+        reward,
+        disruption_penalty,
+        variant,
+        max_steps,
+        time_aware,
+        quantize_bins,
+    )
+    cfg = parse_env_and_backend(env, backend)
+    if isinstance(cfg, WorldModelConfig):
+        return _load_world_model_env(
+            cfg,
+            max_steps=max_steps,
+            time_aware=time_aware,
+        )
+    return _build_env(
+        cfg,
         reward=reward,
-        variant=variant,
         disruption_penalty=disruption_penalty,
+        variant=variant,
         max_steps=max_steps,
-        validate=validate,
-        ablate=ablate,
         time_aware=time_aware,
         quantize_bins=quantize_bins,
     )
 
 
-def _load_scenario(
-    path: str,
-    *,
-    reward: str | rewards_lib.RewardFn | None = None,
-    variant: Literal["oracle", "realistic"] = "realistic",
-    disruption_penalty: float | None = None,
-    max_steps: int | None = None,
-    ablate: str | None = None,
-    time_aware: bool = False,
-    quantize_bins: int | None = None,
-) -> Environment:
-    """Loads a single-file scenario YAML (path or ``registry.SCENARIO_ALIASES``
-    alias) into a scalar Envelope environment. See :func:`make` for the
-    shared keyword arguments."""
-    path = registry_lib.resolve_scenario(path)
-    cfg = parse_scenario(path)
-    cfg = _with_quantized_actions(cfg, variant, quantize_bins)
-    _validate_realistic_obs_names(cfg)
-    _validate_quantize_names(cfg)
-    torax_dict = _apply_imas_init(dict(cfg.torax), path)
-    torax_dict = _resolve_geometry_dir(torax_dict, path)
-    torax_config = model_config.ToraxConfig.from_dict(torax_dict)
-    resolved_reward, resolved_penalty = _resolve_task_settings(
-        cfg, reward, disruption_penalty
-    )
-    return _build_env(
-        cfg,
-        torax_config,
-        resolved_reward,
-        variant,
-        max_steps,
-        resolved_penalty,
-        ablate,
-        time_aware,
-    )
-
-
-def _load_env(
-    env_path: str,
-    backend_path: str,
-    *,
-    reward: str | rewards_lib.RewardFn | None = None,
-    variant: Literal["oracle", "realistic"] = "realistic",
-    disruption_penalty: float | None = None,
-    max_steps: int | None = None,
-    validate: bool = True,
-    ablate: str | None = None,
-    time_aware: bool = False,
-    quantize_bins: int | None = None,
-) -> Environment:
-    """Loads an env + backend YAML pair (paths or registry aliases) into a
-    scalar Envelope environment.
-
-    The env YAML defines the RL task (actuators, observations, scenario
-    plumbing); the backend YAML the simulator engine (transport, solver).
-    They are deep-merged with backend supplying defaults and env winning on
-    overlap — see the module docstring for the merge contract. For a
-    world-model backend the corresponding learned-dynamics env is returned
-    instead. See :func:`make` for the shared keyword arguments."""
-    env_path = registry_lib.resolve_env(env_path)
-    backend_path = registry_lib.resolve_backend(backend_path)
-    if variant not in ("oracle", "realistic"):
-        raise ValueError(
-            f"unknown variant {variant!r}; expected 'oracle' or 'realistic'"
-        )
-    if backend_kind(backend_path) == "world_model":
-        sources = parse_world_model_sources(env_path, backend_path, validate=validate)
-        resolved_reward = sources.task.reward if reward is None else reward
-        resolved_penalty = (
-            sources.task.terminal_penalty
-            if disruption_penalty is None
-            else disruption_penalty
-        )
-        if resolved_reward != "native":
-            raise ValueError("world-model environments use their native reward")
-        if quantize_bins is not None:
-            raise ValueError("world-model environments do not support quantize_bins")
-        # Learned experimental world models have one intrinsic observation and
-        # action interface. Both variants select it; unlike TORAX environments,
-        # ``realistic`` adds no degradation wrappers.
-        if resolved_penalty is not None:
-            raise ValueError(
-                "world-model environments do not support disruption_penalty"
-            )
-        if ablate not in (None, "none"):
-            raise ValueError("world-model environments do not support ablations")
-        return _load_world_model_env(
-            sources.environment,
-            sources.backend,
-            max_steps=max_steps,
-            time_aware=time_aware,
-        )
-    sources = parse_torax_sources(env_path, backend_path, validate=validate)
-    cfg = sources.scenario
-    cfg = _with_quantized_actions(cfg, variant, quantize_bins)
-    _validate_realistic_obs_names(cfg)
-    _validate_quantize_names(cfg)
-    # Geometry files in the env YAML are resolved relative to the env file,
-    # not the backend (backends shouldn't reference geometry files).
-    torax_dict = _apply_imas_init(dict(cfg.torax), env_path)
-    torax_dict = _resolve_geometry_dir(torax_dict, env_path)
-    torax_config = model_config.ToraxConfig.from_dict(torax_dict)
-    phase_snapshot = _load_phase_snapshot(
-        env_path,
-        sources.initialization,
-        expected_environment=sources.environment_key,
-    )
-    resolved_reward, resolved_penalty = _resolve_task_settings(
-        cfg, reward, disruption_penalty
-    )
-    return _build_env(
-        cfg,
-        torax_config,
-        resolved_reward,
-        variant,
-        max_steps,
-        resolved_penalty,
-        ablate,
-        time_aware,
-        phase_snapshot,
-    )
+__all__ = ["make"]

@@ -4,21 +4,15 @@ from __future__ import annotations
 
 import functools
 import math
-from pathlib import Path
 from typing import Any
-
-import pytest
-from torax._src.torax_pydantic import model_config
 
 from plasmax.environment.config import parse_env_and_backend
 from plasmax.environment.merge import (
-    _apply_imas_init,
-    _load_extended_yaml,
-    _resolve_geometry_dir,
+    _merge_env_and_backend,
+    load_backend,
     valid_env_backend_combos,
 )
-from plasmax.environment.registry import resolve_backend, resolve_env
-from plasmax.environment.schema import ScenarioConfig
+from plasmax.environment.schema import PlasmaxConfig
 
 _CONVENTIONAL_ENVS = tuple(
     env
@@ -29,8 +23,7 @@ _TORAX_BACKENDS = tuple(
     sorted(
         {
             backend
-            for env, backends in valid_env_backend_combos().items()
-            if env != "kstar"
+            for backends in valid_env_backend_combos().values()
             for backend in backends
         }
     )
@@ -46,21 +39,19 @@ _SHARED_CONVENTIONAL_RANDOMIZATION = {
 
 
 @functools.cache
-def _scenario(env: str, backend: str) -> ScenarioConfig:
-    return parse_env_and_backend(env, backend)
+def _scenario(env: str, backend: str) -> PlasmaxConfig:
+    scenario = parse_env_and_backend(env, backend)
+    assert isinstance(scenario, PlasmaxConfig)
+    return scenario
 
 
 @functools.cache
 def _effective_torax(env: str, backend: str) -> dict[str, Any]:
     """Build TORAX's validated model so omitted upstream defaults are visible."""
-    env_path = resolve_env(env)
-    torax = dict(_scenario(env, backend).torax)
-    torax = _apply_imas_init(torax, env_path)
-    torax = _resolve_geometry_dir(torax, env_path)
-    return model_config.ToraxConfig.from_dict(torax).model_dump(mode="json")
+    return _scenario(env, backend).torax.model_dump(mode="json")
 
 
-def _transport_randomization(config: ScenarioConfig) -> dict[str, Any]:
+def _transport_randomization(config: PlasmaxConfig) -> dict[str, Any]:
     return {
         key: spec.model_dump(mode="json")
         for key, spec in config.physics_randomization.items()
@@ -133,14 +124,16 @@ def _assert_canonical_common_physics(env: str, backend: str) -> None:
 def test_packaged_torax_backends_own_only_transport_and_solver() -> None:
     assert _TORAX_BACKENDS == (
         "bohm_gyrobohm",
+        "bohm_gyrobohm_step",
         "cgm",
+        "mock",
         "qlknn",
         "tglfnn",
         "tglfnn_nr",
         "tglfnn_spherical",
     )
     for backend in _TORAX_BACKENDS:
-        raw = _load_extended_yaml(resolve_backend(backend))
+        raw = load_backend(backend)
         assert set(raw) <= {"torax", "physics_randomization", "stepping"}, backend
         assert set(raw.get("torax") or {}) <= {"transport", "solver"}, backend
         assert all(
@@ -171,7 +164,9 @@ def test_tglfnn_solver_variants_share_transport_and_uncertainty() -> None:
     for env in _CONVENTIONAL_ENVS:
         linear = _scenario(env, "tglfnn")
         nonlinear = _scenario(env, "tglfnn_nr")
-        assert linear.torax["transport"] == nonlinear.torax["transport"], env
+        linear_torax = _effective_torax(env, "tglfnn")
+        nonlinear_torax = _effective_torax(env, "tglfnn_nr")
+        assert linear_torax["transport"] == nonlinear_torax["transport"], env
         assert _transport_randomization(linear) == _transport_randomization(
             nonlinear
         ), env
@@ -184,25 +179,27 @@ def test_tglfnn_solver_variants_share_transport_and_uncertainty() -> None:
             signature["stepping"] = dict(signature["stepping"])
             signature["stepping"].pop("max_solver_substeps")
         assert linear_signature == nonlinear_signature, env
-        assert linear.torax["solver"]["solver_type"] == "linear"
-        assert nonlinear.torax["solver"]["solver_type"] == "newton_raphson"
+        assert linear_torax["solver"]["solver_type"] == "linear"
+        assert nonlinear_torax["solver"]["solver_type"] == "newton_raphson"
 
 
 def test_step_backends_share_explicit_step_physics() -> None:
-    bg_b = _scenario("step", "bohm_gyrobohm")
-    tglf = _scenario("step", "tglfnn_spherical")
-    assert _non_transport_signature("step", "bohm_gyrobohm") == (
-        _non_transport_signature("step", "tglfnn_spherical")
+    env = "step/spp_001_ec_hd/flattop"
+    bg_b = _scenario(env, "bohm_gyrobohm_step")
+    tglf = _scenario(env, "tglfnn_spherical")
+    assert _non_transport_signature(env, "bohm_gyrobohm_step") == (
+        _non_transport_signature(env, "tglfnn_spherical")
     )
-    for backend in ("bohm_gyrobohm", "tglfnn_spherical"):
-        _assert_canonical_common_physics("step", backend)
+    for backend in ("bohm_gyrobohm_step", "tglfnn_spherical"):
+        _assert_canonical_common_physics(env, backend)
 
-    pedestal = bg_b.torax["pedestal"]
+    bg_b_torax = _merge_env_and_backend(env, "bohm_gyrobohm_step")["torax"]
+    pedestal = bg_b_torax["pedestal"]
     assert pedestal["rho_norm_ped_top"] == 0.95
     assert pedestal["T_i_ped"] == 4.0
     assert pedestal["T_e_ped"] == 5.0
     assert pedestal["n_e_ped"] == 6.0e19
-    assert bg_b.torax["sources"]["impurity_radiation"] == {
+    assert bg_b_torax["sources"]["impurity_radiation"] == {
         "model_name": "P_in_scaled_flat_profile",
         "fraction_P_heating": 0.7,
     }
@@ -225,55 +222,10 @@ def test_step_backends_share_explicit_step_physics() -> None:
 def test_registered_physical_tasks_never_accelerate_resistivity() -> None:
     """Registered physical tasks use and retain the physical resistivity."""
     for env, backends in valid_env_backend_combos().items():
-        if env == "kstar":
-            continue
         for backend in backends:
             scenario = _scenario(env, backend)
-            nominal = float(scenario.torax["numerics"]["resistivity_multiplier"])
+            nominal = float(scenario.torax.numerics.resistivity_multiplier.value[0])
             assert nominal == 1.0, (env, backend, nominal)
             assert "numerics.resistivity_multiplier" not in (
                 scenario.physics_randomization
             ), (env, backend)
-
-
-def test_extended_yaml_inherits_and_leaf_overrides(tmp_path: Path) -> None:
-    (tmp_path / "base.yaml").write_text(
-        "torax:\n"
-        "  numerics: {max_dt: 2.0, fixed_dt: 0.1}\n"
-        "  neoclassical: {conductivity: {model_name: sauter}}\n"
-    )
-    child = tmp_path / "child.yaml"
-    child.write_text(
-        "extends: base.yaml\n"
-        "torax:\n"
-        "  numerics: {max_dt: 0.5}\n"
-        "  geometry: {geometry_type: circular}\n"
-    )
-
-    resolved = _load_extended_yaml(child)
-    assert resolved["torax"]["numerics"] == {"max_dt": 0.5, "fixed_dt": 0.1}
-    assert resolved["torax"]["neoclassical"] == {
-        "conductivity": {"model_name": "sauter"}
-    }
-    assert resolved["torax"]["geometry"] == {"geometry_type": "circular"}
-
-
-def test_extended_yaml_rejects_cycles(tmp_path: Path) -> None:
-    first = tmp_path / "first.yaml"
-    second = tmp_path / "second.yaml"
-    first.write_text("extends: second.yaml\n")
-    second.write_text("extends: first.yaml\n")
-
-    with pytest.raises(ValueError, match="cyclic YAML extends chain"):
-        _load_extended_yaml(first)
-
-
-def test_extended_yaml_rejects_path_escape(tmp_path: Path) -> None:
-    allowed = tmp_path / "allowed"
-    allowed.mkdir()
-    (tmp_path / "outside.yaml").write_text("torax: {}\n")
-    child = allowed / "child.yaml"
-    child.write_text("extends: ../outside.yaml\n")
-
-    with pytest.raises(ValueError, match="escapes"):
-        _load_extended_yaml(child)

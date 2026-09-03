@@ -22,8 +22,8 @@ from experiments.studies.summarize_baseline_final_returns import Cell, ExpectedC
 def _cell(algorithm: str, variant: str = "oracle") -> Cell:
     return Cell(
         algorithm=algorithm,
-        env="step",
-        backend="bohm_gyrobohm",
+        env="step/spp_001_ec_hd/flattop",
+        backend="bohm_gyrobohm_step",
         variant=variant,
         reward="P_diff",
     )
@@ -43,10 +43,10 @@ def _curve(algorithm: str, final_step: int = 10_000_000) -> CanonicalCurve:
 def _point(algorithm: str, variant: str, step: int) -> CurvePoint:
     value = float(_ALGORITHM_ORDER.index(algorithm))
     return CurvePoint(
-        environment="step",
+        environment="step/spp_001_ec_hd/flattop",
         variant=variant,
         algorithm=algorithm,
-        backend="bohm_gyrobohm",
+        backend="bohm_gyrobohm_step",
         reward="P_diff",
         train_steps=step,
         n_seeds=10,
@@ -98,14 +98,14 @@ def test_grid_uses_algorithm_colors_variant_styles_and_bands(tmp_path: Path):
 
     figure = _plot_grid(
         points,
-        env_order=["step"],
+        env_order=["step/spp_001_ec_hd/flattop"],
         output_png=output_png,
         output_pdf=output_pdf,
         dpi=72,
     )
 
     axis = figure.axes[0]
-    assert axis.get_title() == "STEP"
+    assert axis.get_title() == "STEP spp 001 ec hd — Flat-top"
     assert len(axis.lines) == 12
     assert len(axis.collections) == 12
     ppo_lines = axis.lines[:2]
@@ -121,7 +121,7 @@ def test_filter_manifest_selects_requested_environments_and_variant():
     environments = [
         "iter/hybrid/flattop",
         "iter/hybrid/rampdown",
-        "step",
+        "step/spp_001_ec_hd/flattop",
     ]
     expected = {
         Cell(

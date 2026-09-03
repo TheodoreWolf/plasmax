@@ -1,15 +1,16 @@
 # Phase-wise control baselines
 
 This study compares learned policies and direct differentiable control on every
-registered TORAX phase task, excluding the KSTAR world-model environment.
+registered TORAX phase task, excluding the KSTAR world-model environment and
+STEP.
 It holds the Bohm–GyroBohm backend fixed so the environment axis is the device,
 scenario, and phase rather than a mixed environment/backend sweep.
 
 ## Matrix
 
 - Environments: ITER baseline/hybrid/advanced and SPARC PRD/reduced-field,
-  each at ramp-up, flat-top, and ramp-down, plus the stationary STEP flat-top
-  (16 tasks).
+  each at ramp-up, flat-top, and ramp-down (15 tasks). STEP uses its dedicated
+  `bohm_gyrobohm_step` backend and is not part of this fixed-backend matrix.
 - Variants: `oracle`, `realistic`.
 - Algorithms: PPO, SAC, direct truncated-BPTT policy, and direct open-loop
   schedules with 1, 10, or 100 requested knots.
@@ -22,7 +23,7 @@ scenario, and phase rather than a mixed environment/backend sweep.
 The canonical publication manifest is `sweeps/baseline_v1_10m.tsv` and contains
 192 jobs. The original 1M-knot submission manifest is retained separately as
 provenance. A 100-knot schedule has at most one effective
-control per simulator transition: on 50-step SPARC ramp-down and STEP episodes,
+control per simulator transition: on 50-step SPARC ramp-down episodes,
 the artifact records `requested_knots=100` and `effective_knots=50` rather than
 pretending that unobservable extra controls were learned.
 
@@ -31,7 +32,7 @@ pretending that unobservable extra controls were learned.
 | Phase | Reward |
 |---|---|
 | Ramp-up | `lh_transition` |
-| Flat-top (including STEP) | `P_diff` |
+| Flat-top | `P_diff` |
 | Ramp-down | `rampdown` |
 
 This table summarizes the `task.reward` values stored in the leaf YAMLs; the

@@ -36,7 +36,6 @@ SEED = 0
 class Config:
     env_setup: str = "iter/hybrid/flattop"
     backend: str = "cgm"
-    validate_backend_pair: bool = True
     n_steps: int = 100
     n_envs: tuple[int, ...] = (1, 4, 16)
     repeats: int = 5
@@ -178,7 +177,6 @@ def main(cfg: Config) -> None:
     wrapped_env = make(
         cfg.env_setup,
         cfg.backend,
-        validate=cfg.validate_backend_pair,
     )
     env = wrapped_env.unwrapped
     print(

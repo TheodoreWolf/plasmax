@@ -27,20 +27,20 @@ BASELINE_ALGORITHMS = (
 BASELINE_VARIANTS = ("oracle", "realistic")
 
 
-def baseline_envs(*, include_step: bool = True) -> tuple[str, ...]:
-    """Return every registered TORAX phase task, excluding KSTAR."""
-    envs = [env for env in sorted(valid_env_backend_combos()) if env != "kstar"]
+def baseline_envs(*, include_step: bool = False) -> tuple[str, ...]:
+    """Return every registered TORAX phase task, excluding KSTAR and optionally STEP."""
+    envs = [
+        env
+        for env in sorted(valid_env_backend_combos())
+        if env not in {"kstar_worldmodel", "mock/circular/smoke"}
+    ]
     if not include_step:
-        envs.remove("step")
+        envs.remove("step/spp_001_ec_hd/flattop")
     return tuple(envs)
 
 
 def env_phase(env: str) -> str:
     """Return the reward phase represented by an environment registry key."""
-    if env == "step":
-        # STEP is a stationary non-inductive flat-top, despite being a
-        # single-file device rather than a nested ``.../flattop`` alias.
-        return "flattop"
     phase = env.rsplit("/", 1)[-1]
     if phase not in {"rampup", "flattop", "rampdown"}:
         raise ValueError(
@@ -131,7 +131,7 @@ class BaselineJob:
     def __post_init__(self) -> None:
         if self.algorithm not in BASELINE_ALGORITHMS:
             raise ValueError(f"unknown baseline algorithm {self.algorithm!r}")
-        if self.env not in baseline_envs():
+        if self.env not in baseline_envs(include_step=True):
             raise ValueError(f"unknown or excluded baseline env {self.env!r}")
         if self.variant not in BASELINE_VARIANTS:
             raise ValueError(f"unknown baseline variant {self.variant!r}")
@@ -170,7 +170,7 @@ def make_baseline_jobs(
     policy_eval_freq: int = 1_000_000,
     knot_eval_freq: int = 50_000,
 ) -> tuple[BaselineJob, ...]:
-    """Build the complete non-KSTAR phase-task experiment matrix."""
+    """Build the complete non-KSTAR, non-STEP phase-task experiment matrix."""
     jobs: list[BaselineJob] = []
     selected_envs = baseline_envs() if envs is None else tuple(envs)
     for env in selected_envs:
