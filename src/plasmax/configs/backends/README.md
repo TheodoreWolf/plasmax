@@ -2,27 +2,32 @@
 
 A TORAX **backend** is deliberately narrow: it selects the turbulent transport
 model and its model-specific guards, the solver and its fixed-duration substep
-budget, and uncertainty ranges specific to that transport model. It is
-deep-merged with an **env** (the RL task — actuators, observations, geometry,
-scenario) at load time via `make(env_path, backend_path)`. Shared physics and
-numerics live in the tokamak/scenario layers, so changing a backend does not
-silently change the rest of the simulated plant. Not every env pairs with every
-backend — the allowed pairs are enforced by
-`plasmax.environment.merge._VALID_ENV_BACKEND_COMBOS`
-(`valid_env_backend_combos()`).
+budget, and uncertainty ranges specific to that transport model. It is combined
+with an **env** (the RL task — actuators, observations, geometry, scenario) at
+load time via `make(env, backend)`. Shared physics and numerics live in
+the tokamak/scenario/phase layers, so changing a backend does not silently
+change the rest of the simulated plant. The backend supplies orthogonal backend
+fields; environment composition follows
+`tokamak < scenario base < phase < wrappers`. Not every env pairs with every
+backend, and unsupported registered
+pairs are rejected before construction.
 
-Every backend but `fusion_lstm` is a real TORAX config. Each file's header
-comment documents its full parameter set and rationale; this README covers only
-the **differences** between them.
+Every registered backend YAML is a raw, backend-owned TORAX fragment rather
+than an independently validated config. It is combined with an environment first; only
+the resulting complete `PlasmaxConfig` is validated. Each file's header comment
+documents its full parameter set and rationale; this README covers only the
+**differences** between them. KSTAR instead validates one standalone
+learned-world-model config.
 
-## Current default
+## Current baseline
 
-**Bohm–GyroBohm (`bohm_gyrobohm.yaml`) is the default backend for training and
-rollout for now.** It is fast, differentiable, robust under exploratory policies,
-and available for ITER, SPARC, and STEP. It is a controlled baseline rather than
-a claim that Bohm–GyroBohm is the highest-fidelity transport model. Reported
-results should be cross-checked on QLKNN and TGLFNN, and selected reference cases
-should be checked with the nonlinear solver or an offline higher-fidelity model.
+**Bohm–GyroBohm is the baseline for training and rollout for now:** use
+`bohm_gyrobohm` for ITER/SPARC and the explicit `bohm_gyrobohm_step` calibration
+for STEP. It is fast, differentiable, and robust under exploratory policies. It
+is a controlled baseline rather than a claim that Bohm–GyroBohm is the
+highest-fidelity transport model. Reported results should be cross-checked on
+QLKNN and TGLFNN, and selected reference cases should be checked with the
+nonlinear solver or an offline higher-fidelity model.
 
 ITER and SPARC environment aliases always include an explicit `rampup`,
 `flattop`, or `rampdown` phase. A different transport model is always an
@@ -45,7 +50,7 @@ A TORAX backend is essentially a choice on two independent axes.
 | **CGM** | analytic, theory-based | ITG critical-gradient (Guo–Romanelli); gyro-Bohm scaling with a critical-threshold nonlinearity | Fast, differentiable, no out-of-distribution (OOD) risk — a useful analytic cross-check on the default. |
 | **QLKNN** | ML surrogate | NN (`qlknn_7_11_v1`) trained on QuaLiKiz; ITG + TEM + ETG modes | High fidelity but valid only inside its training range; an exploring policy can drive it OOD, so inner/outer patches + chi/D/V clipping guard against runaway fluxes. |
 | **TGLFNN-UKAEA** | ML surrogate | NN surrogate of TGLF (Trapped-Gyro-Landau-Fluid) | Independent high-fidelity check on the QuaLiKiz-lineage QLKNN. Conventional and STEP-trained weights are selected by explicit backend files. |
-| **Bohm–GyroBohm (BgB)** | analytic, semi-empirical | Bohm + gyro-Bohm turbulent transport | **Current default.** Geometry-agnostic TORAX model with an OpenSTEP-calibrated STEP transport specialization. |
+| **Bohm–GyroBohm (BgB)** | analytic, semi-empirical | Bohm + gyro-Bohm turbulent transport | **Current baseline.** Geometry-agnostic TORAX model with an explicit OpenSTEP-calibrated STEP backend. |
 
 All ITER/SPARC backends inherit the same conventional tokamak stack: **Redl
 bootstrap current, Sauter conductivity, and Angioni–Sauter neoclassical
@@ -73,8 +78,9 @@ backends use the linear solver with predictor-corrector iterations;
 that TORAX will accept one PDE solve of that size. A transition holds its
 action and randomized runtime provider fixed while completing the interval
 with bounded internal solves. `stepping.max_solver_substeps` is normally
-backend-owned (`1` by default and `32` for `tglfnn_nr`), while a scenario with
-sawtooth MHD sets `stepping.max_event_substeps: 1`; the two blocks deep-merge.
+backend-owned (`1` by default and `32` for `tglfnn_nr`), while a scenario
+with sawtooth MHD sets `stepping.max_event_substeps: 1`; the disjoint settings
+are combined.
 Both limits are static and changing either recompiles the JAX transition.
 
 Transition info exposes `internal_steps`, `sawtooth_crashes`,
@@ -94,11 +100,12 @@ TGLFNN, CGM) at the cost of accuracy over short transients.
 |------|-----------|--------|-----------|-----------|
 | `cgm.yaml` | CGM | linear | ITER/SPARC | Fast analytic alternative and robustness cross-check (~5 s compile, ~15 ms/step). |
 | `qlknn.yaml` | QLKNN | linear | ITER/SPARC | ML-fidelity transport, cheap solver — preferred for vectorised QLKNN rollouts/training. |
-| `bohm_gyrobohm.yaml` | Bohm–GyroBohm | linear | ITER/SPARC/STEP | **Default training/rollout backend.** Generic BgB model + guards; the resolved STEP pair applies its OpenSTEP transport calibration. |
+| `bohm_gyrobohm.yaml` | Bohm–GyroBohm | linear | ITER/SPARC | Generic BgB training/rollout baseline. |
+| `bohm_gyrobohm_step.yaml` | Bohm–GyroBohm | linear | STEP | Complete STEP-specific BgB backend with its OpenSTEP transport calibration. |
 | `tglfnn.yaml` | TGLFNN-UKAEA | linear | ITER/SPARC | Conventional TGLFNN on the cheap solver; independent check on QLKNN. |
 | `tglfnn_nr.yaml` | TGLFNN-UKAEA | Newton-Raphson | ITER/SPARC | Nonlinear reference backend; realistic runs share the linear TGLF backend's transport uncertainty, while oracle runs remain nominal and deterministic. |
 | `tglfnn_spherical.yaml` | TGLFNN-UKAEA | linear | STEP | STEP-trained TGLFNN weights on the fixed-cost linear solver; the common STEP plant stack remains tokamak-owned. |
-| `fusion_lstm.yaml` | — (learned dynamics) | — | KSTAR only | **Not a TORAX backend** — see below. |
+| `mock.yaml` | Constant | linear | Mock smoke environment | Minimal nonphysical backend for fast configuration and pipeline tests. |
 
 The three TGLFNN files extend the private `tglfnn_base.yaml` fragment.
 That fragment is packaging-only configuration reuse, not a registered backend;
@@ -108,8 +115,8 @@ each public backend still resolves to the same complete TORAX mapping.
 
 TORAX exposes a menu of modular physics. One geometry and one turbulent
 transport model are selected per run, while compatible source terms are summed.
-The table describes the resolved main-environment stacks; `test.yaml` instead
-uses circular geometry and constant transport, and
+The table describes the resolved main-environment stacks; `mock/circular/smoke` instead
+uses circular geometry with the `mock` constant-transport backend, and
 `experiments/studies/reproduce_torax_paper_case.py` is a separate CHEASE
 reference case.
 
@@ -133,7 +140,10 @@ reference case.
 
 The merge precedence is, from lowest to highest:
 
-`backend < wrappers < tokamak < scenario base < phase`
+`tokamak < scenario base < phase < wrappers`
+
+The backend is orthogonal to that chain and supplies disjoint transport,
+solver, solver-budget, and model-specific randomization fields.
 
 Use the narrowest layer that owns the physics:
 
@@ -184,8 +194,8 @@ and comparison against a published or upstream TORAX reference case.
 
 ## Reference Checks
 
-- The resolved `step` + `bohm_gyrobohm` pair matches TORAX
-  `step_flattop_bgb.py` for the OpenSTEP BgB multiplier (`0.15`), base BgB
+- The resolved `step/spp_001_ec_hd/flattop` + `bohm_gyrobohm_step` pair matches
+  TORAX `step_flattop_bgb.py` for the OpenSTEP BgB multiplier (`0.15`), base BgB
   coefficients, and clipping bounds. The STEP tokamak supplies its common
   neoclassical, pedestal, numerical, and randomization stack; the backend
   supplies only the selected transport and solver.
@@ -197,10 +207,9 @@ and comparison against a published or upstream TORAX reference case.
   uncertainty, while oracle runs use nominal values. The spherical variant
   selects the STEP-trained TGLFNN machine weights.
 
-### `fusion_lstm` is not a TORAX backend
+### KSTAR is not a TORAX backend
 
-`fusion_lstm.yaml` (`type: world_model`) is a learned-dynamics world model — a
-NN ensemble trained on KSTAR discharges that emulates the 0D plasma response,
-not a TORAX transport model. `make` dispatches it to a separate
-learned-dynamics env. Unlike TORAX backends it is 1:1 with its scenario (pairs
-only with the `kstar` env).
+`envs/kstar_worldmodel.yaml` is a standalone learned-dynamics environment: a NN
+ensemble trained on KSTAR discharges that emulates the 0D plasma response. Its
+model name, packaged weights, horizon, and target sampling live together in the
+environment, and it is loaded as `make("kstar_worldmodel")` without a backend.

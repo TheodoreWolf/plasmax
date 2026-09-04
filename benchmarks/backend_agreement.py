@@ -49,8 +49,6 @@ METRIC_SENSORS = (
 class Config:
     env_setup: str = "iter/hybrid/flattop"
     backends: tuple[str, ...] = BACKENDS
-    backend_configs: tuple[str, ...] = ()
-    validate_backend_pairs: bool = True
     reference_backend: str = "tglfnn"
     n_steps: int = 100
     seeds: tuple[int, ...] = tuple(range(11))
@@ -290,11 +288,6 @@ def _throughput_sps(
     )
 
 
-def _backend_configs(cfg: Config) -> dict[str, str]:
-    configs = cfg.backend_configs or cfg.backends
-    return dict(zip(cfg.backends, configs, strict=True))
-
-
 def _validate(cfg: Config) -> None:
     if not cfg.seeds:
         raise ValueError("seeds must not be empty")
@@ -312,8 +305,6 @@ def _validate(cfg: Config) -> None:
         raise ValueError("metric_sensors must not be empty")
     if len(set(cfg.metric_sensors)) != len(cfg.metric_sensors):
         raise ValueError("metric_sensors must not contain duplicates")
-    if cfg.backend_configs and len(cfg.backend_configs) != len(cfg.backends):
-        raise ValueError("backend_configs must have one value per backend")
     if cfg.cpu_scalar_sps and len(cfg.cpu_scalar_sps) != len(cfg.backends):
         raise ValueError("cpu_scalar_sps must have one value per backend")
     if cfg.cpu_scalar_sps and min(cfg.cpu_scalar_sps) <= 0.0:
@@ -360,7 +351,6 @@ def _measured_throughput(
 
 def main(cfg: Config) -> None:
     _validate(cfg)
-    backend_configs = _backend_configs(cfg)
     rollouts: dict[str, dict[int, Rollout]] = {}
     timed_rollouts: dict[str, Rollout] = {}
     failures: dict[str, dict[str, str]] = {}
@@ -369,11 +359,7 @@ def main(cfg: Config) -> None:
 
     for backend in cfg.backends:
         print(f"Collecting {backend}...", flush=True)
-        env = make(
-            cfg.env_setup,
-            backend_configs[backend],
-            validate=cfg.validate_backend_pairs,
-        ).unwrapped
+        env = make(cfg.env_setup, backend).unwrapped
         layouts[backend] = env.obs_layout()
         scalar_scales[backend] = {
             spec.name: spec.scale for spec in env.scalar_obs_specs
@@ -527,7 +513,6 @@ def main(cfg: Config) -> None:
     result = {
         "environment": cfg.env_setup,
         "reference_backend": cfg.reference_backend,
-        "backend_configs": backend_configs,
         "n_steps": cfg.n_steps,
         "requested_seeds": list(cfg.seeds),
         "successful_seeds": {

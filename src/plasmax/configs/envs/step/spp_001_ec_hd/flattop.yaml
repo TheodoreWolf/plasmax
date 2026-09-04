@@ -1,8 +1,8 @@
-# STEP SPP-001 EC-HD flat-top — public environment label: `step`.
+# STEP SPP-001 EC-HD flat-top — public environment label: `step/spp_001_ec_hd/flattop`.
 #
 # Defines the RL task around a fully non-inductive STEP flat-top. Pair with
-# `bohm_gyrobohm.yaml` (the exact TORAX v1.4.2 STEP BgB exception lives below)
-# or `tglfnn_spherical.yaml`. qlknn / cgm /
+# `bohm_gyrobohm_step.yaml` (the exact TORAX v1.4.2 STEP BgB calibration)
+# or `tglfnn_spherical.yaml`. `qlknn` / `cgm` / generic `bohm_gyrobohm` /
 # conventional `tglfnn` is *not* valid for STEP — see
 # plasmax.environment.merge._VALID_ENV_BACKEND_COMBOS.
 #
@@ -43,9 +43,7 @@ torax:
   # OpenSTEP IDS. Any leaf set explicitly under profile_conditions /
   # plasma_composition below overrides on a per-key basis.
   _imas_init:
-    # ${SCENARIO_DIR} resolves to this YAML's directory (envs/);
-    # the IMAS data file lives at data/.
-    path: ${SCENARIO_DIR}/../data/STEP_SPP_001_ECHD_ftop.nc
+    path: ${DATA_DIR}/STEP_SPP_001_ECHD_ftop.nc
     profile_conditions: true
     plasma_composition: true
   plasma_composition:
@@ -97,30 +95,6 @@ torax:
       pellet_deposition_location: 0.8
       pellet_width: 0.17
       S_total: 3.0e+21
-  # Exact STEP Bohm-GyroBohm settings from TORAX v1.4.2. This is the one
-  # preserved machine-specific BgB exception; it is validation-only during the
-  # global conventional-backend calibration.
-  transport:
-    model_name: bohm-gyrobohm
-    chi_e_bohm_multiplier: 0.15
-    chi_i_bohm_multiplier: 0.15
-    chi_e_gyrobohm_multiplier: 0.15
-    chi_i_gyrobohm_multiplier: 0.15
-    chi_e_bohm_coeff: 2.0e-6
-    chi_e_gyrobohm_coeff: 2.5e-4
-    chi_i_bohm_coeff: 2.0e-7
-    chi_i_gyrobohm_coeff: 5.0e-6
-    D_face_c1: 1.0
-    D_face_c2: 0.3
-    V_face_coeff: -0.1
-    chi_min: 0.15
-    chi_max: 100.0
-    D_e_min: 1.0e-3
-    D_e_max: 100.0
-    V_e_min: -50.0
-    V_e_max: 50.0
-    smooth_everywhere: true
-    smoothing_width: 0.05
   pedestal:
     model_name: set_T_ped_n_ped
     set_pedestal: true

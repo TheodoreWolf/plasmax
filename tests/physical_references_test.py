@@ -23,7 +23,7 @@ from plasmax.environment.references import (
     reset_reference_payload,
     reset_reference_sha256,
 )
-from plasmax.environment.registry import resolve_backend, resolve_env
+from plasmax.environment.schema import PlasmaxConfig
 from plasmax.wrappers import unwrap_to_env_state
 from tools.calibration.improve_initial_conditions import (
     CELL_CENTRES,
@@ -35,7 +35,11 @@ from tools.calibration.improve_initial_conditions import (
 )
 
 CONFIGS_DIR = Path(__file__).parents[1] / "src" / "plasmax" / "configs"
-PHYSICAL_ENVS = tuple(env for env in valid_env_backend_combos() if env != "kstar")
+PHYSICAL_ENVS = tuple(
+    env
+    for env in valid_env_backend_combos()
+    if env.startswith(("iter/", "sparc/", "step/"))
+)
 MULTIPHASE_SCENARIOS = (
     "iter/baseline",
     "iter/hybrid",
@@ -45,14 +49,22 @@ MULTIPHASE_SCENARIOS = (
 )
 
 
-@cache
-def _config(env: str, backend: str = "bohm_gyrobohm"):
-    return parse_env_and_backend(env, backend)
+def _reference_backend(env: str) -> str:
+    if env.startswith("step/"):
+        return "bohm_gyrobohm_step"
+    return "bohm_gyrobohm"
 
 
 @cache
-def _payload(env: str, backend: str = "bohm_gyrobohm") -> dict[str, Any]:
-    return reset_reference_payload(env, backend)
+def _config(env: str, backend: str | None = None) -> PlasmaxConfig:
+    config = parse_env_and_backend(env, backend or _reference_backend(env))
+    assert isinstance(config, PlasmaxConfig)
+    return config
+
+
+@cache
+def _payload(env: str, backend: str | None = None) -> dict[str, Any]:
+    return reset_reference_payload(env, backend or _reference_backend(env))
 
 
 def _profile_values(mapping: dict[str, float]) -> np.ndarray:
@@ -66,7 +78,7 @@ def _sha256(path: Path) -> str:
 
 
 def _time_zero_geometry_file(env: str) -> str:
-    geometry = _config(env).torax["geometry"]
+    geometry = _merge_env_and_backend(env, _reference_backend(env))["torax"]["geometry"]
     configurations = geometry.get("geometry_configs")
     if configurations:
         first = configurations[min(configurations, key=float)]
@@ -81,7 +93,10 @@ def test_manifest_covers_every_physical_environment_and_pins_artifacts() -> None
 
     for env in PHYSICAL_ENVS:
         reference = manifest.references[reset_reference_id(env)]
-        assert reset_reference_sha256(env) == reference.profile_sha256
+        assert (
+            reset_reference_sha256(env, _reference_backend(env))
+            == reference.profile_sha256
+        )
 
     for reference in manifest.references.values():
         assert reference.locked_paths
@@ -96,15 +111,15 @@ def test_manifest_covers_every_physical_environment_and_pins_artifacts() -> None
                 assert source.local_path is None
 
     with pytest.raises(ValueError, match="no reset_reference ID"):
-        reset_reference_id("kstar")
+        reset_reference_id("kstar_worldmodel")
 
 
 def test_reference_metadata_is_stripped_before_validation() -> None:
     for env in PHYSICAL_ENVS:
         for backend in valid_env_backend_combos()[env]:
-            merged = _merge_env_and_backend(resolve_env(env), resolve_backend(backend))
-            assert "reset_reference" not in merged
-            _config(env, backend)
+            merged = _merge_env_and_backend(env, backend)
+            assert "reset_reference" in merged
+            assert "reset_reference" not in PlasmaxConfig.model_fields
 
 
 def test_nominal_profile_and_actuator_reset_is_identical_across_backends() -> None:
@@ -204,8 +219,8 @@ def test_digitized_profiles_and_q_reconstruction_are_deterministic() -> None:
 
 def test_itpa_gaussian_projection_parameters_match_declared_moments() -> None:
     reference = load_reference_manifest().references["iter_baseline_hot_450s"]
-    config = _config("iter/baseline/flattop")
-    geometry = config.torax["geometry"]
+    config = _merge_env_and_backend("iter/baseline/flattop", "bohm_gyrobohm")
+    geometry = config["torax"]["geometry"]
     assert geometry["geometry_file"] == "references/iter_baseline_450s.eqdsk"
 
     # A synthetic shaped volume measure proves the deterministic fitter does
@@ -222,7 +237,7 @@ def test_itpa_gaussian_projection_parameters_match_declared_moments() -> None:
     )
     np.testing.assert_allclose((centroid, rms_width), (0.55, 0.18), atol=1e-12)
 
-    sources = config.torax["sources"]
+    sources = config["torax"]["sources"]
     projection_by_target = {
         item.torax_component: item for item in reference.projections
     }
@@ -242,7 +257,7 @@ def test_backend_context_changes_dynamics_but_not_the_reset() -> None:
     env = "iter/hybrid/flattop"
     signatures = {}
     for backend in sorted(valid_env_backend_combos()[env]):
-        torax = _config(env, backend).torax
+        torax = _config(env, backend).torax.model_dump(mode="json")
         signatures[backend] = (
             torax["transport"]["model_name"],
             torax["solver"]["solver_type"],
@@ -254,7 +269,11 @@ def test_backend_context_changes_dynamics_but_not_the_reset() -> None:
 
 
 def test_reference_reset_is_jittable_and_vmappable() -> None:
-    env = make("step", "bohm_gyrobohm", variant="oracle")
+    env = make(
+        "step/spp_001_ec_hd/flattop",
+        "bohm_gyrobohm_step",
+        variant="oracle",
+    )
     keys = jax.random.split(jax.random.key(0), 2)
     states, info = jax.jit(jax.vmap(env.init))(keys)
     physical = unwrap_to_env_state(states)
@@ -271,8 +290,16 @@ def test_reference_reset_is_jittable_and_vmappable() -> None:
 
 
 def test_realistic_and_oracle_use_the_same_physical_reset_perturbation() -> None:
-    oracle = make("step", "bohm_gyrobohm", variant="oracle")
-    realistic = make("step", "bohm_gyrobohm", variant="realistic")
+    oracle = make(
+        "step/spp_001_ec_hd/flattop",
+        "bohm_gyrobohm_step",
+        variant="oracle",
+    )
+    realistic = make(
+        "step/spp_001_ec_hd/flattop",
+        "bohm_gyrobohm_step",
+        variant="realistic",
+    )
     key = jax.random.key(17)
     oracle_state = unwrap_to_env_state(oracle.init(key)[0])
     realistic_state = unwrap_to_env_state(realistic.init(key)[0])

@@ -6,11 +6,13 @@ overlays only its scenario-specific deltas.
 """
 
 from plasmax.environment.merge import _merge_env_and_backend
-from plasmax.environment.registry import resolve_backend, resolve_env
+
+_STEP_ENV = "step/spp_001_ec_hd/flattop"
+_STEP_BACKEND = "bohm_gyrobohm_step"
 
 
 def _merge(env, backend="cgm"):
-    return _merge_env_and_backend(resolve_env(env), resolve_backend(backend))
+    return _merge_env_and_backend(env, backend)
 
 
 class TokamakMergeTest:
@@ -42,8 +44,8 @@ class TokamakMergeTest:
         assert m["torax"]["plasma_composition"]["main_ion"] == {"D": 0.5, "T": 0.5}
         assert m["torax"]["numerics"]["resistivity_multiplier"] == 1
         assert m["torax"]["geometry"]["cocos"] == 7
-        # The tokamak directive itself must not leak into the merged config.
-        assert "tokamak" not in m
+        # Raw composition retains provenance; final validation strips it.
+        assert m["tokamak"] == "iter"
 
     def test_scenario_base_shared_across_phases_with_phase_overrides(self):
         # base.yaml holds the physics common to a scenario's phases; each phase
@@ -75,9 +77,8 @@ class TokamakMergeTest:
         assert (
             flattop["torax"]["geometry"]["geometry_file"] == "iter_hybrid_ip105.eqdsk"
         )
-        # scenario:/phase: metadata keys are stripped from the merged config.
-        assert "scenario" not in rampup
-        assert "phase" not in rampup
+        # Raw composition retains scenario provenance for the final loader.
+        assert rampup["scenario"] == "hybrid"
 
 
 class RadiationBackendIndependenceTest:
@@ -127,9 +128,7 @@ class RadiationBackendIndependenceTest:
     def test_step_keeps_lumped_radiation(self):
         # STEP's env-side P_in_scaled_flat_profile lump already includes
         # synchrotron; dropping backend-owned brems removes a double-count.
-        src = _merge_env_and_backend(
-            resolve_env("step"), resolve_backend("bohm_gyrobohm")
-        )["torax"]["sources"]
+        src = _merge(_STEP_ENV, _STEP_BACKEND)["torax"]["sources"]
         assert src["impurity_radiation"]["model_name"] == "P_in_scaled_flat_profile"
         assert "bremsstrahlung" not in src
         assert "cyclotron_radiation" not in src
@@ -166,9 +165,7 @@ class SawtoothMergeTest:
             merged = _merge(f"iter/advanced/{phase}")
             assert "mhd" not in merged["torax"]
             assert "stepping" not in merged
-        step = _merge_env_and_backend(
-            resolve_env("step"), resolve_backend("bohm_gyrobohm")
-        )
+        step = _merge(_STEP_ENV, _STEP_BACKEND)
         assert "mhd" not in step["torax"]
         assert "stepping" not in step
 
@@ -216,9 +213,8 @@ class SparcMergeTest:
             flattop["torax"]["geometry"]["geometry_file"]
             == "references/sparc_prd_freegs_20221013.eqdsk"
         )
-        # scenario:/phase: metadata keys are stripped from the merged config.
-        assert "scenario" not in rampup
-        assert "phase" not in rampup
+        # Raw composition retains scenario provenance for the final loader.
+        assert rampup["scenario"] == "prd"
 
     def test_reduced_field_uses_its_own_geometry(self):
         m = _merge("sparc/reduced_field/rampup")

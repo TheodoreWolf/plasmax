@@ -26,7 +26,7 @@ def _nbytes(traj) -> int:
 class CollectLeanTest:
     @classmethod
     def setup_class(cls):
-        cls.env = make("test")
+        cls.env = make("mock/circular/smoke", "mock")
 
     def _collect(self, lean, num_steps=4):
         return collect_episodes(

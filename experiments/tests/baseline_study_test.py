@@ -20,23 +20,28 @@ from plasmax.environment.factory import make
 def test_matrix_excludes_kstar_and_contains_all_phase_envs():
     envs = baseline_envs()
 
-    assert "kstar" not in envs
-    assert "step" in envs
-    assert len(envs) == 16
+    assert "kstar_worldmodel" not in envs
+    assert "mock/circular/smoke" not in envs
+    assert "step/spp_001_ec_hd/flattop" not in envs
+    assert len(envs) == 15
 
 
 @pytest.mark.parametrize(
-    ("env", "reward"),
+    ("env", "backend", "reward"),
     [
-        ("iter/hybrid/rampup", "lh_transition"),
-        ("sparc/prd/flattop", "P_diff"),
-        ("iter/advanced/rampdown", "rampdown"),
-        ("step", "P_diff"),
+        ("iter/hybrid/rampup", "bohm_gyrobohm", "lh_transition"),
+        ("sparc/prd/flattop", "bohm_gyrobohm", "P_diff"),
+        ("iter/advanced/rampdown", "bohm_gyrobohm", "rampdown"),
+        (
+            "step/spp_001_ec_hd/flattop",
+            "bohm_gyrobohm_step",
+            "P_diff",
+        ),
     ],
 )
-def test_phase_reward_contract(env, reward):
-    assert reward_for_env(env) == reward
-    validate_reward(env, reward)
+def test_phase_reward_contract(env, backend, reward):
+    assert reward_for_env(env, backend) == reward
+    validate_reward(env, reward, backend)
 
 
 def test_wrong_phase_reward_fails_before_training():
@@ -47,13 +52,14 @@ def test_wrong_phase_reward_fails_before_training():
 def test_complete_matrix_has_every_algorithm_variant_and_env():
     jobs = make_baseline_jobs()
 
-    assert len(jobs) == 16 * 2 * len(BASELINE_ALGORITHMS)
+    assert len(jobs) == 15 * 2 * len(BASELINE_ALGORITHMS)
     assert len({job.slug for job in jobs}) == len(jobs)
 
 
 def test_knot_budget_and_evaluation_frequency_are_configurable():
     jobs = make_baseline_jobs(
-        envs=("step",),
+        backend="bohm_gyrobohm_step",
+        envs=("step/spp_001_ec_hd/flattop",),
         algorithms=("direct_knots_10",),
         variants=("oracle",),
         knot_steps=10_000_000,

@@ -32,7 +32,8 @@ from typing import Any
 import numpy as np
 import tyro
 
-from plasmax.environment.config import parse_env_and_backend, valid_env_backend_combos
+from plasmax.environment.config import parse_env_and_backend
+from plasmax.environment.merge import valid_env_backend_combos
 from plasmax.environment.references import (
     load_reference_manifest,
     reset_reference_id,
@@ -758,7 +759,7 @@ def _verify_itpa_source_projections(
         )
 
     config = parse_env_and_backend("iter/baseline/flattop", "bohm_gyrobohm")
-    sources = config.torax["sources"]
+    sources = config.torax.sources
     yaml_specs = {
         "nbi_heat": ("generic_heat", "P_total", "gaussian_location", "gaussian_width"),
         "ec_heat": ("ecrh", "P_total", "gaussian_location", "gaussian_width"),
@@ -777,13 +778,19 @@ def _verify_itpa_source_projections(
     }
     for name, (source_name, total_key, location_key, width_key) in yaml_specs.items():
         projection = projections[name]
-        source_config = sources[source_name]
-        np.testing.assert_allclose(source_config[total_key], projection.total)
+        source_config = getattr(sources, source_name)
         np.testing.assert_allclose(
-            source_config[location_key], projection.gaussian_location, rtol=1e-12
+            getattr(source_config, total_key).value[0], projection.total
         )
         np.testing.assert_allclose(
-            source_config[width_key], projection.gaussian_width, rtol=1e-12
+            getattr(source_config, location_key).value[0],
+            projection.gaussian_location,
+            rtol=1e-12,
+        )
+        np.testing.assert_allclose(
+            getattr(source_config, width_key).value[0],
+            projection.gaussian_width,
+            rtol=1e-12,
         )
 
     actuator_inits = {item.name: item.init for item in config.actuators}
@@ -796,7 +803,11 @@ def verify_packaged_references() -> dict[str, Any]:
     """Verify manifest coverage, provenance hashes, and cMDP reset equality."""
 
     manifest = load_reference_manifest()
-    environments = [name for name in valid_env_backend_combos() if name != "kstar"]
+    environments = [
+        name
+        for name in valid_env_backend_combos()
+        if name not in {"kstar_worldmodel", "mock/circular/smoke"}
+    ]
     references_by_env: dict[str, str] = {}
     reset_hashes: dict[str, str] = {}
     for env in environments:

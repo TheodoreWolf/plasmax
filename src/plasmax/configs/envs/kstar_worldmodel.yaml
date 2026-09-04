@@ -1,4 +1,4 @@
-# KSTAR scenario — pair with the fusion_lstm world-model backend.
+# KSTAR scenario — standalone fusion_lstm world-model environment.
 #
 # A target-tracking control task on the NeoRL2 KSTAR fusion_lstm dynamics
 # (Korea Superconducting Tokamak Advanced Research; Seo et al., Nucl. Fusion
@@ -6,16 +6,18 @@
 # hold three plasma scalars (βp, q95, li) at sampled setpoints.
 #
 # Observation (15) and action (6) are intrinsic to the trained model, so this
-# env YAML carries only the RL-task framing (no TORAX block). Reward is the
-# model's native target-tracking reward (-log RMS to target).
+# env YAML carries the complete learned model and RL-task framing (no TORAX
+# block). Reward is the model's native target-tracking reward (-log RMS to target).
 #
 # Load with:
-#   make("kstar", "fusion_lstm")
+#   make("kstar_worldmodel")
 
 task:
   reward: native
   terminal_penalty: null
 
-world_model_env:
+world_model:
+  name: kstar_lstm
+  weights_path: ${DATA_DIR}/kstar_lstm/weights.npz
   max_steps_in_episode: 100   # NeoRL2 episode length
   random_target: true         # sample βp/q95/li targets per episode at reset

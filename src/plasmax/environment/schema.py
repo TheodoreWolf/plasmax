@@ -1,23 +1,75 @@
-"""Pydantic models for YAML scenario configuration."""
+"""Pydantic models for YAML environment configuration."""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from typing import Any, ClassVar, Literal
+from pathlib import Path
+from typing import Any, ClassVar, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
+from torax._src.torax_pydantic import model_config as torax_model_config
 
 from plasmax import spaces as spaces_lib
 
 
-class ActuatorConfig(BaseModel):
-    model_config = ConfigDict(frozen=True)
+class _FrozenModel(BaseModel):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+        populate_by_name=True,
+    )
+
+
+class TaskConfig(_FrozenModel):
+    """Reward and calibrated terminal penalty defining one control task."""
+
+    reward: str
+    terminal_penalty: float | None
+
+
+class PhaseInitializationConfig(_FrozenModel):
+    """Phase-owned reference to one immutable initialization snapshot."""
+
+    path: Path
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _check_path(cls, value: Any) -> Any:
+        if not isinstance(value, str | Path) or not str(value):
+            raise ValueError("initialization path must be a non-empty path")
+        return value
+
+    @field_validator("sha256")
+    @classmethod
+    def _check_sha256(cls, value: str) -> str:
+        return value.lower()
+
+
+class ActuatorConfig(_FrozenModel):
     name: str
     low: float
     high: float
     max_delta: float = float("inf")
     init: float | None = None
+
+    def to_spec(self) -> spaces_lib.ActuatorSpec:
+        return spaces_lib.ActuatorSpec(
+            name=self.name,
+            low=self.low,
+            high=self.high,
+            max_delta=self.max_delta,
+            init=self.init,
+        )
 
 
 def _validate_obs_name(v: str, registry: Mapping[str, Any], kind: str) -> str:
@@ -26,16 +78,17 @@ def _validate_obs_name(v: str, registry: Mapping[str, Any], kind: str) -> str:
     return v
 
 
-def _validate_bounds(v):
+def _validate_bounds(
+    v: tuple[float, float] | None,
+) -> tuple[float, float] | None:
     if v is not None and v[0] >= v[1]:
         raise ValueError(f"bounds low must be < high, got {v}")
     return v
 
 
-class _ObsEntryConfig(BaseModel):
+class _ObsEntryConfig(_FrozenModel):
     """Observation entry: registry name + normalisation scale + optional bounds."""
 
-    model_config = ConfigDict(frozen=True)
     name: str
     scale: float
     bounds: tuple[float, float] | None = None
@@ -48,11 +101,6 @@ class _ObsEntryConfig(BaseModel):
     def _check_name(cls, v: str) -> str:
         return _validate_obs_name(v, cls._REGISTRY, cls._KIND)
 
-    @field_validator("bounds")
-    @classmethod
-    def _check_bounds(cls, v):
-        return _validate_bounds(v)
-
     @field_validator("scale")
     @classmethod
     def _check_scale(cls, value: float) -> float:
@@ -61,6 +109,18 @@ class _ObsEntryConfig(BaseModel):
                 f"observation scale must be positive and finite, got {value}"
             )
         return value
+
+    @field_validator("bounds")
+    @classmethod
+    def _check_bounds(cls, v: tuple[float, float] | None) -> tuple[float, float] | None:
+        return _validate_bounds(v)
+
+    def to_spec(self) -> spaces_lib.ObsSpec:
+        return spaces_lib.ObsSpec(
+            name=self.name,
+            scale=self.scale,
+            bounds=self.bounds,
+        )
 
 
 class ObsProfileConfig(_ObsEntryConfig):
@@ -73,35 +133,33 @@ class ObsScalarConfig(_ObsEntryConfig):
     _KIND = "scalar"
 
 
-class ObsFilterSpec(BaseModel):
+class ObsFilterSpec(_FrozenModel):
     """Named filter for oracle -> realistic obs projection."""
 
-    model_config = ConfigDict(frozen=True)
-    profiles: list[str] | None = None
-    scalars: list[str] | None = None
+    profiles: tuple[str, ...] = ()
+    scalars: tuple[str, ...] = ()
 
     @model_validator(mode="after")
-    def _check_unique_names(self) -> ObsFilterSpec:
+    def _check_unique_names(self) -> Self:
         for kind, names in (("profile", self.profiles), ("scalar", self.scalars)):
-            if names is not None and len(set(names)) != len(names):
+            if len(set(names)) != len(names):
                 raise ValueError(f"duplicate {kind} filter names: {names}")
         return self
 
 
-class RealisticObsConfig(BaseModel):
+class RealisticObsConfig(_FrozenModel):
     """Disadvantageous sensor effects applied only when variant='realistic'."""
 
-    model_config = ConfigDict(frozen=True)
     noise: dict[str, float] = Field(default_factory=dict)
-    resolution: dict[str, int] = Field(default_factory=dict)
+    resolution: dict[str, StrictInt] = Field(default_factory=dict)
     filter: ObsFilterSpec | None = None
     delay: dict[str, float] = Field(default_factory=dict)
 
-    @field_validator("resolution", mode="before")
+    @field_validator("resolution")
     @classmethod
     def _check_resolution(cls, values: dict[str, int]) -> dict[str, int]:
         for name, value in values.items():
-            if isinstance(value, bool) or value < 1:
+            if value < 1:
                 raise ValueError(
                     f"observation resolution for {name!r} must be an integer >= 1"
                 )
@@ -118,11 +176,59 @@ class RealisticObsConfig(BaseModel):
         return values
 
 
-class RealisticActionConfig(BaseModel):
+class HistoryConfig(_FrozenModel):
+    """Frame-stacking: emit the last ``length`` observations and actions."""
+
+    length: StrictInt = Field(ge=1)
+
+
+class ObservationsConfig(_FrozenModel):
+    profiles: tuple[ObsProfileConfig, ...]
+    scalars: tuple[ObsScalarConfig, ...]
+    realistic: RealisticObsConfig = Field(default_factory=RealisticObsConfig)
+    history: HistoryConfig | None = None
+
+    @model_validator(mode="after")
+    def _valid_sensor_sets(self) -> Self:
+        profile_names = tuple(item.name for item in self.profiles)
+        scalar_names = tuple(item.name for item in self.scalars)
+        if len(profile_names) != len(set(profile_names)):
+            raise ValueError(f"duplicate profile names: {list(profile_names)}")
+        if len(scalar_names) != len(set(scalar_names)):
+            raise ValueError(f"duplicate scalar names: {list(scalar_names)}")
+
+        realistic = self.realistic
+        base_names = set(profile_names) | set(scalar_names)
+        unknown_resolution = sorted(set(realistic.resolution) - set(profile_names))
+        if unknown_resolution:
+            raise ValueError(
+                f"unknown profile resolution sensors: {unknown_resolution}"
+            )
+
+        surviving = base_names
+        if realistic.filter is not None:
+            bad_filter_profiles = sorted(
+                set(realistic.filter.profiles) - set(profile_names)
+            )
+            bad_filter_scalars = sorted(
+                set(realistic.filter.scalars) - set(scalar_names)
+            )
+            if bad_filter_profiles or bad_filter_scalars:
+                raise ValueError(
+                    "unknown observation filter sensors: "
+                    f"{bad_filter_profiles + bad_filter_scalars}"
+                )
+            surviving = set(realistic.filter.profiles) | set(realistic.filter.scalars)
+        unknown_delay = sorted(set(realistic.delay) - surviving)
+        if unknown_delay:
+            raise ValueError(f"unknown delay sensors: {unknown_delay}")
+        return self
+
+
+class RealisticActionConfig(_FrozenModel):
     """Disadvantageous actuator effects applied only when variant='realistic'."""
 
-    model_config = ConfigDict(frozen=True)
-    quantize: dict[str, int] = Field(default_factory=dict)
+    quantize: dict[str, StrictInt] = Field(default_factory=dict)
 
     @field_validator("quantize")
     @classmethod
@@ -133,95 +239,18 @@ class RealisticActionConfig(BaseModel):
         return v
 
 
-class ActionsConfig(BaseModel):
-    model_config = ConfigDict(frozen=True)
+class ActionsConfig(_FrozenModel):
     realistic: RealisticActionConfig = Field(default_factory=RealisticActionConfig)
 
 
-class HistoryConfig(BaseModel):
-    """Frame-stacking: emit the last ``length`` observations and actions."""
-
-    model_config = ConfigDict(frozen=True)
-    length: int
-
-    @field_validator("length")
-    @classmethod
-    def _check_length(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError(f"history length must be >= 1, got {v}")
-        return v
-
-
-class ObservationsConfig(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    profiles: list[ObsProfileConfig]
-    scalars: list[ObsScalarConfig]
-    realistic: RealisticObsConfig = Field(default_factory=RealisticObsConfig)
-    history: HistoryConfig | None = None
-
-    @field_validator("profiles")
-    @classmethod
-    def _check_profile_unique(cls, v: list[ObsProfileConfig]) -> list[ObsProfileConfig]:
-        names = [p.name for p in v]
-        if len(set(names)) != len(names):
-            raise ValueError(f"duplicate profile names: {names}")
-        return v
-
-    @field_validator("scalars")
-    @classmethod
-    def _check_scalar_unique(cls, v: list[ObsScalarConfig]) -> list[ObsScalarConfig]:
-        names = [s.name for s in v]
-        if len(set(names)) != len(names):
-            raise ValueError(f"duplicate scalar names: {names}")
-        return v
-
-
-class DisruptionConfig(BaseModel):
-    """Disruption-proxy early-termination thresholds."""
-
-    model_config = ConfigDict(frozen=True)
-    q_min_threshold: float = 0.8
-    greenwald_threshold: float = 1.1
-    # Which Greenwald fraction to threshold on: line-averaged (convention) or
-    # volume-averaged n_e. Selects the postout field read in the disruption check.
-    greenwald_metric: Literal["line_avg", "volume_avg"] = "line_avg"
-
-    @property
-    def greenwald_field(self) -> str:
-        return f"fgw_n_e_{self.greenwald_metric}"
-
-
-class SteppingConfig(BaseModel):
-    """Static internal-step limits for one physical RL control interval."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-    max_solver_substeps: int = 1
-    max_event_substeps: int = 0
-
-    @field_validator("max_solver_substeps", mode="before")
-    @classmethod
-    def _check_solver_limit(cls, value: int) -> int:
-        if isinstance(value, bool) or value < 1:
-            raise ValueError("max_solver_substeps must be an integer >= 1")
-        return value
-
-    @field_validator("max_event_substeps", mode="before")
-    @classmethod
-    def _check_event_limit(cls, value: int) -> int:
-        if isinstance(value, bool) or value < 0:
-            raise ValueError("max_event_substeps must be an integer >= 0")
-        return value
-
-
-class PhysicsRandomizationSpec(BaseModel):
+class PhysicsRandomizationSpec(_FrozenModel):
     """Uniform absolute values or multipliers of a parameter's t=0 nominal."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
     absolute: tuple[float, float] | None = None
     relative: tuple[float, float] | None = None
 
     @model_validator(mode="after")
-    def _check_one_range(self) -> PhysicsRandomizationSpec:
+    def _check_one_range(self) -> Self:
         ranges = [self.absolute is not None, self.relative is not None]
         if sum(ranges) != 1:
             raise ValueError("set exactly one of absolute or relative")
@@ -242,21 +271,49 @@ class PhysicsRandomizationSpec(BaseModel):
         return self.relative is not None
 
 
-class TaskConfig(BaseModel):
-    """Reward and calibrated terminal penalty defining one control task."""
+class DisruptionConfig(_FrozenModel):
+    """Disruption-proxy early-termination thresholds."""
 
-    model_config = ConfigDict(frozen=True)
-    reward: str
-    terminal_penalty: float | None
+    q_min_threshold: float = 0.8
+    greenwald_threshold: float = 1.1
+    # Which Greenwald fraction to threshold on: line-averaged (convention) or
+    # volume-averaged n_e. Selects the postout field read in the disruption check.
+    greenwald_metric: Literal["line_avg", "volume_avg"] = "line_avg"
+
+    @property
+    def greenwald_field(self) -> str:
+        return f"fgw_n_e_{self.greenwald_metric}"
 
 
-class ScenarioConfig(BaseModel):
-    """Scenario configuration: physics problem definition."""
+class SteppingConfig(_FrozenModel):
+    """Static internal-step limits for one physical RL control interval."""
 
-    model_config = ConfigDict(frozen=True)
-    torax: dict[str, Any]
+    max_solver_substeps: int = 1
+    max_event_substeps: int = 0
+
+    @field_validator("max_solver_substeps", mode="before")
+    @classmethod
+    def _check_solver_limit(cls, value: int) -> int:
+        if isinstance(value, bool) or value < 1:
+            raise ValueError("max_solver_substeps must be an integer >= 1")
+        return value
+
+    @field_validator("max_event_substeps", mode="before")
+    @classmethod
+    def _check_event_limit(cls, value: int) -> int:
+        if isinstance(value, bool) or value < 0:
+            raise ValueError("max_event_substeps must be an integer >= 0")
+        return value
+
+
+class PlasmaxConfig(_FrozenModel):
+    """Fully composed, asset-resolved configuration for one TORAX environment."""
+
+    environment_key: str
+    torax: torax_model_config.ToraxConfig
     task: TaskConfig
-    actuators: list[ActuatorConfig]
+    initialization: PhaseInitializationConfig | None = None
+    actuators: tuple[ActuatorConfig, ...]
     observations: ObservationsConfig
     actions: ActionsConfig = Field(default_factory=ActionsConfig)
     state_noise: dict[str, float] = Field(default_factory=dict)
@@ -267,8 +324,49 @@ class ScenarioConfig(BaseModel):
     stepping: SteppingConfig = Field(default_factory=SteppingConfig)
     clip_by_max_action_delta: bool = True
 
+    @model_validator(mode="after")
+    def _valid_actions(self) -> Self:
+        if self.task.terminal_penalty is None:
+            raise ValueError("TORAX environment terminal_penalty cannot be null")
+        names = tuple(actuator.name for actuator in self.actuators)
+        if len(names) != len(set(names)):
+            raise ValueError("duplicate actuator names")
+        quantized = set(self.actions.realistic.quantize)
+        if quantized and quantized != set(names):
+            missing = set(names) - quantized
+            extra = quantized - set(names)
+            raise ValueError(
+                "actions.realistic.quantize must cover every actuator or none; "
+                f"missing: {sorted(missing)}, unknown: {sorted(extra)}"
+            )
+        return self
+
+
+class WorldModelSpec(_FrozenModel):
+    name: Literal["kstar_lstm"]
+    weights_path: Path
+    max_steps_in_episode: StrictInt = Field(ge=1)
+    random_target: bool = True
+
+
+class WorldModelConfig(_FrozenModel):
+    """Complete standalone KSTAR learned-environment configuration."""
+
+    environment_key: Literal["kstar_worldmodel"]
+    task: TaskConfig
+    world_model: WorldModelSpec
+
+    @model_validator(mode="after")
+    def _native_task(self) -> Self:
+        if self.task.reward != "native":
+            raise ValueError("world-model reward must be 'native'")
+        if self.task.terminal_penalty is not None:
+            raise ValueError("world models do not use a terminal penalty")
+        return self
+
 
 __all__ = [
+    "ActionsConfig",
     "ActuatorConfig",
     "DisruptionConfig",
     "HistoryConfig",
@@ -277,8 +375,12 @@ __all__ = [
     "ObsProfileConfig",
     "ObsScalarConfig",
     "PhysicsRandomizationSpec",
+    "PhaseInitializationConfig",
+    "PlasmaxConfig",
+    "RealisticActionConfig",
     "RealisticObsConfig",
-    "ScenarioConfig",
     "SteppingConfig",
     "TaskConfig",
+    "WorldModelConfig",
+    "WorldModelSpec",
 ]

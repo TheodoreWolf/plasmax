@@ -4,7 +4,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-import yaml
 from envelope import Continuous, Environment, Info, VmapWrapper
 
 from plasmax.models.world_model_env import WorldModelEnv, target_tracking_reward
@@ -258,25 +257,23 @@ class WorldModelTransformContractTest:
 class KstarLoaderTest:
     """The unified loader owns KSTAR truncation, not the learned model."""
 
-    _ENV = "kstar"
-    _BACKEND = "fusion_lstm"
-
-    def test_backend_kind_is_world_model(self):
-        from plasmax.environment.config import backend_kind
-
-        assert backend_kind(self._BACKEND) == "world_model"
+    _ENV = "kstar_worldmodel"
 
     def test_validate_env_backend(self):
-        from plasmax.environment.config import validate_env_backend
+        from plasmax.environment.merge import (
+            valid_env_backend_combos,
+            validate_env_backend,
+        )
 
-        validate_env_backend(self._ENV, self._BACKEND)
-        with pytest.raises(ValueError, match="not compatible"):
+        assert valid_env_backend_combos()[self._ENV] == frozenset()
+        validate_env_backend(self._ENV, None)
+        with pytest.raises(ValueError, match="standalone"):
             validate_env_backend(self._ENV, "qlknn")
 
     def test_load_env_returns_scalar_envelope_environment(self):
         from plasmax.environment.factory import make
 
-        env = make(self._ENV, self._BACKEND)
+        env = make(self._ENV)
         assert isinstance(env, Environment)
         assert env.action_space.shape == (6,)
         assert env.observation_space.shape == (15,)
@@ -293,7 +290,7 @@ class KstarLoaderTest:
     def test_loader_applies_max_steps_and_time_observation(self):
         from plasmax.environment.factory import make
 
-        env = make(self._ENV, self._BACKEND, max_steps=7, time_aware=True)
+        env = make(self._ENV, max_steps=7, time_aware=True)
         assert env.max_steps == 7
         assert env.observation_space.shape == (16,)
         assert env.obs_layout().slice_of("elapsed_time") == slice(15, 16)
@@ -305,7 +302,7 @@ class KstarLoaderTest:
     def test_loader_truncates_at_exact_requested_horizon(self):
         from plasmax.environment.factory import make
 
-        env = make(self._ENV, self._BACKEND, max_steps=3)
+        env = make(self._ENV, max_steps=3)
         state, _ = env.init(jax.random.key(0))
         flags = []
         for _ in range(3):
@@ -313,161 +310,66 @@ class KstarLoaderTest:
             flags.append((bool(info.terminated), bool(info.truncated)))
         assert flags == [(False, False), (False, False), (False, True)]
 
-    def test_realistic_variant_uses_native_world_model_interface(self):
+    def test_default_and_explicit_realistic_use_native_world_model_interface(self):
         from plasmax.environment.factory import make
 
-        oracle = make(self._ENV, self._BACKEND, variant="oracle")
-        realistic = make(self._ENV, self._BACKEND, variant="realistic")
+        default = make(self._ENV)
+        realistic = make(self._ENV, variant="realistic")
         key = jax.random.key(0)
         action = jnp.zeros(6)
 
-        oracle_state, oracle_init_info = oracle.init(key)
+        default_state, default_init_info = default.init(key)
         realistic_state, realistic_init_info = realistic.init(key)
-        _assert_same_pytree_values(oracle_state, realistic_state)
-        _assert_same_pytree_values(oracle_init_info, realistic_init_info)
+        _assert_same_pytree_values(default_state, realistic_state)
+        _assert_same_pytree_values(default_init_info, realistic_init_info)
 
-        oracle_next_state, oracle_step_info = oracle.step(oracle_state, action)
+        default_next_state, default_step_info = default.step(default_state, action)
         realistic_next_state, realistic_step_info = realistic.step(
             realistic_state, action
         )
-        _assert_same_pytree_values(oracle_next_state, realistic_next_state)
-        _assert_same_pytree_values(oracle_step_info, realistic_step_info)
+        _assert_same_pytree_values(default_next_state, realistic_next_state)
+        _assert_same_pytree_values(default_step_info, realistic_step_info)
+
+    def test_oracle_variant_is_rejected(self):
+        from plasmax.environment.factory import make
+
+        with pytest.raises(ValueError, match="realistic"):
+            make(self._ENV, variant="oracle")
 
     @pytest.mark.parametrize("max_steps", [0, -1, 101])
     def test_loader_rejects_invalid_or_unsafe_horizon(self, max_steps):
         from plasmax.environment.factory import make
 
         with pytest.raises(ValueError, match="max_steps"):
-            make(self._ENV, self._BACKEND, max_steps=max_steps)
+            make(self._ENV, max_steps=max_steps)
 
     @pytest.mark.parametrize("max_steps", [True, 1.5])
     def test_loader_rejects_nonintegral_requested_horizon(self, max_steps):
         from plasmax.environment.factory import make
 
         with pytest.raises(ValueError, match="max_steps.*integer"):
-            make(self._ENV, self._BACKEND, max_steps=max_steps)
-
-    @pytest.mark.parametrize("safe_horizon", [True, 3.5])
-    def test_loader_rejects_nonintegral_yaml_horizon(self, tmp_path, safe_horizon):
-        from plasmax.environment.factory import make
-
-        env_path = tmp_path / "kstar.yaml"
-        env_path.write_text(
-            yaml.safe_dump(
-                {
-                    "task": {"reward": "native", "terminal_penalty": None},
-                    "world_model_env": {
-                        "max_steps_in_episode": safe_horizon,
-                        "random_target": False,
-                    },
-                }
-            )
-        )
-        with pytest.raises(ValueError, match="max_steps_in_episode"):
-            make(str(env_path), self._BACKEND, validate=False)
-
-    def test_loader_requires_yaml_safe_horizon(self, tmp_path):
-        from plasmax.environment.factory import make
-
-        env_path = tmp_path / "kstar.yaml"
-        env_path.write_text(
-            yaml.safe_dump(
-                {
-                    "task": {"reward": "native", "terminal_penalty": None},
-                    "world_model_env": {"random_target": False},
-                }
-            )
-        )
-        with pytest.raises(ValueError, match="max_steps_in_episode"):
-            make(str(env_path), self._BACKEND, validate=False)
-
-    @pytest.mark.parametrize("owner", ["environment", "backend"])
-    def test_world_model_yaml_rejects_initialization(self, tmp_path, owner):
-        from plasmax.environment.factory import make
-
-        initialization = {"path": "state.npz", "sha256": "0" * 64}
-        env: str = self._ENV
-        backend: str = self._BACKEND
-        if owner == "environment":
-            env_path = tmp_path / "kstar.yaml"
-            env_path.write_text(
-                yaml.safe_dump(
-                    {
-                        "task": {"reward": "native", "terminal_penalty": None},
-                        "world_model_env": {
-                            "max_steps_in_episode": 100,
-                            "random_target": False,
-                        },
-                        "initialization": initialization,
-                    }
-                )
-            )
-            env = str(env_path)
-        else:
-            backend_path = tmp_path / "fusion_lstm.yaml"
-            backend_path.write_text(
-                yaml.safe_dump(
-                    {
-                        "type": "world_model",
-                        "world_model": {"name": "kstar_lstm"},
-                        "initialization": initialization,
-                    }
-                )
-            )
-            backend = str(backend_path)
-
-        with pytest.raises(ValueError, match="initialization"):
-            make(env, backend, validate=False)
-
-    def test_world_model_yaml_allows_null_initialization(self, tmp_path):
-        from plasmax.environment.config import parse_world_model_sources
-
-        env_path = tmp_path / "kstar.yaml"
-        env_path.write_text(
-            yaml.safe_dump(
-                {
-                    "task": {"reward": "native", "terminal_penalty": None},
-                    "world_model_env": {"max_steps_in_episode": 100},
-                    "initialization": None,
-                }
-            )
-        )
-        backend_path = tmp_path / "fusion_lstm.yaml"
-        backend_path.write_text(
-            yaml.safe_dump(
-                {
-                    "type": "world_model",
-                    "world_model": {"name": "kstar_lstm"},
-                    "initialization": None,
-                }
-            )
-        )
-
-        sources = parse_world_model_sources(
-            str(env_path), str(backend_path), validate=False
-        )
-        assert sources.backend.name == "kstar_lstm"
+            make(self._ENV, max_steps=max_steps)
 
     @pytest.mark.parametrize(
         "kwargs, message",
         [
             ({"reward": "P_diff"}, "native reward"),
             ({"disruption_penalty": -1.0}, "disruption_penalty"),
-            ({"ablate": "noise"}, "ablations"),
             ({"quantize_bins": 5}, "quantize_bins"),
+            ({"backend": "qlknn"}, "standalone"),
         ],
     )
     def test_loader_rejects_torax_only_options(self, kwargs, message):
         from plasmax.environment.factory import make
 
         with pytest.raises(ValueError, match=message):
-            make(self._ENV, self._BACKEND, **kwargs)
+            make(self._ENV, **kwargs)
 
     def test_loader_rejects_unknown_variant(self):
         from plasmax.environment.factory import make
 
-        with pytest.raises(ValueError, match="unknown variant"):
-            make(self._ENV, self._BACKEND, variant="invalid")
+        with pytest.raises(ValueError, match="[Uu]nknown variant"):
+            make(self._ENV, variant="invalid")
 
 
 def _neorl2_fusion_env():

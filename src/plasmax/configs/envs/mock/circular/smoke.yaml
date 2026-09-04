@@ -70,19 +70,6 @@ torax:
     # Keep the source-free mode explicit so enabling the pedestal later cannot
     # silently activate TORAX's adaptive-source default.
     mode: ADAPTIVE_TRANSPORT
-  transport:
-    model_name: constant
-    chi_i: 1.0
-    chi_e: 1.0
-    D_e: 0.1
-    V_e: 0.0
-  solver:
-    solver_type: linear
-    use_predictor_corrector: true
-    n_corrector_steps: 1
-    use_pereverzev: true
-    chi_pereverzev: 30
-    D_pereverzev: 15
   time_step_calculator:
     calculator_type: fixed
 

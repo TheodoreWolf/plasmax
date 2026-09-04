@@ -145,7 +145,6 @@ def _contract_errors(
         "eval_seed": args.eval_seed,
         "deterministic_eval": True,
         "force_minimal_callback": True,
-        "ablate": "none",
         "time_aware": False,
         "quantize_bins": None,
     }

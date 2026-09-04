@@ -1,258 +1,144 @@
-"""Parse and serialize validated plasmax scenario configuration."""
+"""Parse validated plasmax environment configuration."""
 
 from __future__ import annotations
 
-import dataclasses
-import re
+import copy
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-import yaml
-from pydantic import BaseModel, ConfigDict, field_validator
+import numpy as np
+from torax._src.torax_pydantic import model_config as torax_model_config
 
-from plasmax.environment import registry as registry_lib
+from plasmax.environment import registry
 from plasmax.environment.merge import (
-    _load_extended_yaml,
+    _deep_merge,
     _merge_env_and_backend,
-    env_key,
-    resolve_config_asset,
-    valid_env_backend_combos,
+    load_env_layers,
+    validate_env_backend,
 )
-from plasmax.environment.merge import (
-    backend_kind as _backend_kind,
-)
-from plasmax.environment.merge import (
-    validate_env_backend as _validate_env_backend,
-)
-from plasmax.environment.schema import (
-    ActuatorConfig,
-    DisruptionConfig,
-    HistoryConfig,
-    ObservationsConfig,
-    ObsFilterSpec,
-    ObsProfileConfig,
-    ObsScalarConfig,
-    PhysicsRandomizationSpec,
-    RealisticObsConfig,
-    ScenarioConfig,
-    SteppingConfig,
-    TaskConfig,
-)
+from plasmax.environment.schema import PlasmaxConfig, WorldModelConfig
+
+# Metadata keys carried in env/scenario YAMLs that name a merge layer rather
+# than contribute config; stripped from the final validated output.
+_METADATA_KEYS = frozenset({"tokamak", "scenario", "phase", "reset_reference"})
 
 
-class PhaseInitializationConfig(BaseModel):
-    """Phase-owned reference to one immutable initialization snapshot."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    path: str
-    sha256: str
-
-    @field_validator("path")
-    @classmethod
-    def _check_path(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("initialization.path must be non-empty")
-        return value
-
-    @field_validator("sha256")
-    @classmethod
-    def _check_sha256(cls, value: str) -> str:
-        if re.fullmatch(r"[0-9a-fA-F]{64}", value) is None:
-            raise ValueError("initialization.sha256 must contain 64 hex characters")
-        return value.lower()
-
-    def resolve_path(self, declaring_yaml: str | Path) -> Path:
-        """Resolve the configured artifact relative to its owning phase YAML."""
-        return resolve_config_asset(self.path, declaring_yaml)
+def _resolve_assets(value: Any) -> Any:
+    """Expand packaged path variables recursively without changing YAML shape."""
+    if isinstance(value, Mapping):
+        return {key: _resolve_assets(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_resolve_assets(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_resolve_assets(item) for item in value)
+    if isinstance(value, str):
+        return value.replace("${DATA_DIR}", str(registry.CONFIGS_DIR / "data"))
+    return value
 
 
-class _PhaseMetadataConfig(BaseModel):
-    """Metadata parsed directly from a leaf phase, before inheritance."""
-
-    model_config = ConfigDict(frozen=True, extra="ignore", strict=True)
-
-    initialization: PhaseInitializationConfig | None = None
-
-
-class WorldModelEnvironmentConfig(BaseModel):
-    """Construction settings intrinsic to a learned environment."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    max_steps_in_episode: int
-    random_target: bool = True
-
-
-class WorldModelBackendConfig(BaseModel):
-    """Supported learned dynamics backend selector."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    name: Literal["kstar_lstm"]
-
-
-class _WorldModelEnvironmentYaml(BaseModel):
-    """Complete allowed top-level shape of a world-model environment YAML."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    task: TaskConfig
-    world_model_env: WorldModelEnvironmentConfig
-    initialization: None = None
-
-
-class _WorldModelBackendYaml(BaseModel):
-    """Complete allowed top-level shape of a world-model backend YAML."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    type: Literal["world_model"]
-    world_model: WorldModelBackendConfig
-    initialization: None = None
-
-
-@dataclasses.dataclass(frozen=True)
-class WorldModelSources:
-    """Validated task metadata and learned-environment construction data."""
-
-    task: TaskConfig
-    environment: WorldModelEnvironmentConfig
-    backend: WorldModelBackendConfig
-
-
-@dataclasses.dataclass(frozen=True)
-class ToraxSources:
-    """Validated scenario plus phase-owned reset metadata."""
-
-    scenario: ScenarioConfig
-    initialization: PhaseInitializationConfig | None
-    environment_key: str
-
-
-def _load_yaml_mapping(path: str | Path) -> dict[str, Any]:
-    """Read one YAML mapping for the parser functions in this module."""
-    resolved = Path(path)
-    with resolved.open() as stream:
-        raw = yaml.safe_load(stream) or {}
-    if not isinstance(raw, dict):
-        raise ValueError(f"YAML config {str(resolved)!r} must contain a mapping")
-    return raw
-
-
-def backend_kind(backend: str) -> str:
-    """Return the kind of a backend path or registered alias."""
-    return _backend_kind(registry_lib.resolve_backend(backend))
-
-
-def validate_env_backend(env: str, backend: str) -> None:
-    """Validate an environment/backend pair given paths or aliases."""
-    _validate_env_backend(
-        registry_lib.resolve_env(env), registry_lib.resolve_backend(backend)
+def _apply_imas_init(torax: Mapping[str, Any]) -> dict[str, Any]:
+    """Resolves a top-level ``_imas_init`` directive in a torax block."""
+    result = copy.deepcopy(dict(torax))
+    directive = result.pop("_imas_init", None)
+    if directive is None:
+        return result
+    if not isinstance(directive, Mapping):
+        raise ValueError("torax._imas_init must be a mapping")
+    unknown = sorted(
+        set(directive)
+        - {
+            "path",
+            "profile_conditions",
+            "plasma_composition",
+            "explicit_convert",
+        }
     )
+    if unknown:
+        raise ValueError(f"Unknown torax._imas_init fields: {unknown}")
+    path_value = directive.get("path")
+    if not isinstance(path_value, str) or not path_value:
+        raise ValueError("torax._imas_init.path must be a non-empty path")
+    path = Path(path_value)
+    if not path.is_file():
+        raise FileNotFoundError(f"IMAS initialization file does not exist: {path}")
+    for name in ("profile_conditions", "plasma_composition", "explicit_convert"):
+        if not isinstance(directive.get(name, False), bool):
+            raise ValueError(f"torax._imas_init.{name} must be a boolean")
+    if not any(
+        directive.get(name, False)
+        for name in ("profile_conditions", "plasma_composition")
+    ):
+        return result
 
+    # Imports are intentionally lazy: registry, pair, and public option errors
+    # are reported before opening a comparatively expensive IMAS artifact.
+    from torax._src.imas_tools.input import core_profiles, loader
 
-def parse_scenario(path: str) -> ScenarioConfig:
-    """Load a single scenario path or alias into a frozen config model."""
-    resolved = Path(registry_lib.resolve_scenario(path))
-    raw = _load_yaml_mapping(resolved)
-    metadata = _PhaseMetadataConfig.model_validate(raw)
-    if metadata.initialization is not None:
-        raise ValueError(
-            "phase initialization requires an environment with a TORAX backend"
-        )
-    return ScenarioConfig.model_validate(raw)
-
-
-def parse_world_model_sources(
-    env_path: str, backend_path: str, *, validate: bool = True
-) -> WorldModelSources:
-    """Parse the task and learned-model construction blocks for one pair."""
-    resolved_env = registry_lib.resolve_env(env_path)
-    resolved_backend = registry_lib.resolve_backend(backend_path)
-    if validate:
-        validate_env_backend(resolved_env, resolved_backend)
-    env_yaml = _WorldModelEnvironmentYaml.model_validate(
-        _load_yaml_mapping(resolved_env)
+    explicit_convert = directive.get("explicit_convert", False)
+    ids = loader.load_imas_data(
+        uri=path.name,
+        ids_name="core_profiles",
+        directory=path.parent,
+        explicit_convert=explicit_convert,
     )
-    backend_yaml = _WorldModelBackendYaml.model_validate(
-        _load_extended_yaml(resolved_backend)
-    )
-    return WorldModelSources(
-        task=env_yaml.task,
-        environment=env_yaml.world_model_env,
-        backend=backend_yaml.world_model,
-    )
+    t_initial = (result.get("numerics") or {}).get("t_initial")
+    if directive.get("profile_conditions", False):
+        imported = core_profiles.profile_conditions_from_IMAS(ids, t_initial)
+        # Some public IMAS releases omit core_profiles/global_quantities/ip
+        # while carrying the authoritative current on the equilibrium slice.
+        imported_ip = imported.get("Ip")
+        ip_values = imported_ip[1] if isinstance(imported_ip, tuple) else imported_ip
+        if ip_values is None or np.asarray(ip_values).size == 0:
+            equilibrium = loader.load_imas_data(
+                uri=path.name,
+                ids_name="equilibrium",
+                directory=path.parent,
+                explicit_convert=explicit_convert,
+            )
+            imported = dict(imported)
+            imported["Ip"] = float(
+                np.asarray(equilibrium.time_slice[0].global_quantities.ip)
+            )
+        explicit = result.get("profile_conditions") or {}
+        if not isinstance(explicit, Mapping):
+            raise ValueError("torax.profile_conditions must be a mapping")
+        result["profile_conditions"] = _deep_merge(imported, explicit)
+    if directive.get("plasma_composition", False):
+        imported = core_profiles.plasma_composition_from_IMAS(ids, t_initial)
+        explicit = result.get("plasma_composition") or {}
+        if not isinstance(explicit, Mapping):
+            raise ValueError("torax.plasma_composition must be a mapping")
+        result["plasma_composition"] = _deep_merge(imported, explicit)
+    return result
 
 
-def parse_torax_sources(
-    env_path: str, backend_path: str, *, validate: bool = True
-) -> ToraxSources:
-    """Parse one TORAX pair while keeping phase metadata out of its scenario."""
-    resolved_env = registry_lib.resolve_env(env_path)
-    resolved_backend = registry_lib.resolve_backend(backend_path)
-    if validate:
-        validate_env_backend(resolved_env, resolved_backend)
-    phase_metadata = _PhaseMetadataConfig.model_validate(
-        _load_yaml_mapping(resolved_env)
-    )
-    raw = _merge_env_and_backend(resolved_env, resolved_backend)
-    return ToraxSources(
-        scenario=ScenarioConfig.model_validate(raw),
-        initialization=phase_metadata.initialization,
-        environment_key=env_key(resolved_env),
-    )
+def _without_metadata(raw: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in raw.items() if key not in _METADATA_KEYS}
 
 
 def parse_env_and_backend(
-    env_path: str, backend_path: str, *, validate: bool = True
-) -> ScenarioConfig:
-    """Load and merge an environment/backend pair into a config model."""
-    return parse_torax_sources(env_path, backend_path, validate=validate).scenario
+    env: str,
+    backend: str | None = None,
+) -> PlasmaxConfig | WorldModelConfig:
+    """Load and fully validate one registered environment configuration."""
+    validate_env_backend(env, backend)
+
+    if env == "kstar_worldmodel":
+        raw = _resolve_assets(load_env_layers(env))
+        raw = {"environment_key": env, **_without_metadata(raw)}
+        return WorldModelConfig.model_validate(raw)
+
+    assert backend is not None
+    raw = _merge_env_and_backend(env, backend)
+    raw = _resolve_assets(raw)
+    raw = _without_metadata(raw)
+    torax = raw.get("torax")
+    if not isinstance(torax, Mapping):
+        raise ValueError(f"Environment {env!r} must define a TORAX mapping")
+    raw["torax"] = torax_model_config.ToraxConfig.from_dict(_apply_imas_init(torax))
+    raw["environment_key"] = env
+    return PlasmaxConfig.model_validate(raw)
 
 
-def _tuples_to_lists(obj: Any) -> Any:
-    """Convert tuples recursively so PyYAML emits portable sequences."""
-    if isinstance(obj, tuple):
-        return [_tuples_to_lists(value) for value in obj]
-    if isinstance(obj, list):
-        return [_tuples_to_lists(value) for value in obj]
-    if isinstance(obj, dict):
-        return {key: _tuples_to_lists(value) for key, value in obj.items()}
-    return obj
-
-
-def scenario_to_yaml(config: ScenarioConfig, path: str | Path) -> None:
-    """Serialize a scenario config to portable YAML."""
-    raw = _tuples_to_lists(config.model_dump(mode="python"))
-    with Path(path).open("w") as stream:
-        yaml.safe_dump(raw, stream, sort_keys=False, allow_unicode=True)
-
-
-__all__ = [
-    "ActuatorConfig",
-    "backend_kind",
-    "DisruptionConfig",
-    "HistoryConfig",
-    "ObservationsConfig",
-    "ObsFilterSpec",
-    "ObsProfileConfig",
-    "ObsScalarConfig",
-    "parse_env_and_backend",
-    "parse_scenario",
-    "parse_torax_sources",
-    "parse_world_model_sources",
-    "PhaseInitializationConfig",
-    "PhysicsRandomizationSpec",
-    "RealisticObsConfig",
-    "ScenarioConfig",
-    "scenario_to_yaml",
-    "SteppingConfig",
-    "TaskConfig",
-    "ToraxSources",
-    "validate_env_backend",
-    "valid_env_backend_combos",
-    "WorldModelBackendConfig",
-    "WorldModelEnvironmentConfig",
-    "WorldModelSources",
-]
+__all__ = ["parse_env_and_backend"]

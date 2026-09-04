@@ -2,480 +2,263 @@
 
 from __future__ import annotations
 
-import os
+import copy
 from collections.abc import Mapping
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any
 
 import yaml
 
-_SCENARIO_DIR_TOKEN = "${SCENARIO_DIR}"
-_DATA_DIR_TOKEN = "${DATA_DIR}"
-_WRAPPERS_CONFIG_NAME = "wrappers.yaml"
-_TOKAMAKS_DIR_NAME = "tokamaks"
-_ENVS_DIR_NAME = "envs"
-_SCENARIO_BASE_NAME = "base.yaml"
-# Metadata keys carried in env/scenario YAMLs that name a merge layer rather
-# than contribute config; stripped from the merged output.
-_META_KEYS = (
-    "tokamak",
-    "scenario",
-    "phase",
-    "reset_reference",
-    "initialization",
-)
+from plasmax.environment import registry
+
+RawConfig = dict[str, Any]
 
 
-def _configs_root(path: str) -> Path:
-    """Returns the packaged config root by walking up to the ``envs`` ancestor.
-
-    Envs may nest arbitrarily under ``<config-root>/envs`` (e.g.
-    ``envs/iter/hybrid/flattop.yaml``), so ``tokamaks/`` and ``data/``
-    are located relative to the ``envs`` parent rather than a fixed depth.
-    """
-    p = Path(path).resolve()
-    for anc in p.parents:
-        if anc.name == _ENVS_DIR_NAME:
-            return anc.parent
-    # Fallback for non-envs paths (e.g. the single-file test.yaml scenario).
-    return p.parent
+def _read_mapping(path: Path) -> RawConfig:
+    if not path.is_file():
+        raise FileNotFoundError(f"Configuration file does not exist: {path}")
+    with path.open() as stream:
+        value = yaml.safe_load(stream) or {}
+    if not isinstance(value, dict):
+        raise ValueError(f"Configuration {path} must contain a YAML mapping")
+    return value
 
 
-def resolve_config_asset(
-    reference: str | Path,
-    yaml_path: str | Path,
-) -> Path:
-    """Resolve a config-owned asset against its declaring YAML file.
-
-    ``${DATA_DIR}`` names the packaged ``configs/data`` directory and
-    ``${SCENARIO_DIR}`` names the declaring YAML's directory. Other relative
-    paths are also interpreted relative to the declaring YAML. The path need
-    not exist yet so artifact-generation tools can resolve their destination.
-    """
-    declaring_path = Path(yaml_path).resolve()
-    resolved_reference = str(reference)
-    resolved_reference = resolved_reference.replace(
-        _DATA_DIR_TOKEN,
-        str(_configs_root(str(declaring_path)) / "data"),
-    )
-    resolved_reference = resolved_reference.replace(
-        _SCENARIO_DIR_TOKEN,
-        str(declaring_path.parent),
-    )
-    asset_path = Path(resolved_reference)
-    if not asset_path.is_absolute():
-        asset_path = declaring_path.parent / asset_path
-    return asset_path.resolve()
-
-
-def _env_key(env_path: str) -> str:
-    """Returns the registry key for an env: its path relative to ``envs/``.
-
-    e.g. ``envs/iter/hybrid/flattop.yaml`` -> ``iter/hybrid/flattop``.
-    This encodes the (device, scenario, phase) address for nested envs and a
-    bare device name for single-file ones (e.g. ``envs/step.yaml`` -> ``step``).
-    """
-    p = Path(env_path).resolve()
-    for anc in p.parents:
-        if anc.name == _ENVS_DIR_NAME:
-            return p.relative_to(anc).with_suffix("").as_posix()
-    return p.stem
-
-
-def _load_tokamak_defaults(env_path: str, env_raw: dict[str, Any]) -> dict[str, Any]:
-    """Loads device-level defaults named by the env's ``tokamak:`` key.
-
-    A scenario env sets ``tokamak: iter`` to inherit the shared device config
-    from ``tokamaks/iter.yaml`` (geometry plumbing, plasma_composition,
-    observations, actuators, disruption, …); the env overlays only its
-    scenario-specific deltas. Returns ``{}`` when no ``tokamak:`` key is present.
-    """
-    name = env_raw.get("tokamak")
-    if name is None:
-        return {}
-    tokamak_path = _configs_root(env_path) / _TOKAMAKS_DIR_NAME / f"{name}.yaml"
-    if not tokamak_path.exists():
-        raise FileNotFoundError(
-            f"env {_env_key(env_path)!r} sets tokamak: {name!r} but "
-            f"{str(tokamak_path)!r} does not exist"
-        )
-    return _load_extended_yaml(tokamak_path)
-
-
-def _load_scenario_base(env_path: str) -> dict[str, Any]:
-    """Loads a sibling ``base.yaml`` holding the scenario's phase-shared config.
-
-    Multi-phase scenarios (e.g. ``envs/iter/hybrid/{rampup,flattop,
-    rampdown}.yaml``) factor the physics common to all phases
-    (composition, sources, pedestal, …) into ``base.yaml`` in the same
-    directory; each phase file carries only its deltas (Ip schedule, t_final,
-    geometry, current-drive fraction). Returns ``{}`` when the env is itself
-    ``base.yaml`` or has no sibling base (single-file devices like ``step``).
-    """
-    p = Path(env_path).resolve()
-    if p.name == _SCENARIO_BASE_NAME:
-        return {}
-    base_path = p.parent / _SCENARIO_BASE_NAME
-    if not base_path.exists():
-        return {}
-    with open(base_path) as f:
-        return yaml.safe_load(f) or {}
-
-
-def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+def _deep_merge(base: Mapping[str, Any], overlay: Mapping[str, Any]) -> RawConfig:
     """Recursively merge ``overlay`` onto ``base`` (overlay wins on leaves)."""
-    out = dict(base)
-    for k, v in overlay.items():
-        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
-            out[k] = _deep_merge(out[k], v)
+    out = copy.deepcopy(dict(base))
+    for key, value in overlay.items():
+        existing = out.get(key)
+        if isinstance(existing, Mapping) and isinstance(value, Mapping):
+            out[key] = _deep_merge(existing, value)
         else:
-            out[k] = v
+            out[key] = copy.deepcopy(value)
     return out
+
+
+def _safe_extended_path(source: Path, value: object) -> Path:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"extends in {source} must be a non-empty relative path")
+    extended = Path(value)
+    if extended.is_absolute():
+        raise ValueError(f"extends in {source} must be relative")
+    target = (source.parent / extended).resolve()
+    config_root = registry.CONFIGS_DIR.resolve()
+    if not target.is_relative_to(config_root):
+        raise ValueError(f"extends in {source} escapes the packaged config tree")
+    return target
 
 
 def _load_extended_yaml(
     path: str | Path,
     *,
-    root: Path | None = None,
     stack: tuple[Path, ...] = (),
-) -> dict[str, Any]:
-    """Load a YAML mapping with a repository-internal ``extends`` chain.
+) -> RawConfig:
+    """Load one packaged fragment and its safe relative ``extends`` chain."""
+    source = Path(path).resolve()
+    config_root = registry.CONFIGS_DIR.resolve()
+    if not source.is_relative_to(config_root):
+        raise ValueError(f"Configuration path escapes the packaged tree: {source}")
+    if source in stack:
+        chain = " -> ".join(str(item) for item in (*stack, source))
+        raise ValueError(f"Cyclic configuration extends: {chain}")
 
-    Extension paths are relative to the file declaring them and cannot escape
-    the initial file's directory. Leaf mappings override their shared base.
-    """
-    resolved = Path(path).resolve()
-    allowed_root = resolved.parent if root is None else root
-    if not resolved.is_relative_to(allowed_root):
-        raise ValueError(
-            f"extends path {str(resolved)!r} escapes {str(allowed_root)!r}"
-        )
-    if resolved in stack:
-        chain = " -> ".join(str(item) for item in (*stack, resolved))
-        raise ValueError(f"cyclic YAML extends chain: {chain}")
-    with resolved.open() as stream:
-        raw = yaml.safe_load(stream) or {}
-    if not isinstance(raw, dict):
-        raise ValueError(f"YAML config {str(resolved)!r} must contain a mapping")
+    raw = _read_mapping(source)
     extends = raw.pop("extends", None)
     if extends is None:
         return raw
-    if not isinstance(extends, str):
-        raise ValueError(f"extends in {str(resolved)!r} must be a relative path")
-    parent = (resolved.parent / extends).resolve()
-    base = _load_extended_yaml(
-        parent,
-        root=allowed_root,
-        stack=(*stack, resolved),
-    )
-    return _deep_merge(base, raw)
+    values = [extends] if isinstance(extends, str) else extends
+    if not isinstance(values, list) or not values:
+        raise ValueError(f"extends in {source} must be a string or non-empty list")
 
-
-def _merge_backend_transport(
-    backend_torax: dict[str, Any], *overlay_torax: dict[str, Any]
-) -> dict[str, Any] | None:
-    """Merges transport tuning without changing the selected backend model.
-
-    A scenario may carry calibration for one transport model while supporting
-    another backend. Model-specific calibration applies only when its
-    ``model_name`` matches the backend; model-agnostic transport settings still
-    overlay normally.
-    """
-    backend_transport = backend_torax.get("transport")
-    if not isinstance(backend_transport, dict):
-        return None
-
-    selected_model = backend_transport.get("model_name")
-    merged = dict(backend_transport)
-    for torax_overlay in overlay_torax:
-        transport_overlay = torax_overlay.get("transport")
-        if not isinstance(transport_overlay, dict):
-            continue
-        overlay_model = transport_overlay.get("model_name")
-        if (
-            selected_model is not None
-            and overlay_model is not None
-            and overlay_model != selected_model
-        ):
-            continue
-        merged = _deep_merge(merged, transport_overlay)
-    return merged
-
-
-def _resolve_geometry_dir(torax_dict: dict[str, Any], yaml_path: str) -> dict[str, Any]:
-    """Expands geometry_directory tokens against ``yaml_path``.
-
-    ``${DATA_DIR}`` -> ``<configs_root>/data`` (depth-independent, used by the
-    tokamak files since envs nest arbitrarily under the packaged ``envs/``);
-    ``${SCENARIO_DIR}`` -> ``dirname(yaml_path)`` (legacy relative token).
-    """
-    geo = torax_dict.get("geometry", {})
-    gdir = geo.get("geometry_directory")
-    if not isinstance(gdir, str):
-        return torax_dict
-    if _DATA_DIR_TOKEN in gdir:
-        data_dir = str(_configs_root(yaml_path) / "data")
-        gdir = gdir.replace(_DATA_DIR_TOKEN, data_dir)
-    if _SCENARIO_DIR_TOKEN in gdir:
-        gdir = gdir.replace(
-            _SCENARIO_DIR_TOKEN, os.path.dirname(os.path.abspath(yaml_path))
+    merged: RawConfig = {}
+    for value in values:
+        parent = _safe_extended_path(source, value)
+        merged = _deep_merge(
+            merged,
+            _load_extended_yaml(parent, stack=(*stack, source)),
         )
-    if gdir != geo.get("geometry_directory"):
-        return {**torax_dict, "geometry": {**geo, "geometry_directory": gdir}}
-    return torax_dict
+    return _deep_merge(merged, raw)
 
 
-def _has_nonempty_ip(ip_field: Any) -> bool:
-    """True iff ``ip_field`` carries a usable (non-empty) Ip value."""
-    if ip_field is None:
-        return False
-    # core_profiles_from_IMAS returns (time_array, ip_array). If the IDS has
-    # no Ip filled, ip_array is an empty numpy array.
-    if isinstance(ip_field, tuple) and len(ip_field) == 2:
-        try:
-            return len(ip_field[1]) > 0
-        except TypeError:
-            return True
-    return True
+def _mapping(value: object, path: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{path} must be a mapping")
+    return value
 
 
-def _apply_imas_init(torax_dict: dict[str, Any], yaml_path: str) -> dict[str, Any]:
-    """Resolves a top-level ``_imas_init`` directive in a torax block."""
-    init = torax_dict.get("_imas_init")
-    if init is None:
-        return torax_dict
-
-    if "path" not in init:
-        raise ValueError("_imas_init requires a 'path' key")
-
-    # Lazy import -- only require ``imas`` when actually used.
-    import imas
-    from torax._src.imas_tools.input import (
-        core_profiles as imas_core_profiles,
+def _validate_env_ownership(raw: Mapping[str, Any], env: str) -> None:
+    torax = _mapping(raw.get("torax", {}), f"environment {env!r} torax")
+    owned_by_backend = sorted(set(torax) & {"transport", "solver"})
+    if owned_by_backend:
+        raise ValueError(
+            f"Environment {env!r} cannot define backend-owned "
+            "TORAX sections: "
+            f"{owned_by_backend}"
+        )
+    stepping = _mapping(raw.get("stepping", {}), f"environment {env!r} stepping")
+    if "max_solver_substeps" in stepping:
+        raise ValueError(
+            f"Environment {env!r} cannot define backend-owned "
+            "stepping.max_solver_substeps"
+        )
+    randomization = _mapping(
+        raw.get("physics_randomization", {}),
+        f"environment {env!r} physics_randomization",
     )
-    from torax._src.imas_tools.input import (
-        loader as imas_loader,
+    model_paths = sorted(
+        path for path in randomization if str(path).startswith("transport_model.")
     )
-
-    scenario_dir = os.path.dirname(os.path.abspath(yaml_path))
-    nc_path = init["path"].replace(_SCENARIO_DIR_TOKEN, scenario_dir)
-    nc_path = os.path.abspath(nc_path)
-    if not os.path.exists(nc_path):
-        raise FileNotFoundError(
-            f"_imas_init.path resolves to {nc_path!r} which does not exist"
+    if model_paths:
+        raise ValueError(
+            f"Environment {env!r} cannot define model-specific "
+            f"physics randomization: {model_paths}"
         )
 
-    want_pc = bool(init.get("profile_conditions", False))
-    want_comp = bool(init.get("plasma_composition", False))
-    if not (want_pc or want_comp):
-        return {k: v for k, v in torax_dict.items() if k != "_imas_init"}
 
-    explicit_convert = bool(init.get("explicit_convert", False))
-    cp_ids = imas_loader.load_imas_data(
-        nc_path,
-        "core_profiles",
-        explicit_convert=explicit_convert,
+def _validate_backend_ownership(raw: Mapping[str, Any], backend: str) -> None:
+    allowed_top_level = {"torax", "physics_randomization", "stepping"}
+    unknown = sorted(set(raw) - allowed_top_level)
+    if unknown:
+        raise ValueError(
+            f"Backend {backend!r} contains environment-owned fields: {unknown}"
+        )
+
+    torax = _mapping(raw.get("torax", {}), f"backend {backend!r} torax")
+    unknown_torax = sorted(set(torax) - {"transport", "solver"})
+    if unknown_torax:
+        raise ValueError(
+            f"Backend {backend!r} contains environment-owned TORAX sections: "
+            f"{unknown_torax}"
+        )
+    for section in torax:
+        _mapping(torax[section], f"backend {backend!r} torax.{section}")
+
+    stepping = _mapping(raw.get("stepping", {}), f"backend {backend!r} stepping")
+    unknown_stepping = sorted(set(stepping) - {"max_solver_substeps"})
+    if unknown_stepping:
+        raise ValueError(
+            f"Backend {backend!r} contains environment-owned stepping fields: "
+            f"{unknown_stepping}"
+        )
+
+    randomization = _mapping(
+        raw.get("physics_randomization", {}),
+        f"backend {backend!r} physics_randomization",
     )
-    out = {k: v for k, v in torax_dict.items() if k != "_imas_init"}
-
-    if want_pc:
-        imas_pc = dict(imas_core_profiles.profile_conditions_from_IMAS(cp_ids))
-        # core_profiles IDS Ip is sometimes empty; pull from equilibrium IDS.
-        if not _has_nonempty_ip(imas_pc.get("Ip")):
-            eq_ids = imas_loader.load_imas_data(
-                nc_path,
-                "equilibrium",
-                explicit_convert=explicit_convert,
-            )
-            eq_xr = imas.util.to_xarray(eq_ids)
-            imas_pc["Ip"] = float(eq_xr["time_slice.global_quantities.ip"][0].item())
-        yaml_pc = dict(out.get("profile_conditions") or {})
-        out["profile_conditions"] = {**imas_pc, **yaml_pc}
-
-    if want_comp:
-        imas_comp = dict(imas_core_profiles.plasma_composition_from_IMAS(cp_ids))
-        yaml_comp = dict(out.get("plasma_composition") or {})
-        out["plasma_composition"] = _deep_merge(imas_comp, yaml_comp)
-
-    return out
+    non_model_paths = sorted(
+        path for path in randomization if not str(path).startswith("transport_model.")
+    )
+    if non_model_paths:
+        raise ValueError(
+            f"Backend {backend!r} contains non-model physics randomization: "
+            f"{non_model_paths}"
+        )
 
 
-def _load_wrapper_defaults(env_path: str) -> dict[str, Any]:
-    """Loads shared wrapper defaults from packaged ``wrappers.yaml`` when present."""
-    p = Path(env_path).resolve()
-    if not any(anc.name == _ENVS_DIR_NAME for anc in p.parents):
-        return {}
-    wrapper_path = _configs_root(env_path) / _WRAPPERS_CONFIG_NAME
-    if not wrapper_path.exists():
-        return {}
+def _union_no_duplicate(
+    env: Mapping[str, Any],
+    backend: Mapping[str, Any],
+    *,
+    prefix: tuple[str, ...] = (),
+) -> RawConfig:
+    """Union orthogonal nested mappings and reject every duplicate leaf."""
+    result = copy.deepcopy(dict(env))
+    for key, value in backend.items():
+        if key not in result:
+            result[key] = copy.deepcopy(value)
+            continue
+        existing = result[key]
+        path = (*prefix, str(key))
+        if isinstance(existing, Mapping) and isinstance(value, Mapping):
+            result[key] = _union_no_duplicate(existing, value, prefix=path)
+            continue
+        raise ValueError("Environment and backend both define leaf " + ".".join(path))
+    return result
 
-    with open(wrapper_path) as f:
-        raw = yaml.safe_load(f) or {}
 
-    # Wrapper YAMLs may only carry the wrapper-stack blocks; anything else
-    # belongs in a tokamak/scenario file.
-    for block, keys, allowed in (
-        ("top-level", raw, {"observations", "actions"}),
-        ("observations", raw.get("observations") or {}, {"realistic", "history"}),
-        ("actions", raw.get("actions") or {}, {"realistic"}),
+def load_env_layers(env: str) -> RawConfig:
+    """Compose ``tokamak < sibling base < phase leaf < wrappers``."""
+    leaf_path = registry.resolve_env(env)
+    leaf = _load_extended_yaml(leaf_path)
+    if env == "kstar_worldmodel":
+        return leaf
+
+    base_path = leaf_path.parent / "base.yaml"
+    base = _load_extended_yaml(base_path) if base_path.is_file() else {}
+    base_tokamak = base.get("tokamak")
+    leaf_tokamak = leaf.get("tokamak")
+    if (
+        base_tokamak is not None
+        and leaf_tokamak is not None
+        and base_tokamak != leaf_tokamak
     ):
-        extra = set(keys) - allowed
-        if extra:
-            raise ValueError(
-                f"Wrapper YAML {str(wrapper_path)!r}: unexpected {block} keys "
-                f"{sorted(extra)}; allowed: {sorted(allowed)}"
-            )
+        raise ValueError(
+            f"Environment {env!r} conflicts with its sibling base on tokamak"
+        )
+    tokamak = leaf_tokamak if leaf_tokamak is not None else base_tokamak
+    if tokamak is not None and not isinstance(tokamak, str):
+        raise ValueError(f"Environment {env!r} tokamak must be a string")
+
+    tokamak_layer: RawConfig = {}
+    if tokamak is not None:
+        tokamak_path = registry.CONFIGS_DIR / "tokamaks" / f"{tokamak}.yaml"
+        tokamak_layer = _load_extended_yaml(tokamak_path)
+
+    raw = _deep_merge(tokamak_layer, base)
+    raw = _deep_merge(raw, leaf)
+    if tokamak is not None:
+        raw = _deep_merge(
+            raw,
+            _load_extended_yaml(registry.CONFIGS_DIR / "wrappers.yaml"),
+        )
+    _validate_env_ownership(raw, env)
     return raw
 
 
-def _merge_env_and_backend(env_path: str, backend_path: str) -> dict[str, Any]:
-    """Returns the merged raw dict for an env+backend YAML pair."""
-    with open(env_path) as f:
-        phase_raw = yaml.safe_load(f) or {}
-    backend_raw = _load_extended_yaml(backend_path)
-
-    allowed_backend_blocks = {
-        "torax",
-        "physics_randomization",
-        "stepping",
-    }
-    extra = {
-        key
-        for key, value in backend_raw.items()
-        if key not in allowed_backend_blocks
-        and not (key == "initialization" and value is None)
-    }
-    if extra:
-        raise ValueError(
-            f"Backend YAML {backend_path!r} may only contain "
-            "`torax:`, `physics_randomization:`, and `stepping:` blocks; "
-            f"unexpected top-level keys: {sorted(extra)}"
-        )
-
-    # Precedence, low -> high:
-    #   backend < wrappers < tokamak < scenario base < phase (env).
-    # The scenario base (sibling base.yaml) holds the physics shared across a
-    # scenario's phases; the addressed env file carries the phase deltas. For
-    # single-file devices (sparc/step/kstar) base is empty and env == phase.
-    # The backend remains authoritative for the transport model discriminator;
-    # model-specific env calibration applies only to a matching model.
-    base_raw = _load_scenario_base(env_path)
-    env_raw = _deep_merge(base_raw, phase_raw)
-    tokamak_raw = _load_tokamak_defaults(env_path, env_raw)
-    wrapper_raw = _load_wrapper_defaults(env_path)
-
-    initialization = phase_raw.get("initialization")
-    if initialization is not None and not isinstance(initialization, dict):
-        raise ValueError(
-            f"initialization in phase env {env_path!r} must contain a mapping"
-        )
-    for layer_name, layer in (
-        ("scenario base", base_raw),
-        ("tokamak", tokamak_raw),
-    ):
-        if layer.get("initialization") is not None:
-            raise ValueError(
-                "initialization is phase-only metadata and cannot be declared "
-                f"by the {layer_name} layer for env {_env_key(env_path)!r}"
-            )
-
-    def _non_torax(d: dict[str, Any]) -> dict[str, Any]:
-        return {k: v for k, v in d.items() if k != "torax" and k not in _META_KEYS}
-
-    merged = _deep_merge(_non_torax(backend_raw), wrapper_raw)
-    merged = _deep_merge(merged, _non_torax(tokamak_raw))
-    merged = _deep_merge(merged, _non_torax(env_raw))
-
-    backend_torax = dict(backend_raw.get("torax") or {})
-    tokamak_torax = dict(tokamak_raw.get("torax") or {})
-    env_torax = dict(env_raw.get("torax") or {})
-
-    merged_torax = _deep_merge(_deep_merge(backend_torax, tokamak_torax), env_torax)
-    merged_transport = _merge_backend_transport(backend_torax, tokamak_torax, env_torax)
-    if merged_transport is not None:
-        merged_torax["transport"] = merged_transport
-    merged["torax"] = merged_torax
-    return merged
-
-
-# Full-transport backends valid for every conventional-aspect-ratio ITER/SPARC
-# scenario (any device, scenario, phase combination).
-_STANDARD_BACKENDS = frozenset({"cgm", "qlknn", "bohm_gyrobohm", "tglfnn", "tglfnn_nr"})
-
-# Env-backend compatibility, keyed by the env address (`_env_key`). ITER and
-# SPARC span the (device, scenario, phase) grid: scenarios x 3 phases. A missing
-# key means that (device, scenario, phase) combination does not exist.
-_valid_env_backend_combos: dict[str, frozenset[str]] = {
-    f"iter/{scenario}/{phase}": _STANDARD_BACKENDS
-    for scenario in ("baseline", "hybrid", "advanced")
-    for phase in ("rampup", "flattop", "rampdown")
-}
-_valid_env_backend_combos.update(
-    {
-        f"sparc/{scenario}/{phase}": _STANDARD_BACKENDS
-        for scenario in ("prd", "reduced_field")
-        for phase in ("rampup", "flattop", "rampdown")
-    }
-)
-_valid_env_backend_combos.update(
-    {
-        "step": frozenset({"bohm_gyrobohm", "tglfnn_spherical"}),
-        "kstar": frozenset({"fusion_lstm"}),
-    }
-)
-_VALID_ENV_BACKEND_COMBOS: Mapping[str, frozenset[str]] = MappingProxyType(
-    _valid_env_backend_combos
-)
-del _valid_env_backend_combos
+def load_backend(backend: str) -> RawConfig:
+    """Load and ownership-check one registered backend fragment."""
+    raw = _load_extended_yaml(registry.resolve_backend(backend))
+    _validate_backend_ownership(raw, backend)
+    return raw
 
 
 def valid_env_backend_combos() -> Mapping[str, frozenset[str]]:
     """Return the immutable environment/backend compatibility registry."""
-    return _VALID_ENV_BACKEND_COMBOS
+    return registry._VALID_ENV_BACKEND_COMBOS  # noqa: SLF001
 
 
-def validate_env_backend(env_path: str, backend_path: str) -> None:
-    """Raises ValueError if (env, backend) is not a registered combination.
-
-    The env is addressed by its path relative to the packaged ``envs/`` (e.g.
-    ``iter/hybrid/flattop``), which is the (device, scenario, phase) triple for
-    nested scenarios; unknown addresses (bad device/scenario/phase) are
-    rejected here before any JAX compilation.
-    """
-    env_name = _env_key(env_path)
-    backend_name = Path(backend_path).stem
-    if env_name not in _VALID_ENV_BACKEND_COMBOS:
+def validate_env_backend(env: str, backend: str | None) -> None:
+    """Raises ValueError if (env, backend) is not a registered combination."""
+    registry.resolve_env(env)
+    allowed = valid_env_backend_combos()[env]
+    if not allowed:
+        if backend is not None:
+            raise ValueError(f"Environment {env!r} is standalone and takes no backend")
+        return
+    if backend is None:
         raise ValueError(
-            f"env {env_name!r} not in valid_env_backend_combos(); register it "
-            "in merge._VALID_ENV_BACKEND_COMBOS."
+            f"Environment {env!r} requires a backend. "
+            f"Compatible backends: {sorted(allowed)}"
         )
-    allowed = _VALID_ENV_BACKEND_COMBOS[env_name]
-    if backend_name not in allowed:
+    registry.resolve_backend(backend)
+    if backend not in allowed:
         raise ValueError(
-            f"env {env_name!r} is not compatible with backend {backend_name!r}. "
-            f"Allowed: {sorted(allowed)}"
+            f"Backend {backend!r} is not compatible with environment {env!r}. "
+            f"Compatible backends: {sorted(allowed)}"
         )
 
 
-def backend_kind(backend_path: str) -> str:
-    """Returns a backend's kind: ``'torax'`` (default) or ``'world_model'``."""
-    raw = _load_extended_yaml(backend_path)
-    return raw.get("type", "torax")
-
-
-def env_key(env_path: str) -> str:
-    """Public alias for the env's registry address (path relative to ``envs/``).
-
-    e.g. ``envs/iter/hybrid/flattop.yaml`` -> ``iter/hybrid/flattop``.
-    """
-    return _env_key(env_path)
+def _merge_env_and_backend(env: str, backend: str) -> RawConfig:
+    """Compose one registered TORAX environment/backend pair without precedence."""
+    validate_env_backend(env, backend)
+    return _union_no_duplicate(load_env_layers(env), load_backend(backend))
 
 
 __all__ = [
-    "backend_kind",
-    "env_key",
-    "resolve_config_asset",
+    "load_backend",
+    "load_env_layers",
+    "_merge_env_and_backend",
     "valid_env_backend_combos",
     "validate_env_backend",
 ]

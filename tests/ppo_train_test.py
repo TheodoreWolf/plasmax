@@ -108,7 +108,7 @@ def test_short_training_on_cheap_envelope_env_has_finite_outputs(quantized):
 @pytest.mark.integration
 class PPOTrainSmokeTest:
     def test_short_torax_training_run_completes_with_finite_outputs(self):
-        env = make("test")
+        env = make("mock/circular/smoke", "mock")
         algo = _make_algo(
             env,
             total_timesteps=1024,
