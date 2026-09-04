@@ -1,0 +1,254 @@
+name: Environment trajectories
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GIT_LFS_SKIP_SMUDGE: "1"
+  JAX_PLATFORMS: cpu
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  collect:
+    name: Collect (${{ matrix.group }})
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - iter-baseline
+          - iter-hybrid
+          - iter-advanced
+          - sparc-prd
+          - sparc-reduced-field
+          - step
+          - mock
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.28"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run environment trajectories
+        continue-on-error: true
+        run: >-
+          uv run python benchmarks/env_trajectory.py run
+          --group "${{ matrix.group }}"
+          --output "outputs/env-trajectory-${{ matrix.group }}.json"
+          --revision "$GITHUB_SHA"
+
+      - name: Upload trajectory shard
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: environment-trajectory-shard-${{ matrix.group }}
+          path: outputs/env-trajectory-${{ matrix.group }}.json
+          if-no-files-found: error
+          retention-days: 1
+
+  report:
+    name: Environment trajectory report
+    if: >-
+      ${{ always() &&
+          (github.event_name != 'workflow_dispatch' ||
+           github.ref == 'refs/heads/main') }}
+    needs: collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download trajectory shards
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: environment-trajectory-shard-*
+          path: downloaded-shards
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.28"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install development dependencies
+        run: uv sync --locked --group dev
+
+      - name: Find main baseline
+        id: baseline
+        if: ${{ github.event_name == 'pull_request' }}
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          exact_runs_json="$(
+            gh api --method GET \
+              "repos/${REPOSITORY}/actions/workflows/environment-trajectories.yml/runs" \
+              -f branch=main \
+              -f head_sha="$BASE_SHA" \
+              -f status=success \
+              -f per_page=100
+          )"
+
+          artifact_id_for_run() {
+            gh api \
+              "repos/${REPOSITORY}/actions/runs/$1/artifacts" \
+              --jq 'first(.artifacts[] | select(.name == "environment-trajectory-baseline" and (.expired | not)) | .id) // empty'
+          }
+
+          selected_run=""
+          while IFS= read -r run_id; do
+            if [[ -n "$(artifact_id_for_run "$run_id")" ]]; then
+              selected_run="$run_id"
+              break
+            fi
+          done < <(
+            jq -r '.workflow_runs[].id' <<<"$exact_runs_json"
+          )
+
+          if [[ -z "$selected_run" ]]; then
+            latest_runs_json="$(
+              gh api --method GET \
+                "repos/${REPOSITORY}/actions/workflows/environment-trajectories.yml/runs" \
+                -f branch=main \
+                -f status=success \
+                -f per_page=100
+            )"
+            while IFS= read -r run_id; do
+              if [[ -n "$(artifact_id_for_run "$run_id")" ]]; then
+                selected_run="$run_id"
+                break
+              fi
+            done < <(jq -r '.workflow_runs[].id' <<<"$latest_runs_json")
+          fi
+
+          printf 'run_id=%s\n' "$selected_run" >> "$GITHUB_OUTPUT"
+
+      - name: Download main baseline
+        if: ${{ github.event_name == 'pull_request' && steps.baseline.outputs.run_id != '' }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: environment-trajectory-baseline
+          path: baseline
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.baseline.outputs.run_id }}
+
+      - name: Compare pull request with main
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          baseline_args=()
+          if [[ -f baseline/env_trajectory_results.json ]]; then
+            baseline_args=(--baseline baseline/env_trajectory_results.json)
+          fi
+
+          uv run python benchmarks/env_trajectory.py report \
+            --inputs downloaded-shards \
+            --output outputs/env_trajectory_results.json \
+            --markdown-output outputs/env_trajectory_report.md \
+            --expected-groups \
+              iter-baseline \
+              iter-hybrid \
+              iter-advanced \
+              sparc-prd \
+              sparc-reduced-field \
+              step \
+              mock \
+            --expected-baseline-revision "$BASE_SHA" \
+            --require-baseline \
+            "${baseline_args[@]}"
+
+      - name: Build main baseline
+        id: main_report
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+        run: >-
+          uv run python benchmarks/env_trajectory.py report
+          --inputs downloaded-shards
+          --output outputs/env_trajectory_results.json
+          --markdown-output outputs/env_trajectory_report.md
+          --expected-groups
+          iter-baseline
+          iter-hybrid
+          iter-advanced
+          sparc-prd
+          sparc-reduced-field
+          step
+          mock
+
+      - name: Add report to job summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [[ -f outputs/env_trajectory_report.md ]]; then
+            cat outputs/env_trajectory_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              printf '## Environment trajectory report\n\n'
+              printf ':x: The report could not be generated. Check the job logs and downloaded shard artifacts.\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload pull request results
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: environment-trajectory-pr-${{ github.event.pull_request.number }}
+          path: |
+            outputs/env_trajectory_results.json
+            outputs/env_trajectory_report.md
+            downloaded-shards/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload main baseline
+        if: ${{ steps.main_report.outcome == 'success' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: environment-trajectory-baseline
+          path: outputs/env_trajectory_results.json
+          if-no-files-found: error
+          retention-days: 90

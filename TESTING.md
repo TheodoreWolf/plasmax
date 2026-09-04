@@ -20,6 +20,9 @@ uv run pytest experiments/tests/
 # The full integration suite.
 uv run pytest -m integration tests/
 
+# Full environment trajectory benchmark (126 cases).
+uv run python benchmarks/env_trajectory.py run
+
 # One of the seven CI shards.
 uv run pytest -m integration -k iter_hybrid tests/
 
@@ -52,6 +55,53 @@ explicitly and preserves seven integration shards:
 
 Publication, plotting, transfer, and study-matrix tests live beside their code
 under `experiments/tests/`; they are repository tests, not package contents.
+
+## Environment trajectory benchmark
+
+The trajectory benchmark is a user-facing diagnostic rather than part of the
+pytest suite. Run the full 126-case matrix with:
+
+```bash
+uv run python benchmarks/env_trajectory.py run
+```
+
+It prints progress while each case runs, followed by a complete timing table,
+and writes the machine-readable result to
+`outputs/env_trajectory_results.json`. The result is updated after every case,
+so partial information remains available if a later case fails.
+
+For a quicker local check, select one or more environments, backends, or
+variants. For example:
+
+```bash
+uv run python benchmarks/env_trajectory.py run \
+  --environments iter/hybrid/flattop \
+  --backends cgm \
+  --variants realistic
+```
+
+You can also run one of the seven CI-sized groups, for example:
+
+```bash
+uv run python benchmarks/env_trajectory.py run --group iter-hybrid
+```
+
+The two timings have deliberately narrow meanings:
+
+- `creation_seconds` measures construction through `plasmax.make`;
+- `first_trajectory_seconds` measures initialization, first JAX compilation,
+  and the zero-action trajectory to its first boundary.
+
+These are useful for inspecting changes on the same machine, but timings from
+different machines are only advisory. The benchmark excludes the expensive
+`tglfnn_nr` backend and the standalone KSTAR world model.
+
+GitHub Actions runs the same matrix in seven parallel groups. Successful runs
+on `main` store a JSON baseline as a workflow artifact. Pull requests run the
+benchmark once, compare it with that stored baseline, and show a compact report
+in the workflow summary; the complete JSON remains downloadable. Behavior and
+large timing differences are warnings for review. Broken, missing, incomplete,
+or invalid results make the report check fail.
 
 ## Behavioral assertions
 
