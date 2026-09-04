@@ -37,8 +37,8 @@ jobs:
       - name: Install development dependencies
         run: uv sync --locked --group dev
 
-      - name: Run Ruff
-        run: uv run ruff check .
+      - name: Run pre-commit
+        run: uv run pre-commit run --all-files
 
   tests:
     name: Tests

@@ -3,12 +3,12 @@ repos:
     hooks:
       - id: ruff-lint
         name: Ruff lint
-        entry: uv run ruff check --extend-ignore I .
+        entry: uv run ruff check --extend-ignore I
         language: system
-        pass_filenames: false
+        types_or: [python, pyi, jupyter]
 
       - id: ruff-import-order
         name: Ruff import order
-        entry: uv run ruff check --select I .
+        entry: uv run ruff check --select I
         language: system
-        pass_filenames: false
+        types_or: [python, pyi, jupyter]
