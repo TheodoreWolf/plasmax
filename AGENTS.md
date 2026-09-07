@@ -164,10 +164,14 @@ Tests use pytest and NumPy testing helpers. Prefer:
 - `pytest.raises(..., match=...)` for error behavior.
 
 The default `uv run pytest` command includes tests marked `integration`. CI
-partitions execution explicitly: the fast job selects `not integration`, and the
-integration suite runs in seven shards. Keep focused geometry, STEP, KSTAR, and
-fixed-duration tests in the fast suite; keep full-matrix and external-reference
-parity checks marked `integration`.
+partitions execution explicitly: the fast job selects `not integration`, and
+one integration job runs the slow specialised checks, including
+external-reference parity and one representative `tglfnn_nr` canary. Keep
+focused geometry, STEP, KSTAR, and fixed-duration tests in the fast suite.
+
+The dedicated environment trajectory workflow owns the seven-way
+environment/backend/variant matrix. Do not duplicate that full matrix in the
+pytest integration suite.
 
 `tests/env_trajectory_test.py` is the fast test suite for
 `benchmarks/env_trajectory.py`; it must never execute the real 126-case

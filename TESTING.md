@@ -17,14 +17,14 @@ uv run pytest -m "not integration" tests/
 # Clone-only publication, plotting, transfer, and study tests.
 uv run pytest experiments/tests/
 
-# The full integration suite.
+# Slow specialised integration checks, including the TGLFNN canary.
 uv run pytest -m integration tests/
 
 # Full environment trajectory benchmark (126 cases).
 uv run python benchmarks/env_trajectory.py run
 
-# One of the seven CI shards.
-uv run pytest -m integration -k iter_hybrid tests/
+# One of the seven CI trajectory groups.
+uv run python benchmarks/env_trajectory.py run --group iter-hybrid
 
 # Lint all installed and clone-only code.
 uv run ruff check .
@@ -40,18 +40,14 @@ and packaging regressions. Prefer the packaged `mock/circular/smoke` environment
 with the `mock` backend for these tests.
 
 The default pytest configuration includes tests marked `integration`. Focused
-geometry, STEP, KSTAR, and fixed-duration contracts remain in the fast suite;
-full environment/backend matrices and external-reference parity checks use
-`@pytest.mark.integration`. CI partitions the fast and integration selections
-explicitly and preserves seven integration shards:
+geometry, STEP, KSTAR, and fixed-duration contracts remain in the fast suite.
+Slow specialised checks, including external-reference parity and one
+representative `tglfnn_nr` canary, use `@pytest.mark.integration`. CI runs them
+in one integration job, separate from the fast suite.
 
-1. ITER baseline
-2. ITER hybrid
-3. ITER advanced
-4. SPARC PRD
-5. SPARC reduced field
-6. STEP
-7. remaining integration tests
+The dedicated environment trajectory workflow owns the complete
+environment/backend/variant matrix. It divides that benchmark into seven
+parallel groups; pytest does not repeat this matrix.
 
 Publication, plotting, transfer, and study-matrix tests live beside their code
 under `experiments/tests/`; they are repository tests, not package contents.
