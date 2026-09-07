@@ -1134,7 +1134,19 @@ def build_report(cfg: ReportConfig) -> int:
     print(markdown)
 
     current_errors = any(result.status == "error" for result in current.results)
-    return 1 if current_errors or comparison_error is not None else 0
+    if current_errors or comparison_error is not None:
+        return 1
+
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if baseline is not None and github_output:
+        comparison = compare_reports(baseline, current)
+        slowdown_cases = len({warning.key for warning in comparison.timing_warnings})
+        with Path(github_output).open("a") as output:
+            output.write(
+                f"behavior_changes={len(comparison.behavior_changes)}\n"
+                f"possible_slowdowns={slowdown_cases}\n"
+            )
+    return 0
 
 
 def main(command: Command) -> int:

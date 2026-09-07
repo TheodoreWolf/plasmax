@@ -81,6 +81,10 @@ jobs:
     needs: collect
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      checks: write
 
     steps:
       - name: Check out repository
@@ -174,6 +178,7 @@ jobs:
           run-id: ${{ steps.baseline.outputs.run_id }}
 
       - name: Compare pull request with main
+        id: comparison
         if: ${{ github.event_name == 'pull_request' }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -252,3 +257,28 @@ jobs:
           path: outputs/env_trajectory_results.json
           if-no-files-found: error
           retention-days: 90
+
+      - name: Show environment changes in PR checks
+        if: >-
+          ${{ github.event_name == 'pull_request' &&
+              github.event.pull_request.head.repo.full_name == github.repository &&
+              steps.comparison.outcome == 'success' &&
+              (steps.comparison.outputs.behavior_changes > 0 ||
+               steps.comparison.outputs.possible_slowdowns > 0) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEHAVIOR_CHANGES: ${{ steps.comparison.outputs.behavior_changes }}
+          POSSIBLE_SLOWDOWNS: ${{ steps.comparison.outputs.possible_slowdowns }}
+        shell: bash
+        run: |
+          report_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/check-runs" \
+            -f name="⚠ Environment results changed — view report" \
+            -f head_sha="$PR_HEAD_SHA" \
+            -f status=completed \
+            -f conclusion=neutral \
+            -f details_url="$report_url" \
+            -f "output[title]=${BEHAVIOR_CHANGES} behavior changes · ${POSSIBLE_SLOWDOWNS} possible slowdowns" \
+            -f "output[summary]=${BEHAVIOR_CHANGES} behavior changes and ${POSSIBLE_SLOWDOWNS} possible slowdowns. [View the full report](${report_url})." \
+            --jq .html_url
