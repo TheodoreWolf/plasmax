@@ -55,7 +55,7 @@ checkout, but `agents/` and `training/` do not provide package façades.
 Do not recreate the retired import namespace or a compatibility shim. Use the
 lowercase brand `plasmax` in prose, paths, distribution metadata, infrastructure,
 and new external identifiers. Python classes use conventional capitalization,
-for example `PlasmaxEnv` and `PlasmaxTruncationWrapper`.
+for example `PlasmaxEnv` and `TruncationWrapper`.
 
 TORAX remains the upstream simulator name. Keep legitimate upstream identifiers
 such as the `torax` dependency/imports, `ToraxConfig`, `_ToraxDynamics`,

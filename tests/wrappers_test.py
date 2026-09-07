@@ -23,10 +23,12 @@ from envelope import (
     Environment,
     Info,
     ObservationNormalizationWrapper,
-    TruncationWrapper,
     VmapWrapper,
     WrappedState,
     Wrapper,
+)
+from envelope import (
+    TruncationWrapper as EnvelopeTruncationWrapper,
 )
 from helpers import (
     N_RHO,
@@ -59,12 +61,12 @@ from plasmax.wrappers import (
     ObsFilterWrapper,
     ObsHistoryWrapper,
     PhysicsRandomizationWrapper,
-    PlasmaxTruncationWrapper,
     ProfileResolutionConfig,
     QuantizeActionWrapper,
     RealisticWrappers,
     SensorNoiseConfig,
     TimeAwareWrapper,
+    TruncationWrapper,
     iter_wrappers,
     unwrap_to_env_state,
 )
@@ -127,7 +129,7 @@ class WrapperDefaultsTest:
         history = ObsHistoryWrapper(ActionRescaleWrapper(delay))
         assert history.k == 2
         assert QuantizeActionWrapper(history).bin_counts == (3, 5)
-        assert PlasmaxTruncationWrapper(history).max_steps == 5
+        assert TruncationWrapper(history).max_steps == 5
 
     def test_preset_matches_explicit_composition_under_jit(self):
         explicit = PhysicsRandomizationWrapper(self.base)
@@ -139,7 +141,7 @@ class WrapperDefaultsTest:
         explicit = TimeAwareWrapper(explicit)
         explicit = ObsHistoryWrapper(explicit)
         explicit = QuantizeActionWrapper(explicit)
-        explicit = PlasmaxTruncationWrapper(explicit, max_steps=2)
+        explicit = TruncationWrapper(explicit, max_steps=2)
         preset = RealisticWrappers(self.base, max_steps=2, time_aware=True)
 
         @jax.jit
@@ -263,7 +265,7 @@ class WrapperInterfaceTest:
             lambda env: ObsHistoryWrapper(env, k=2),
             lambda env: ObsDelayWrapper(env, jnp.zeros(env.observation_space.shape)),
             TimeAwareWrapper,
-            lambda env: PlasmaxTruncationWrapper(env, max_steps=2),
+            lambda env: TruncationWrapper(env, max_steps=2),
         ],
         ids=[
             "noise",
@@ -738,24 +740,24 @@ class TimeAwareWrapperTest:
         np.testing.assert_allclose(info.obs[-1], 0.1, atol=1e-6, rtol=0.0)
 
 
-class PlasmaxTruncationWrapperTest:
+class TruncationWrapperTest:
     def test_subclasses_envelope_truncation_wrapper(self):
-        assert issubclass(PlasmaxTruncationWrapper, TruncationWrapper)
+        assert issubclass(TruncationWrapper, EnvelopeTruncationWrapper)
 
     def test_requires_positive_max_steps(self):
         base = _make_base_env()
         for value in (0, -1):
             with pytest.raises(ValueError, match="max_steps.*positive|>= 1"):
-                PlasmaxTruncationWrapper(base, max_steps=value)
+                TruncationWrapper(base, max_steps=value)
 
     def test_requires_integral_nonboolean_max_steps(self):
         base = _make_base_env()
         for value in (True, 1.5):
             with pytest.raises(ValueError, match="max_steps.*integer"):
-                PlasmaxTruncationWrapper(base, max_steps=value)
+                TruncationWrapper(base, max_steps=value)
 
     def test_exact_cutoff_and_state_nesting(self):
-        env = PlasmaxTruncationWrapper(_make_base_env(), max_steps=2)
+        env = TruncationWrapper(_make_base_env(), max_steps=2)
         state, info = env.init(jax.random.key(0))
         assert isinstance(state, WrappedState)
         assert state.steps == 0
@@ -768,7 +770,7 @@ class PlasmaxTruncationWrapperTest:
         assert int(info.termination_code) == -1
 
     def test_reset_zeroes_only_episode_counter(self):
-        env = PlasmaxTruncationWrapper(_make_base_env(), max_steps=2)
+        env = TruncationWrapper(_make_base_env(), max_steps=2)
         state, _ = env.init(jax.random.key(0))
         state, _ = env.step(state, _ACTION)
         reset, info = env.reset(state, jax.random.key(5))
@@ -781,7 +783,7 @@ class PlasmaxTruncationWrapperTest:
             disruption_penalty=7.0,
             disruption=DisruptionConfig(q_min_threshold=1e6, greenwald_threshold=1e9),
         )
-        env = PlasmaxTruncationWrapper(base, max_steps=1)
+        env = TruncationWrapper(base, max_steps=1)
         state, _ = env.init(jax.random.key(0))
         _, info = env.step(state, _ACTION)
         assert bool(info.terminated)
@@ -790,7 +792,7 @@ class PlasmaxTruncationWrapperTest:
 
     def test_jit_and_vmap_selective_boundaries(self):
         env = VmapWrapper(
-            PlasmaxTruncationWrapper(_make_base_env(), max_steps=2), batch_size=2
+            TruncationWrapper(_make_base_env(), max_steps=2), batch_size=2
         )
         state, _ = env.init(jax.random.key(0))
         # Put only lane 0 one step from the horizon; lane 1 remains at zero.
@@ -830,7 +832,7 @@ class CompositionTest:
         env = TimeAwareWrapper(env)
         env = ObsHistoryWrapper(env, k=2)
         env = QuantizeActionWrapper(env, (3, 5))
-        env = PlasmaxTruncationWrapper(env, max_steps=2)
+        env = TruncationWrapper(env, max_steps=2)
         state, info = jax.jit(env.init)(jax.random.key(0))
         structure = jax.tree.structure(info)
         state, next_info = jax.jit(env.step)(state, jnp.array([1, 2]))
@@ -838,7 +840,7 @@ class CompositionTest:
         _assert_info_contract(next_info, env.observation_space.shape)
 
     def test_autoreset_outside_truncation_preserves_terminal_snapshot(self):
-        env = AutoResetWrapper(PlasmaxTruncationWrapper(_make_base_env(), max_steps=1))
+        env = AutoResetWrapper(TruncationWrapper(_make_base_env(), max_steps=1))
         state, _ = env.init(jax.random.key(0))
         state, info = env.step(state, _ACTION)
         assert not bool(info.terminated)
@@ -850,7 +852,7 @@ class CompositionTest:
         assert state.inner_state.steps == 0
 
     def test_normalization_is_explicit_and_outside_fixed_physical_scaling(self):
-        loader_stack = PlasmaxTruncationWrapper(
+        loader_stack = TruncationWrapper(
             ActionRescaleWrapper(_make_base_env()), max_steps=2
         )
         normalized = ObservationNormalizationWrapper(loader_stack)

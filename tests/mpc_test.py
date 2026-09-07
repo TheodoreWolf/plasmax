@@ -10,8 +10,8 @@ from helpers import CheapBoundaryEnv, make_test_env
 from experiments.studies.mpc import MPCAgent, rollout
 from plasmax.wrappers import (
     ActionRescaleWrapper,
-    PlasmaxTruncationWrapper,
     QuantizeActionWrapper,
+    TruncationWrapper,
     unwrap_to_env_state,
 )
 
@@ -84,7 +84,7 @@ class MPCAgentTest:
         assert float(loss) < float(loss0)
 
     def test_rollout_retains_boundary_then_freezes_and_masks_padding(self):
-        env = PlasmaxTruncationWrapper(env=self.env, max_steps=1)
+        env = TruncationWrapper(env=self.env, max_steps=1)
         agent, state = self._make_agent(horizon=2, num_samples=4)
         n = 3
         final_state, out = jax.jit(
@@ -114,7 +114,7 @@ class MPCAgentTest:
         assert final_state.buffer.index == 1
 
     def test_rollout_skips_training_until_buffer_has_a_full_batch(self):
-        env = PlasmaxTruncationWrapper(env=self.env, max_steps=1)
+        env = TruncationWrapper(env=self.env, max_steps=1)
         agent, state = self._make_agent(horizon=2, num_samples=4)
         _, out = rollout(
             agent,

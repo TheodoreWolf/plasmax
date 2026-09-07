@@ -54,10 +54,10 @@ from plasmax.wrappers import (
     ObsFilterWrapper,
     OracleWrappers,
     PhysicsRandomizationWrapper,
-    PlasmaxTruncationWrapper,
     QuantizeActionWrapper,
     RealisticWrappers,
     TimeAwareWrapper,
+    TruncationWrapper,
     iter_wrappers,
 )
 
@@ -401,7 +401,7 @@ class LoadScenarioOracleTest:
         env = OracleWrappers(make(_MOCK_ENV, backend=_MOCK_BACKEND))
         state, info = env.init(jax.random.key(0))
         assert isinstance(env, Environment)
-        assert isinstance(env, PlasmaxTruncationWrapper)
+        assert isinstance(env, TruncationWrapper)
         assert not any(
             isinstance(layer, (AutoResetWrapper, VmapWrapper))
             for layer in iter_wrappers(env)
@@ -458,7 +458,7 @@ class PresetWrapperTest:
         )
         layers = list(iter_wrappers(env))
         assert [type(layer) for layer in layers[:-1]] == [
-            PlasmaxTruncationWrapper,
+            TruncationWrapper,
             QuantizeActionWrapper,
             TimeAwareWrapper,
             ActionRescaleWrapper,

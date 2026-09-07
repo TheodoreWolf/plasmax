@@ -14,7 +14,7 @@ from envelope import AutoResetWrapper, Environment, Info, VmapWrapper
 from plasmax.environment.factory import make
 from plasmax.wrappers import (
     OracleWrappers,
-    PlasmaxTruncationWrapper,
+    TruncationWrapper,
     iter_wrappers,
     unwrap_to_env_state,
 )
@@ -61,7 +61,7 @@ def _assert_step_contract(env, key=None, *, single_solver_call: bool = False):
 
     state, init_info = env.init(key)
     assert isinstance(env, Environment)
-    assert isinstance(env, PlasmaxTruncationWrapper)
+    assert isinstance(env, TruncationWrapper)
     assert not any(
         isinstance(layer, (AutoResetWrapper, VmapWrapper))
         for layer in iter_wrappers(env)

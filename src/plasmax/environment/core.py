@@ -630,7 +630,7 @@ class _ToraxDynamics:
         reward = jnp.where(disruption, self._disruption_penalty, reward)
 
         # Termination code priority is solver > q_min > greenwald. Time limits
-        # are exclusively the responsibility of PlasmaxTruncationWrapper.
+        # are exclusively the responsibility of TruncationWrapper.
         termination_code = jnp.where(
             solver_failure,
             jnp.int32(3),

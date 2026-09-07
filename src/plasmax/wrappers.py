@@ -20,11 +20,13 @@ from envelope import (
     Continuous,
     Discrete,
     Environment,
-    TruncationWrapper,
     WrappedState,
     Wrapper,
     field,
     static_field,
+)
+from envelope import (
+    TruncationWrapper as _EnvelopeTruncationWrapper,
 )
 from envelope.environment import Info
 from envelope.typing import Key, PyTree, State
@@ -772,7 +774,7 @@ class TimeAwareWrapper(Wrapper):
         )
 
 
-class PlasmaxTruncationWrapper(TruncationWrapper):
+class TruncationWrapper(_EnvelopeTruncationWrapper):
     """Episode horizon with TORAX termination-over-truncation precedence."""
 
     max_steps: int | None = field(default=None, kw_only=True)
@@ -860,7 +862,7 @@ def RealisticWrappers(
         env = QuantizeActionWrapper(env, (quantize_bins,) * len(env.actuator_specs))
     elif not isinstance(cfg, WorldModelConfig) and cfg.actions.realistic.quantize:
         env = QuantizeActionWrapper(env)
-    return PlasmaxTruncationWrapper(env, max_steps=max_steps)
+    return TruncationWrapper(env, max_steps=max_steps)
 
 
 def OracleWrappers(
@@ -872,9 +874,7 @@ def OracleWrappers(
     """Compose action scaling, optional time, history, and truncation."""
     if isinstance(env.plasmax_config, WorldModelConfig):
         raise ValueError("kstar_worldmodel only supports RealisticWrappers")
-    return PlasmaxTruncationWrapper(
-        _training_wrappers(env, time_aware), max_steps=max_steps
-    )
+    return TruncationWrapper(_training_wrappers(env, time_aware), max_steps=max_steps)
 
 
 def iter_wrappers(env):
@@ -889,7 +889,7 @@ def iter_wrappers(env):
 def find_max_steps(env) -> int | None:
     """Return the first explicit Envelope truncation horizon in a wrapper stack."""
     for layer in iter_wrappers(env):
-        if isinstance(layer, TruncationWrapper):
+        if isinstance(layer, _EnvelopeTruncationWrapper):
             return int(layer.max_steps)
     return None
 
