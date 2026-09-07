@@ -40,6 +40,7 @@ import tyro
 
 import plasmax
 from plasmax.environment.merge import valid_env_backend_combos
+from plasmax.wrappers import OracleWrappers, RealisticWrappers
 
 SCHEMA_VERSION = 1
 SEED = 0
@@ -316,7 +317,9 @@ def run_case(environment: str, backend: str, variant: str) -> CaseResult:
     trajectory_started: float | None = None
     first_trajectory_seconds: float | None = None
     try:
-        env = plasmax.make(environment, backend, variant=variant)
+        env = (RealisticWrappers if variant == "realistic" else OracleWrappers)(
+            plasmax.make(environment, backend)
+        )
         creation_seconds = time.perf_counter() - creation_started
         trajectory_started = time.perf_counter()
         info, steps = _run_to_boundary(env)

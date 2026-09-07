@@ -46,7 +46,7 @@ import optax
 import tyro
 
 from plasmax.environment import factory as sc
-from plasmax.wrappers import unwrap_to_env_state
+from plasmax.wrappers import OracleWrappers, RealisticWrappers, unwrap_to_env_state
 from scripts.project_paths import wandb_dir
 
 
@@ -440,13 +440,14 @@ def evaluate(env, key, actions_norm: jax.Array):
 def main() -> None:
     args = tyro.cli(Args)
 
-    env = sc.make(
-        args.env,
-        args.backend,
-        reward=args.reward,
+    env = (RealisticWrappers if args.variant == "realistic" else OracleWrappers)(
+        sc.make(
+            args.env,
+            args.backend,
+            reward=args.reward,
+            disruption_penalty=args.disruption_penalty,
+        ),
         max_steps=args.num_steps,
-        disruption_penalty=args.disruption_penalty,
-        variant=args.variant,
     )
     key = jax.random.key(args.seed)
 

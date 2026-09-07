@@ -229,6 +229,7 @@ def test_run_case_records_construction_failure(monkeypatch: pytest.MonkeyPatch) 
 
 def test_run_case_records_trajectory_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(env_trajectory.plasmax, "make", lambda *_a, **_k: object())
+    monkeypatch.setattr(env_trajectory, "OracleWrappers", lambda env: env)
 
     def fail_trajectory(_environment: object) -> None:
         raise ArithmeticError("cannot step")
@@ -246,6 +247,7 @@ def test_run_case_records_trajectory_failure(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_run_case_records_no_boundary_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(env_trajectory.plasmax, "make", lambda *_a, **_k: object())
+    monkeypatch.setattr(env_trajectory, "OracleWrappers", lambda env: env)
     info = SimpleNamespace(terminated=False, truncated=False, termination_code=0)
     monkeypatch.setattr(
         env_trajectory,

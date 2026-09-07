@@ -27,7 +27,7 @@ from matplotlib.colors import Normalize
 
 from plasmax import rollout as collect_lib
 from plasmax.environment import factory as sc
-from plasmax.wrappers import unwrap_to_env_state
+from plasmax.wrappers import RealisticWrappers, unwrap_to_env_state
 
 
 def _constant_policy(action_norm: jax.Array):
@@ -85,7 +85,9 @@ def main() -> None:
     )
     args = p.parse_args()
 
-    env = sc.make(args.env, args.backend, reward=args.reward, max_steps=args.num_steps)
+    env = RealisticWrappers(
+        sc.make(args.env, args.backend, reward=args.reward), max_steps=args.num_steps
+    )
     key = jax.random.key(0)
 
     action_norm, rho, rho_face = _hold_action_and_grids(env, key, args.action)

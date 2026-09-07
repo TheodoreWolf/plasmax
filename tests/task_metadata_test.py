@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -59,8 +58,8 @@ def test_every_leaf_environment_yaml_stores_task_metadata(alias):
         np.testing.assert_array_equal(task["terminal_penalty"], expected_penalty)
 
 
-def test_public_constructor_defaults_to_realistic():
-    assert inspect.signature(plasmax.make).parameters["variant"].default == "realistic"
+def test_public_constructor_returns_bare_environment():
+    assert isinstance(plasmax.make(_MOCK_ENV, _MOCK_BACKEND), plasmax.PlasmaxEnv)
 
 
 def test_omitted_reward_and_penalty_resolve_from_task_metadata():
@@ -92,7 +91,6 @@ def test_explicit_zero_terminal_penalty_overrides_nonzero_metadata():
         "iter/advanced/rampup",
         "cgm",
         disruption_penalty=0.0,
-        max_steps=1,
     )
     np.testing.assert_array_equal(env.unwrapped._dynamics._disruption_penalty, 0.0)
 

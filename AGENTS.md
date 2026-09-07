@@ -55,7 +55,7 @@ checkout, but `agents/` and `training/` do not provide package façades.
 Do not recreate the retired import namespace or a compatibility shim. Use the
 lowercase brand `plasmax` in prose, paths, distribution metadata, infrastructure,
 and new external identifiers. Python classes use conventional capitalization,
-for example `PlasmaxEnv` and `PlasmaxTruncationWrapper`.
+for example `PlasmaxEnv` and `TruncationWrapper`.
 
 TORAX remains the upstream simulator name. Keep legitimate upstream identifiers
 such as the `torax` dependency/imports, `ToraxConfig`, `_ToraxDynamics`,
@@ -87,7 +87,7 @@ explicit-state lifecycle:
 1. `ControlInputs` names actuator values.
 2. Internal provider appliers map them to TORAX runtime-parameter overrides.
 3. `PlasmaxEnv` owns reset/transition behavior and returns `EnvState`.
-4. Small Envelope wrappers add the configured realistic sensor/action behavior.
+4. Small Envelope wrappers add physics randomization and configured sensor/action behavior.
 5. `collect_episode` and `collect_episodes` provide generic fixed-shape rollout
    collection.
 
@@ -121,8 +121,9 @@ artifacts work from any current directory.
   assets, creates the upstream `ToraxConfig`, and validates the one complete
   `PlasmaxConfig`. KSTAR instead validates one complete `WorldModelConfig`.
 - `make` validates the registered pair and options, loads the complete config,
-  builds the matching core environment, applies wrappers in the canonical
-  order, checks the requested horizon, and adds truncation.
+  and returns the matching bare core environment. `RealisticWrappers` and
+  `OracleWrappers` compose training behavior explicitly, check the requested
+  horizon, and add final truncation.
 - Keep the full registered ITER, SPARC, STEP, KSTAR, and mock matrix and every
   packaged data asset. A trajectory terminating is a control outcome, not a
   reason to remove a task.
@@ -135,13 +136,18 @@ task:
   terminal_penalty: -100
 ```
 
-Loaders default to `variant="realistic"`. Omitted reward and disruption-penalty
-arguments inherit task metadata; explicit overrides, including zero, must be
-preserved. KSTAR uses its native reward and null penalty.
+`make` has no variant or wrapper options. Wrappers resolve defaults from the
+already parsed `env.plasmax_config`; explicit wrapper arguments remain supported.
+Omitted reward and disruption-penalty arguments inherit task metadata; explicit
+overrides, including zero, must be preserved. KSTAR uses its native reward and
+null penalty.
 
-Physics randomization remains transition-wise: each configured scalar is sampled
-and applied on each transition. Do not change it to episode-only sampling. Keep
-existing sensor-noise behavior. Do not add new noise validation, clipping,
+`PhysicsRandomizationWrapper` owns its RNG and samples each configured scalar
+before every transition. The core consumes persistent `EnvState.phys_params`;
+`with_physics` immutably updates selected entries through nested wrapper state,
+and reset restores nominal values. Relative sampling uses configured nominals.
+Do not change it to episode-only sampling. Keep existing sensor-noise behavior.
+Do not add new noise validation, clipping,
 reset-state positivity/quasineutrality gates, disruption gates, or stricter core
 schema constraints.
 
@@ -200,7 +206,8 @@ initialization fails.
 
 Generic launchers inherit reward and terminal penalty from task metadata. Pass
 `--env.variant realistic` explicitly in recorded experiment commands even
-though it is already the default.
+though it is already the CLI default. These research labels select explicit
+composition helpers in the launchers; they are not arguments to `make`.
 
 ## Release hygiene
 

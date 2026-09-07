@@ -32,11 +32,13 @@ import jax
 import jax.numpy as jnp
 
 import plasmax
+from plasmax.wrappers import OracleWrappers, RealisticWrappers
 
 env = plasmax.make(
     "iter/hybrid/flattop",
     backend="bohm_gyrobohm",
 )
+env = RealisticWrappers(env, max_steps=100)
 
 state, info = env.init(jax.random.key(0))
 action = jnp.zeros(env.action_space.shape, dtype=env.action_space.dtype)
@@ -50,7 +52,13 @@ Environments are loaded through the `make` function. TORAX environment names
 are structured as `{tokamak}/{scenario}/{phase}` and require an explicit
 compatible backend. KSTAR is a standalone environment and takes no backend.
 
-By default, it applies the modifications recommended by [Challenges of Real World Reinforcement Learning](https://arxiv.org/abs/1904.12901), use `variant="oracle"`, to remove these.
+`make` returns the bare environment with physical actuator units and full
+observations. Apply `RealisticWrappers(env)` to add configured physics
+randomization, sensor effects, action scaling, history, and truncation.
+`OracleWrappers(env)` applies action scaling, history, and truncation while
+keeping nominal physics and full observations. Both accept `max_steps` and
+`time_aware`; `RealisticWrappers` also accepts `quantize_bins`. KSTAR supports
+`RealisticWrappers`, preserving its native actions and observations.
 
 The environments use the [Envelope](https://github.com/keraJLi/envelope) API and contracts, this includes e.g. explicit truncation versus termination.
 
@@ -97,16 +105,34 @@ tasks use `P_diff`, and ramp-down tasks use `rampdown`. KSTAR uses its native
 learned-model reward and has no terminal penalty.
 
 ```python
-env = plasmax.make("iter/advanced/rampup", backend="qlknn")
+env = RealisticWrappers(plasmax.make("iter/advanced/rampup", backend="qlknn"))
 
-oracle_ablation = plasmax.make(
-    "iter/advanced/rampup",
-    backend="qlknn",
-    variant="oracle",
-    reward="Q_fusion",
-    disruption_penalty=0.0,
+oracle_ablation = OracleWrappers(
+    plasmax.make(
+        "iter/advanced/rampup",
+        backend="qlknn",
+        reward="Q_fusion",
+        disruption_penalty=0.0,
+    )
 )
 ```
+
+Individual wrappers also resolve their defaults from `env.plasmax_config` and
+accept their existing explicit arguments for custom compositions:
+
+```python
+from plasmax.wrappers import NoiseWrapper, PhysicsRandomizationWrapper
+
+env = plasmax.make("iter/baseline/flattop", "bohm_gyrobohm")
+env = NoiseWrapper(PhysicsRandomizationWrapper(env))
+```
+
+Physics parameters live in `EnvState.phys_params`. Use
+`env.with_physics(state, parameters)` to replace selected entries, including
+through nested wrapper states. Values persist until overwritten or reset to
+nominal values. `PhysicsRandomizationWrapper` samples before every step,
+always using the configured nominals for relative ranges. Each stochastic
+wrapper owns its RNG; `init(key)` and `reset(state, key)` seed these streams.
 
 ## Environment boundary
 
@@ -124,6 +150,8 @@ Fixed-shape rollout collection is part of the installed library:
 
 ```python
 from plasmax import collect_episode
+
+env = RealisticWrappers(plasmax.make("iter/hybrid/flattop", "bohm_gyrobohm"))
 
 
 def act(obs, key):

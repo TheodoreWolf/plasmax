@@ -29,6 +29,7 @@ import jax.numpy as jnp
 import numpy as np
 from envelope import Continuous, Environment, Info, InfoContainer, static_field
 
+from plasmax.environment.schema import WorldModelConfig
 from plasmax.models.world_model import (
     load_bundle,
     predict_bpw,
@@ -205,8 +206,9 @@ class _WorldModelDynamics:
         the vendored npz).
     """
 
-    def __init__(self, bundle=None):
+    def __init__(self, bundle=None, plasmax_config: WorldModelConfig | None = None):
         self._bundle = load_bundle() if bundle is None else bundle
+        self.plasmax_config = plasmax_config
         # Construct spaces eagerly, outside any JAX transformation.  In
         # particular, this prevents a first property access during tracing
         # from leaving cached tracer-valued bounds on the dynamics object.
@@ -334,11 +336,19 @@ class WorldModelEnv(Environment):
     )
 
     @classmethod
-    def from_bundle(cls, bundle, *, random_target: bool = True) -> Self:
+    def from_bundle(
+        cls,
+        bundle,
+        *,
+        random_target: bool = True,
+        _plasmax_config: WorldModelConfig | None = None,
+    ) -> Self:
         """Constructs the backend from a caller-supplied JAX weight bundle."""
         return cls(
             random_target=random_target,
-            _dynamics=_WorldModelDynamics(bundle=bundle),
+            _dynamics=_WorldModelDynamics(
+                bundle=bundle, plasmax_config=_plasmax_config
+            ),
         )
 
     def init(self, key: jax.Array) -> tuple[WorldModelEnvState, Info]:
@@ -365,3 +375,11 @@ class WorldModelEnv(Environment):
 
     def obs_layout(self) -> ObsLayout:
         return self._dynamics.obs_layout()
+
+    @property
+    def plasmax_config(self) -> WorldModelConfig | None:
+        return self._dynamics.plasmax_config
+
+    @property
+    def safe_max_steps(self) -> int:
+        return self.plasmax_config.world_model.max_steps_in_episode

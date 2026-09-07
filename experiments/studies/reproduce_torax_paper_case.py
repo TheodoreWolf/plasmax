@@ -32,7 +32,7 @@ from plasmax.environment.schema import (
     PlasmaxConfig,
     TaskConfig,
 )
-from plasmax.wrappers import unwrap_to_env_state
+from plasmax.wrappers import OracleWrappers, unwrap_to_env_state
 
 
 def _paper_scenario(geometry_directory: Path, t_final: float, dt: float):
@@ -163,14 +163,10 @@ def _build_env(t_final: float, dt: float):
     geometry_directory = Path(torax.__file__).parent / "data" / "third_party" / "geo"
     scenario = _paper_scenario(geometry_directory, t_final, dt)
     num_steps = int(round(t_final / dt))
-    return env_config._build_env(  # noqa: SLF001 - script-local reproduction helper.
-        scenario,
-        reward="P_diff",
-        variant="oracle",
+    return OracleWrappers(
+        env_config._build_env(scenario, reward="P_diff", disruption_penalty=0.0),
         max_steps=num_steps,
-        disruption_penalty=0.0,
         time_aware=False,
-        quantize_bins=None,
     )
 
 

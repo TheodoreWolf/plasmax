@@ -25,8 +25,8 @@ from plasmax.wrappers import (
     ActionRescaleWrapper,
     NoiseWrapper,
     ObsDelayWrapper,
-    PlasmaxTruncationWrapper,
     QuantizeActionWrapper,
+    TruncationWrapper,
 )
 
 
@@ -243,7 +243,7 @@ def test_collect_episodes_vmaps_independent_typed_keys():
 
 
 def test_collect_episodes_accepts_array_valued_wrapper_configuration():
-    env = PlasmaxTruncationWrapper(
+    env = TruncationWrapper(
         env=ObsDelayWrapper(
             env=NoiseWrapper(
                 env=_BoundaryEnv(),

@@ -24,7 +24,7 @@ from plasmax.environment.references import (
     reset_reference_sha256,
 )
 from plasmax.environment.schema import PlasmaxConfig
-from plasmax.wrappers import unwrap_to_env_state
+from plasmax.wrappers import OracleWrappers, RealisticWrappers, unwrap_to_env_state
 from tools.calibration.improve_initial_conditions import (
     CELL_CENTRES,
     REFERENCE_DATA_DIR,
@@ -269,11 +269,7 @@ def test_backend_context_changes_dynamics_but_not_the_reset() -> None:
 
 
 def test_reference_reset_is_jittable_and_vmappable() -> None:
-    env = make(
-        "step/spp_001_ec_hd/flattop",
-        "bohm_gyrobohm_step",
-        variant="oracle",
-    )
+    env = OracleWrappers(make("step/spp_001_ec_hd/flattop", "bohm_gyrobohm_step"))
     keys = jax.random.split(jax.random.key(0), 2)
     states, info = jax.jit(jax.vmap(env.init))(keys)
     physical = unwrap_to_env_state(states)
@@ -290,15 +286,9 @@ def test_reference_reset_is_jittable_and_vmappable() -> None:
 
 
 def test_realistic_and_oracle_use_the_same_physical_reset_perturbation() -> None:
-    oracle = make(
-        "step/spp_001_ec_hd/flattop",
-        "bohm_gyrobohm_step",
-        variant="oracle",
-    )
-    realistic = make(
-        "step/spp_001_ec_hd/flattop",
-        "bohm_gyrobohm_step",
-        variant="realistic",
+    oracle = OracleWrappers(make("step/spp_001_ec_hd/flattop", "bohm_gyrobohm_step"))
+    realistic = RealisticWrappers(
+        make("step/spp_001_ec_hd/flattop", "bohm_gyrobohm_step")
     )
     key = jax.random.key(17)
     oracle_state = unwrap_to_env_state(oracle.init(key)[0])

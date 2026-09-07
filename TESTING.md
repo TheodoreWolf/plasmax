@@ -84,7 +84,7 @@ uv run python benchmarks/env_trajectory.py run --group iter-hybrid
 
 The two timings have deliberately narrow meanings:
 
-- `creation_seconds` measures construction through `plasmax.make`;
+- `creation_seconds` measures `plasmax.make` plus the selected wrapper composition;
 - `first_trajectory_seconds` measures initialization, first JAX compilation,
   and the zero-action trajectory to its first boundary.
 
@@ -148,7 +148,8 @@ Tests cover:
 - loader inheritance when reward and penalty are omitted;
 - string and callable reward overrides;
 - explicit zero overriding nonzero task metadata;
-- the realistic default on `make`.
+- bare construction plus explicit realistic/oracle composition;
+- wrapper default resolution and persistent physics updates/reset behavior.
 
 Golden merged-config comparisons must show that profile and TGLF YAML
 deduplication changes no physics values. The allowed differences are task

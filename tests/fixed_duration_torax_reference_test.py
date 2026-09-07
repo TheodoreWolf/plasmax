@@ -10,7 +10,7 @@ from helpers import NOMINAL_ACTION, make_test_config, make_test_env
 
 from plasmax.control import ControlInputs
 from plasmax.environment.schema import SteppingConfig
-from plasmax.wrappers import PlasmaxTruncationWrapper
+from plasmax.wrappers import TruncationWrapper
 
 
 def _adaptive_backtracking_config():
@@ -124,7 +124,7 @@ class ToraxFixedDurationReferenceTest:
             config=_adaptive_backtracking_config(),
             stepping=SteppingConfig(max_solver_substeps=128),
         )
-        env = PlasmaxTruncationWrapper(env=base_env, max_steps=1)
+        env = TruncationWrapper(env=base_env, max_steps=1)
         state, _ = env.init(jax.random.key(0))
         state, info = env.step(state, NOMINAL_ACTION)
 

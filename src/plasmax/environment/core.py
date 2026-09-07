@@ -7,7 +7,14 @@ from typing import Self
 
 import jax
 import numpy as np
-from envelope import Continuous, Environment, Info, InfoContainer, static_field
+from envelope import (
+    Continuous,
+    Environment,
+    Info,
+    InfoContainer,
+    WrappedState,
+    static_field,
+)
 from jax import numpy as jnp
 from torax._src import jax_utils
 from torax._src import state as torax_state
@@ -106,16 +113,13 @@ class EnvState:
     Attributes:
       plasma: Stable view over the current TORAX state and derived outputs.
       prev_action: Last applied action vector, used for rate limiting.
-      phys_params: Physics runtime-param overrides used for the most recent
-        transition, keyed by provider dot-path (empty when disabled; nominal
-        values immediately after reset).
-      key: Typed PRNG key used for the next stochastic transition.
+      phys_params: Persistent physics runtime parameters keyed by provider
+        dot-path, initialized to configured nominal values at reset.
     """
 
     plasma: PlasmaState
     prev_action: jax.Array
     phys_params: dict[str, jax.Array]
-    key: jax.Array
 
 
 def _scale_cell_variable(cell_var, multiplier: jax.Array):
@@ -280,6 +284,7 @@ class _ToraxDynamics:
         *,
         profile_obs_specs: Sequence[ObsSpec],
         scalar_obs_specs: Sequence[ObsSpec],
+        plasmax_config: scenario_models.PlasmaxConfig | None = None,
     ):
         """Builds an environment from validated TORAX and RL configuration.
 
@@ -287,6 +292,7 @@ class _ToraxDynamics:
         randomization supports scalar runtime-parameter paths only.
         """
         self._config = config
+        self.plasmax_config = plasmax_config
         environment_validation.validate_observation_specs(
             profile_obs_specs,
             scalar_obs_specs,
@@ -346,29 +352,6 @@ class _ToraxDynamics:
         self._physics_nominals = {
             path: _nominal_value(path) for path in self._phys_paths
         }
-        if self._phys_paths:
-            self._physics_nominal_vector = jnp.stack(
-                tuple(self._physics_nominals[path] for path in self._phys_paths)
-            )
-            physics_dtype = self._physics_nominal_vector.dtype
-            self._physics_lows = jnp.asarray(
-                tuple(self._physics_specs[path].bounds[0] for path in self._phys_paths),
-                dtype=physics_dtype,
-            )
-            self._physics_highs = jnp.asarray(
-                tuple(self._physics_specs[path].bounds[1] for path in self._phys_paths),
-                dtype=physics_dtype,
-            )
-            self._physics_is_relative = jnp.asarray(
-                tuple(
-                    self._physics_specs[path].is_relative for path in self._phys_paths
-                )
-            )
-        else:
-            self._physics_nominal_vector = jnp.empty((0,))
-            self._physics_lows = jnp.empty((0,))
-            self._physics_highs = jnp.empty((0,))
-            self._physics_is_relative = jnp.empty((0,), dtype=jnp.bool_)
         self._phys_applier = _PhysicsParamsApplier(self._phys_paths)
 
         self._state_noise_config: dict[str, float] = state_noise_config
@@ -511,16 +494,15 @@ class _ToraxDynamics:
             plasma=PlasmaState(sim=sim_state, post=postout),
             prev_action=prev_action,
             phys_params=phys_params,
-            key=jax.random.key(0),
         )
         obs = self._observe(env_state.plasma)
         return obs, env_state
 
     def init(self, key: jax.Array) -> tuple[EnvState, InfoContainer]:
-        """Initializes physical state and independent reset/step RNG streams."""
+        """Initializes physical state and applies configured reset noise."""
         _validate_typed_key(key)
-        step_key, noise_key = jax.random.split(key)
-        env_state = dataclasses.replace(self._initial_env_state, key=step_key)
+        _, noise_key = jax.random.split(key)
+        env_state = self._initial_env_state
 
         # Reset-time state noise. Recomputes core_profiles internal energy and
         # post-processing from the perturbed profiles so profile obs, scalar obs,
@@ -534,29 +516,6 @@ class _ToraxDynamics:
         obs = self._observe(env_state.plasma)
         reward = jnp.zeros((), dtype=self._reward_dtype)
         return env_state, _make_info(obs, reward, False, -1)
-
-    def _sample_physics_params(self, key: jax.Array) -> dict[str, jax.Array]:
-        """Samples the runtime overrides for one transition."""
-        phys_keys = jax.random.split(key, len(self._physics_specs))
-
-        def sample_one(sample_key, low, high):
-            return jax.random.uniform(
-                sample_key,
-                (),
-                minval=low,
-                maxval=high,
-                dtype=self._physics_nominal_vector.dtype,
-            )
-
-        samples = jax.vmap(sample_one)(
-            phys_keys, self._physics_lows, self._physics_highs
-        )
-        samples = jnp.where(
-            self._physics_is_relative,
-            self._physics_nominal_vector * samples,
-            samples,
-        )
-        return dict(zip(self._phys_paths, samples, strict=True))
 
     def _apply_state_noise(self, key, env_state: EnvState, runtime_params) -> EnvState:
         """Perturbs reset profiles and rebuilds the dependent (sim_state, postout).
@@ -618,7 +577,6 @@ class _ToraxDynamics:
         action: jax.Array,
     ) -> tuple[EnvState, InfoContainer]:
         """Advances one simulation step without owning a time horizon."""
-        next_key, physics_key = jax.random.split(env_state.key)
         if self._clip_by_max_action_delta:
             action = jnp.clip(
                 action,
@@ -630,11 +588,7 @@ class _ToraxDynamics:
         kwargs = {name: action[i] for i, name in enumerate(self._actuators)}
         control_inputs = ControlInputs(**kwargs)
 
-        phys_params = (
-            self._sample_physics_params(physics_key)
-            if self._physics_specs
-            else env_state.phys_params
-        )
+        phys_params = env_state.phys_params
 
         provider = self._phys_applier(
             phys_params,
@@ -659,7 +613,6 @@ class _ToraxDynamics:
             ),
             prev_action=action,
             phys_params=phys_params,
-            key=next_key,
         )
         obs = self._observe(new_env_state.plasma)
 
@@ -677,7 +630,7 @@ class _ToraxDynamics:
         reward = jnp.where(disruption, self._disruption_penalty, reward)
 
         # Termination code priority is solver > q_min > greenwald. Time limits
-        # are exclusively the responsibility of PlasmaxTruncationWrapper.
+        # are exclusively the responsibility of TruncationWrapper.
         termination_code = jnp.where(
             solver_failure,
             jnp.int32(3),
@@ -759,7 +712,7 @@ class PlasmaxEnv(Environment):
 
     The base environment owns physical disruptions only. Episode horizons,
     autoreset, normalization, and vectorization are supplied by Envelope
-    wrappers. Stochastic transition state is carried in :class:`EnvState`.
+    wrappers. Active physical parameters are carried in :class:`EnvState`.
     """
 
     _dynamics: _ToraxDynamics = static_field(repr=False)
@@ -783,6 +736,7 @@ class PlasmaxEnv(Environment):
         profile_obs_specs: Sequence[ObsSpec],
         scalar_obs_specs: Sequence[ObsSpec],
         _initialization: initialization_lib.PhaseSnapshot | None = None,
+        _plasmax_config: scenario_models.PlasmaxConfig | None = None,
     ) -> Self:
         """Constructs and validates the private TORAX transition component."""
         return cls(
@@ -800,6 +754,7 @@ class PlasmaxEnv(Environment):
                 initialization=_initialization,
                 profile_obs_specs=profile_obs_specs,
                 scalar_obs_specs=scalar_obs_specs,
+                plasmax_config=_plasmax_config,
             )
         )
 
@@ -812,6 +767,33 @@ class PlasmaxEnv(Environment):
 
     def step(self, state: EnvState, action: jax.Array) -> tuple[EnvState, Info]:
         return self._dynamics.step(state, action)
+
+    def with_physics(
+        self, state: EnvState | WrappedState, parameters: dict[str, jax.Array]
+    ) -> EnvState | WrappedState:
+        """Immutably update persistent parameters through any wrapper state."""
+        if isinstance(state, WrappedState):
+            return dataclasses.replace(
+                state, inner_state=self.with_physics(state.inner_state, parameters)
+            )
+        return dataclasses.replace(
+            state, phys_params={**state.phys_params, **parameters}
+        )
+
+    @property
+    def plasmax_config(self) -> scenario_models.PlasmaxConfig | None:
+        """Parsed task configuration used to resolve wrapper defaults."""
+        return self._dynamics.plasmax_config
+
+    @property
+    def physics_randomization(
+        self,
+    ) -> dict[str, scenario_models.PhysicsRandomizationSpec]:
+        return self._dynamics._physics_specs
+
+    @property
+    def physics_nominals(self) -> dict[str, jax.Array]:
+        return self._dynamics._physics_nominals
 
     @cached_property
     def action_space(self) -> Continuous:

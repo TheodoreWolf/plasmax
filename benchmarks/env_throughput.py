@@ -28,6 +28,7 @@ import jax.numpy as jnp
 import tyro
 
 from plasmax.environment.factory import make
+from plasmax.wrappers import PhysicsRandomizationWrapper, unwrap_to_env_state
 
 SEED = 0
 
@@ -61,7 +62,7 @@ def _rollout(
 ) -> tuple[Any, jax.Array, jax.Array]:
     """Run requested transitions and count boundaries and completed intervals."""
     state, _ = env.init(key)
-    action = state.prev_action
+    action = unwrap_to_env_state(state).prev_action
 
     def _step(carry, step_index):
         state, action = carry
@@ -71,7 +72,7 @@ def _rollout(
 
         def _reset(_):
             reset_state, _ = env.reset(next_state, reset_key)
-            return reset_state, reset_state.prev_action
+            return reset_state, unwrap_to_env_state(reset_state).prev_action
 
         def _continue(_):
             return next_state, action
@@ -174,11 +175,7 @@ def main(cfg: Config) -> None:
     )
 
     start = time.perf_counter()
-    wrapped_env = make(
-        cfg.env_setup,
-        cfg.backend,
-    )
-    env = wrapped_env.unwrapped
+    env = PhysicsRandomizationWrapper(make(cfg.env_setup, cfg.backend))
     print(
         f"env ready in {time.perf_counter() - start:.2f}s  "
         f"obs={env.observation_space.shape}  action={env.action_space.shape}",

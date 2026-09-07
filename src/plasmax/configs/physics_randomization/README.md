@@ -1,9 +1,10 @@
 # Physics randomization ranges
 
-`variant="realistic"` samples every configured parameter independently and
+`PhysicsRandomizationWrapper`, included by `RealisticWrappers`, samples every configured parameter independently and
 uniformly for every transition. The sample used to produce `s[t+1]` is stored
-in `s[t+1].phys_params`; immediately after reset that mapping contains nominal
-values. `oracle` always uses the nominal configuration. Declare either an
+in the inner `EnvState.phys_params`; immediately after reset that mapping contains nominal
+values. `OracleWrappers` leaves the nominal configuration in place. Explicit
+`with_physics` updates persist until overwritten or reset. Declare either an
 absolute range or a range relative to the nominal runtime value at `t=0` (all
 shipped targets are time-constant):
 
@@ -26,8 +27,8 @@ timescale and values above one are reserved for explicit unphysical studies.
 `tglfnn_nr` deliberately inherits the same TGLF transport uncertainty as the
 linear `tglfnn` backend. It is a solver ablation, not a different stochastic
 plant. Thus realistic linear and Newton–Raphson runs sample the same uncertainty
-families; `variant="oracle"` disables both common and transport physics
-randomization and evaluates the nominal deterministic configuration.
+families; `OracleWrappers` omits both common and transport physics
+randomization and evaluates the nominal configuration.
 
 ## Evidence and interpretation
 

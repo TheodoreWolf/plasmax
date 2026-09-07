@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from plasmax.environment import factory as sc
-from plasmax.wrappers import unwrap_to_env_state
+from plasmax.wrappers import RealisticWrappers, unwrap_to_env_state
 
 
 def _replay(env, key, actions_norm):
@@ -87,7 +87,9 @@ def main() -> None:
     opt_actions = jnp.asarray(data["actions_norm"])  # (T, A) normalized in [-1,1]
     num_steps = opt_actions.shape[0]
 
-    env = sc.make(env_path, backend_path, reward=reward, max_steps=num_steps)
+    env = RealisticWrappers(
+        sc.make(env_path, backend_path, reward=reward), max_steps=num_steps
+    )
     key = jax.random.key(0)
 
     # Setpoint-hold schedule: the env reset setpoint, normalized, held for the run.

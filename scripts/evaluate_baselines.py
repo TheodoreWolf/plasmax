@@ -9,6 +9,7 @@ uses ``iter/hybrid/flattop`` + ``qlknn`` and inherits its task metadata.
 
 # ruff: noqa: E402,I001
 
+from plasmax.wrappers import OracleWrappers, RealisticWrappers
 import dataclasses
 import time
 from pathlib import Path
@@ -148,12 +149,13 @@ def _make_mpc_reward_fn(env, scalar_name: str):
 
 
 def _load_env(cfg: Config):
-    return make(
-        cfg.env.env_setup,
-        cfg.env.backend,
-        reward=cfg.env.reward,
-        variant=cfg.env.variant,
-        disruption_penalty=cfg.env.disruption_penalty,
+    return (RealisticWrappers if cfg.env.variant == "realistic" else OracleWrappers)(
+        make(
+            cfg.env.env_setup,
+            cfg.env.backend,
+            reward=cfg.env.reward,
+            disruption_penalty=cfg.env.disruption_penalty,
+        )
     )
 
 

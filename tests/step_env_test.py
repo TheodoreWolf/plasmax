@@ -20,6 +20,7 @@ import numpy as np
 
 from plasmax.environment.factory import make
 from plasmax.environment.merge import load_backend
+from plasmax.wrappers import OracleWrappers
 
 _ENV = "step/spp_001_ec_hd/flattop"
 _BACKEND = "bohm_gyrobohm_step"
@@ -48,7 +49,7 @@ class StepEnvOracleTest:
 
     @classmethod
     def setup_class(cls):
-        cls._env = make(_ENV, _BACKEND, variant="oracle")
+        cls._env = OracleWrappers(make(_ENV, _BACKEND))
         cls._base_env = cls._env.unwrapped
         cls._reset_state, _ = cls._base_env.init(jax.random.key(0))
 

@@ -74,6 +74,7 @@ from experiments.studies.transfer_eval import (
 )
 from plasmax.environment.factory import make
 from plasmax.environment.registry import resolve_backend
+from plasmax.wrappers import OracleWrappers, RealisticWrappers
 from training.envelope_gymnax import EnvelopeGymnax
 from training.vmap_logging import SeedBufferLogger
 
@@ -291,14 +292,18 @@ def _load_env(cfg: Config, backend_alias_or_path: str | None):
         )
     else:
         disruption_penalty = None
-    return make(
+    env = make(
         cfg.env.env_setup,
         backend_alias_or_path,
         reward=cfg.env.reward,
-        variant=cfg.env.variant,
         disruption_penalty=disruption_penalty,
-        time_aware=cfg.env.time_aware,
-        quantize_bins=cfg.env.quantize_bins,
+    )
+    if cfg.env.variant == "oracle":
+        if cfg.env.quantize_bins is not None:
+            raise ValueError("quantize_bins is a realistic action degradation")
+        return OracleWrappers(env, time_aware=cfg.env.time_aware)
+    return RealisticWrappers(
+        env, time_aware=cfg.env.time_aware, quantize_bins=cfg.env.quantize_bins
     )
 
 

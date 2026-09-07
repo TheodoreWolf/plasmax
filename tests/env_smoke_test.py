@@ -13,7 +13,8 @@ from envelope import AutoResetWrapper, Environment, Info, VmapWrapper
 
 from plasmax.environment.factory import make
 from plasmax.wrappers import (
-    PlasmaxTruncationWrapper,
+    OracleWrappers,
+    TruncationWrapper,
     iter_wrappers,
     unwrap_to_env_state,
 )
@@ -60,7 +61,7 @@ def _assert_step_contract(env, key=None, *, single_solver_call: bool = False):
 
     state, init_info = env.init(key)
     assert isinstance(env, Environment)
-    assert isinstance(env, PlasmaxTruncationWrapper)
+    assert isinstance(env, TruncationWrapper)
     assert not any(
         isinstance(layer, (AutoResetWrapper, VmapWrapper))
         for layer in iter_wrappers(env)
@@ -105,12 +106,12 @@ class EnvCanaryTest:
         "env_yaml,backend", _CANARY_PAIRS, ids=[_pair_id(p) for p in _CANARY_PAIRS]
     )
     def test_load_env_canary(self, env_yaml, backend):
-        env = make(env_yaml, backend, variant="oracle")
+        env = OracleWrappers(make(env_yaml, backend))
         _assert_step_contract(env)
 
 
 @pytest.mark.integration
 def test_tglfnn_nr_canary():
     """Exercise one real TGLFNN transition with a bounded solver budget."""
-    env = make("iter/hybrid/flattop", "tglfnn_nr", variant="oracle")
+    env = OracleWrappers(make("iter/hybrid/flattop", "tglfnn_nr"))
     _assert_step_contract(env, single_solver_call=True)
