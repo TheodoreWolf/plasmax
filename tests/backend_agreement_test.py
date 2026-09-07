@@ -1,7 +1,6 @@
 """Tests for backend-agreement aggregation and failure reporting."""
 
 import json
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -167,12 +166,16 @@ def test_multi_seed_failures_are_reported_without_pruning_other_pairs(
     monkeypatch.setattr(
         backend_agreement,
         "make",
-        lambda _env, backend: SimpleNamespace(unwrapped=FakeEnv(backend)),
+        lambda _env, backend: FakeEnv(backend),
     )
     monkeypatch.setattr(
         backend_agreement,
         "_make_rollout_runner",
         lambda env, _n_steps: env,
+    )
+
+    monkeypatch.setattr(
+        backend_agreement, "PhysicsRandomizationWrapper", lambda env: env
     )
 
     values = {"reference": 0.0, "healthy": 1.0, "partial": 2.0}

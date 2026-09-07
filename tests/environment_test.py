@@ -16,6 +16,12 @@ from helpers import (
 from plasmax.environment.core import _derive_safe_max_steps
 from plasmax.environment.schema import DisruptionConfig, PhysicsRandomizationSpec
 from plasmax.spaces import ActuatorSpec
+from plasmax.wrappers import (
+    NoiseWrapper,
+    PhysicsRandomizationWrapper,
+    TimeAwareWrapper,
+    unwrap_to_env_state,
+)
 
 # Expected observation size: 5 profiles * n_rho + 8 scalars.
 _OBS_SIZE = 5 * N_RHO + 8
@@ -93,8 +99,7 @@ class PlasmaxEnvContractTest:
         np.testing.assert_array_equal(reset_state.prev_action, state.prev_action)
 
     def test_init_obs_is_deterministic_without_state_noise(self):
-        # The state-owned keys differ, but the complete physical initial state
-        # and public emission are deterministic when state noise is disabled.
+        # Physical initial state and emissions are deterministic without state noise.
         state1, info1 = self._env.init(jax.random.key(0))
         state2, info2 = self._env.init(jax.random.key(42))
         np.testing.assert_array_equal(info1.obs, info2.obs)
@@ -430,22 +435,24 @@ class PhysicalControlGridTest:
 
 
 class PhysicsRandomizationTest:
-    """Per-transition randomization consumes the key owned by EnvState."""
+    """Per-transition randomization consumes the wrapper-owned key."""
 
     _PATH = "numerics.resistivity_multiplier"
     _RANGE = (0.5, 1.5)
 
     @classmethod
     def setup_class(cls):
-        cls._env = make_test_env(
-            physics_randomization={
-                cls._PATH: PhysicsRandomizationSpec(absolute=cls._RANGE)
-            }
+        cls._env = PhysicsRandomizationWrapper(
+            make_test_env(
+                physics_randomization={
+                    cls._PATH: PhysicsRandomizationSpec(absolute=cls._RANGE)
+                }
+            )
         )
 
     def test_disabled_by_default_gives_empty_phys_params(self):
         state, _ = make_test_env().init(jax.random.key(0))
-        assert state.phys_params == {}
+        assert unwrap_to_env_state(state).phys_params == {}
 
     def test_fixed_dt_cannot_be_randomized(self):
         with pytest.raises(ValueError, match="physical control interval"):
@@ -457,13 +464,15 @@ class PhysicsRandomizationTest:
 
     def test_init_seeds_nominal_value_before_first_transition(self):
         state, _ = self._env.init(jax.random.key(0))
-        np.testing.assert_array_equal(state.phys_params[self._PATH], 1.0)
+        np.testing.assert_array_equal(
+            unwrap_to_env_state(state).phys_params[self._PATH], 1.0
+        )
 
     def test_transition_sample_within_range(self):
         state, _ = self._env.init(jax.random.key(0))
         state, _ = self._env.step(state, _ACTION)
         lo, hi = self._RANGE
-        assert lo <= float(state.phys_params[self._PATH]) <= hi
+        assert lo <= float(unwrap_to_env_state(state).phys_params[self._PATH]) <= hi
 
     def test_relative_range_multiplies_nominal_value(self):
         config = make_test_config(
@@ -473,15 +482,17 @@ class PhysicsRandomizationTest:
                 "resistivity_multiplier": 4.0,
             }
         )
-        env = make_test_env(
-            config=config,
-            physics_randomization={
-                self._PATH: PhysicsRandomizationSpec(relative=(0.5, 1.5))
-            },
+        env = PhysicsRandomizationWrapper(
+            make_test_env(
+                config=config,
+                physics_randomization={
+                    self._PATH: PhysicsRandomizationSpec(relative=(0.5, 1.5))
+                },
+            )
         )
         state, _ = env.init(jax.random.key(0))
         state, _ = env.step(state, _ACTION)
-        assert 2.0 <= float(state.phys_params[self._PATH]) <= 6.0
+        assert 2.0 <= float(unwrap_to_env_state(state).phys_params[self._PATH]) <= 6.0
 
     def test_same_initial_key_is_reproducible(self):
         state1, _ = self._env.init(jax.random.key(3))
@@ -489,7 +500,8 @@ class PhysicsRandomizationTest:
         state1, info1 = self._env.step(state1, _ACTION)
         state2, info2 = self._env.step(state2, _ACTION)
         np.testing.assert_array_equal(
-            state1.phys_params[self._PATH], state2.phys_params[self._PATH]
+            unwrap_to_env_state(state1).phys_params[self._PATH],
+            unwrap_to_env_state(state2).phys_params[self._PATH],
         )
         np.testing.assert_array_equal(info1.obs, info2.obs)
 
@@ -499,7 +511,8 @@ class PhysicsRandomizationTest:
         state1, _ = self._env.step(state1, _ACTION)
         state2, _ = self._env.step(state2, _ACTION)
         assert not jnp.allclose(
-            state1.phys_params[self._PATH], state2.phys_params[self._PATH]
+            unwrap_to_env_state(state1).phys_params[self._PATH],
+            unwrap_to_env_state(state2).phys_params[self._PATH],
         )
 
     def test_repeated_step_from_same_state_is_pure(self):
@@ -514,8 +527,73 @@ class PhysicsRandomizationTest:
         state1, _ = self._env.step(state, _ACTION)
         state2, _ = self._env.step(state1, _ACTION)
         assert not jnp.allclose(
-            state2.phys_params[self._PATH], state1.phys_params[self._PATH]
+            unwrap_to_env_state(state2).phys_params[self._PATH],
+            unwrap_to_env_state(state1).phys_params[self._PATH],
         )
+
+    def test_updates_persist_through_nested_state_and_reset_to_nominals(self):
+        base = make_test_env(
+            physics_randomization={
+                self._PATH: PhysicsRandomizationSpec(relative=(0.5, 1.5)),
+                "neoclassical.bootstrap_current.bootstrap_multiplier": (
+                    PhysicsRandomizationSpec(relative=(0.5, 1.5))
+                ),
+            }
+        )
+        env = TimeAwareWrapper(
+            NoiseWrapper(base, jnp.zeros(base.observation_space.shape))
+        )
+        original, _ = env.init(jax.random.key(0))
+        state = env.with_physics(original, {self._PATH: jnp.asarray(0.7)})
+        state = env.with_physics(state, {self._PATH: jnp.asarray(0.8)})
+        np.testing.assert_array_equal(
+            unwrap_to_env_state(original).phys_params[self._PATH], 1.0
+        )
+        for _ in range(2):
+            state, _ = env.step(state, _ACTION)
+            np.testing.assert_array_equal(
+                unwrap_to_env_state(state).phys_params[self._PATH], 0.8
+            )
+            np.testing.assert_array_equal(
+                unwrap_to_env_state(state).phys_params[
+                    "neoclassical.bootstrap_current.bootstrap_multiplier"
+                ],
+                base.physics_nominals[
+                    "neoclassical.bootstrap_current.bootstrap_multiplier"
+                ],
+            )
+        reset, _ = env.reset(state, jax.random.key(1))
+        _assert_same_pytree_values(
+            unwrap_to_env_state(reset).phys_params, base.physics_nominals
+        )
+
+    def test_randomization_uses_nominals_and_restarts_its_stream_on_reset(self):
+        env = PhysicsRandomizationWrapper(
+            make_test_env(
+                physics_randomization={
+                    self._PATH: PhysicsRandomizationSpec(relative=(0.5, 1.0))
+                }
+            )
+        )
+        key = jax.random.key(7)
+        initial, _ = env.init(key)
+        changed = env.with_physics(initial, {self._PATH: jnp.asarray(100.0)})
+        state, info = env.step(changed, _ACTION)
+        value = unwrap_to_env_state(state).phys_params[self._PATH]
+        assert 0.5 <= value <= 1.0
+        # Preserve the sampler stream used before extraction from the core.
+        step_key, _ = jax.random.split(key)
+        _, physics_key = jax.random.split(step_key)
+        sample_key = jax.random.split(physics_key, 1)[0]
+        expected = jax.random.uniform(
+            sample_key, (), minval=0.5, maxval=1.0, dtype=value.dtype
+        )
+        np.testing.assert_array_equal(value, expected)
+        reset, _ = env.reset(state, key)
+        _assert_same_pytree_values(reset, initial)
+        repeated, repeated_info = env.step(reset, _ACTION)
+        _assert_same_pytree_values(state, repeated)
+        _assert_same_pytree_values(info, repeated_info)
 
 
 @pytest.mark.integration
@@ -523,7 +601,15 @@ class PlasmaxEnvTransformContractTest:
     """Expensive transform gates for the fast circular TORAX scenario."""
 
     def test_jit_lax_scan(self):
-        env = make_test_env()
+        env = PhysicsRandomizationWrapper(
+            make_test_env(
+                physics_randomization={
+                    "numerics.resistivity_multiplier": PhysicsRandomizationSpec(
+                        relative=(0.5, 1.5)
+                    )
+                }
+            )
+        )
         state, _ = env.init(jax.random.key(0))
         actions = jnp.broadcast_to(_ACTION, (2, 2))
 
@@ -549,14 +635,18 @@ class PlasmaxEnvTransformContractTest:
         assert not jnp.any(terminated)
         assert not jnp.any(truncated)
         assert jnp.all(termination_code == -1)
-        np.testing.assert_allclose(final_state.plasma.t, 0.2, atol=1e-5, rtol=0.0)
+        np.testing.assert_allclose(
+            unwrap_to_env_state(final_state).plasma.t, 0.2, atol=1e-5, rtol=0.0
+        )
 
     def test_manual_vmap_and_envelope_vmap_wrapper(self):
         randomized_path = "numerics.resistivity_multiplier"
-        env = make_test_env(
-            physics_randomization={
-                randomized_path: PhysicsRandomizationSpec(absolute=(0.5, 1.5))
-            }
+        env = PhysicsRandomizationWrapper(
+            make_test_env(
+                physics_randomization={
+                    randomized_path: PhysicsRandomizationSpec(absolute=(0.5, 1.5))
+                }
+            )
         )
         keys = jax.random.split(jax.random.key(9), 2)
         actions = jnp.broadcast_to(_ACTION, (2, 2))
@@ -571,25 +661,36 @@ class PlasmaxEnvTransformContractTest:
         _assert_same_pytree_values(manual_init_info, wrapped_init_info)
         _assert_same_pytree_values(manual_state, wrapped_state)
         _assert_same_pytree_values(manual_step_info, wrapped_step_info)
-        randomized_values = manual_state.phys_params[randomized_path]
+        randomized_values = unwrap_to_env_state(manual_state).phys_params[
+            randomized_path
+        ]
         assert randomized_values.shape == (2,)
         assert not jnp.allclose(randomized_values[0], randomized_values[1])
         assert vector_env.action_space.shape == (2, 2)
         assert vector_env.observation_space.shape == (2, _OBS_SIZE)
 
     def test_jvp_and_reverse_mode_through_real_torax_step(self):
-        env = make_test_env()
+        path = "numerics.resistivity_multiplier"
+        env = make_test_env(
+            physics_randomization={path: PhysicsRandomizationSpec(relative=(0.5, 1.5))}
+        )
         state, _ = env.init(jax.random.key(0))
 
-        def objective(action):
-            return env.step(state, action)[1].reward
+        def objective(action, resistance):
+            updated = env.with_physics(state, {path: resistance})
+            return env.step(updated, action)[1].reward
 
         value, tangent = jax.jvp(
             objective,
-            (_ACTION,),
-            (jnp.ones_like(_ACTION),),
+            (_ACTION, jnp.asarray(0.8)),
+            (jnp.ones_like(_ACTION), jnp.asarray(1.0)),
         )
-        reverse_value, gradient = jax.value_and_grad(objective)(_ACTION)
+        reverse_value, gradients = jax.value_and_grad(objective, argnums=(0, 1))(
+            _ACTION, jnp.asarray(0.8)
+        )
         np.testing.assert_allclose(reverse_value, value, atol=1e-7, rtol=1e-6)
+        np.testing.assert_allclose(
+            tangent, gradients[0].sum() + gradients[1], atol=1e-7, rtol=1e-6
+        )
         assert jnp.isfinite(tangent)
-        assert jnp.all(jnp.isfinite(gradient))
+        assert all(jnp.all(jnp.isfinite(gradient)) for gradient in gradients)

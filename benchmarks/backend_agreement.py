@@ -29,6 +29,7 @@ import numpy as np
 import tyro
 
 from plasmax.environment.factory import make
+from plasmax.wrappers import PhysicsRandomizationWrapper, unwrap_to_env_state
 
 BACKENDS = (
     "cgm",
@@ -104,12 +105,14 @@ def _make_rollout_runner(env: Any, n_steps: int) -> RolloutRunner:
     @jax.jit
     def run(key: jax.Array):
         state, _ = env.init(key)
-        action = state.prev_action
+        action = unwrap_to_env_state(state).prev_action
 
         def _step(state, _):
             next_state, info = env.step(state, action)
             boundary = info.terminated | info.truncated
-            solver_outputs = next_state.plasma.sim.solver_numeric_outputs
+            solver_outputs = unwrap_to_env_state(
+                next_state
+            ).plasma.sim.solver_numeric_outputs
             return next_state, (
                 info.obs,
                 boundary,
@@ -359,7 +362,7 @@ def main(cfg: Config) -> None:
 
     for backend in cfg.backends:
         print(f"Collecting {backend}...", flush=True)
-        env = make(cfg.env_setup, backend).unwrapped
+        env = PhysicsRandomizationWrapper(make(cfg.env_setup, backend))
         layouts[backend] = env.obs_layout()
         scalar_scales[backend] = {
             spec.name: spec.scale for spec in env.scalar_obs_specs

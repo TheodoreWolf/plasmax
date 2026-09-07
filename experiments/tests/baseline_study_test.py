@@ -15,6 +15,7 @@ from experiments.studies.baseline_study import (
 )
 from plasmax import rewards as rewards_lib
 from plasmax.environment.factory import make
+from plasmax.wrappers import RealisticWrappers
 
 
 def test_matrix_excludes_kstar_and_contains_all_phase_envs():
@@ -79,10 +80,8 @@ def test_seed_keys_do_not_depend_on_batch_size():
 
 
 def test_lh_transition_binds_the_environment_rampup_duration():
-    env = make(
-        "sparc/prd/rampup",
-        "bohm_gyrobohm",
-        reward="lh_transition",
+    env = RealisticWrappers(
+        make("sparc/prd/rampup", "bohm_gyrobohm", reward="lh_transition")
     )
     reward_fn = env.unwrapped._dynamics._reward_fn
 

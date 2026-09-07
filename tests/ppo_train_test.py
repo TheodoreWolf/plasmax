@@ -7,6 +7,8 @@ import pytest
 from envelope import Environment, TruncationWrapper
 from flax import linen as nn
 
+from plasmax.wrappers import RealisticWrappers
+
 pytest.importorskip("rejax")
 
 from helpers import CheapBoundaryEnv
@@ -108,7 +110,7 @@ def test_short_training_on_cheap_envelope_env_has_finite_outputs(quantized):
 @pytest.mark.integration
 class PPOTrainSmokeTest:
     def test_short_torax_training_run_completes_with_finite_outputs(self):
-        env = make("mock/circular/smoke", "mock")
+        env = RealisticWrappers(make("mock/circular/smoke", "mock"))
         algo = _make_algo(
             env,
             total_timesteps=1024,

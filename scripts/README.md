@@ -12,9 +12,10 @@ the installed `plasmax` distribution. Run them from the repository root with
 | `rollout_discharge.py` | Roll out a constant-action discharge and render its traces. |
 
 `_runtime.py` and `project_paths.py` are shared private helpers rather than
-entrypoints. New runs default to the realistic environment variant and inherit
-their reward and terminal penalty from task YAML metadata unless explicitly
-overridden.
+entrypoints. New runs default to the `realistic` research label, which selects
+`RealisticWrappers(make(...))`; `oracle` selects `OracleWrappers`. The launchers
+inherit reward and terminal penalty from task YAML metadata unless explicitly
+overridden. Wrapper options are passed to the composition helper.
 
 Research studies and publication plotting live under `experiments/`. Artifact,
 calibration, and equilibrium builders live under `tools/`.

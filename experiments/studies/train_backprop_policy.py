@@ -56,7 +56,7 @@ from flax import serialization
 from gymnax.environments.spaces import Box
 
 from plasmax.environment import factory as scenario_config
-from plasmax.wrappers import unwrap_to_env_state
+from plasmax.wrappers import OracleWrappers, RealisticWrappers, unwrap_to_env_state
 from scripts.project_paths import wandb_dir
 from training.envelope_gymnax import EnvelopeGymnax
 
@@ -907,12 +907,13 @@ def main(args: Args) -> None:
         raise ValueError("num_rollouts, eval_rollouts, and iters must be positive")
 
     env = EnvelopeGymnax(
-        scenario_config.make(
-            args.env,
-            args.backend,
-            reward=args.reward,
-            variant=args.variant,
-            disruption_penalty=args.disruption_penalty,
+        (RealisticWrappers if args.variant == "realistic" else OracleWrappers)(
+            scenario_config.make(
+                args.env,
+                args.backend,
+                reward=args.reward,
+                disruption_penalty=args.disruption_penalty,
+            )
         )
     )
     env_params = env.default_params

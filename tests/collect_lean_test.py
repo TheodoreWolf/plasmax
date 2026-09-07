@@ -16,7 +16,7 @@ from plasmax.rollout import (
     collect_episodes,
     trajectories_to_state_history,
 )
-from plasmax.wrappers import unwrap_to_env_state
+from plasmax.wrappers import RealisticWrappers, unwrap_to_env_state
 
 
 def _nbytes(traj) -> int:
@@ -26,7 +26,7 @@ def _nbytes(traj) -> int:
 class CollectLeanTest:
     @classmethod
     def setup_class(cls):
-        cls.env = make("mock/circular/smoke", "mock")
+        cls.env = RealisticWrappers(make("mock/circular/smoke", "mock"))
 
     def _collect(self, lean, num_steps=4):
         return collect_episodes(

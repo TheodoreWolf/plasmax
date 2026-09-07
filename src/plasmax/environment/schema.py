@@ -148,7 +148,7 @@ class ObsFilterSpec(_FrozenModel):
 
 
 class RealisticObsConfig(_FrozenModel):
-    """Disadvantageous sensor effects applied only when variant='realistic'."""
+    """Disadvantageous sensor effects composed by RealisticWrappers."""
 
     noise: dict[str, float] = Field(default_factory=dict)
     resolution: dict[str, StrictInt] = Field(default_factory=dict)
@@ -226,7 +226,7 @@ class ObservationsConfig(_FrozenModel):
 
 
 class RealisticActionConfig(_FrozenModel):
-    """Disadvantageous actuator effects applied only when variant='realistic'."""
+    """Disadvantageous actuator effects composed by RealisticWrappers."""
 
     quantize: dict[str, StrictInt] = Field(default_factory=dict)
 

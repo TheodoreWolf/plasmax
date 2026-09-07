@@ -8,13 +8,14 @@ import jax
 import numpy as np
 
 from plasmax.environment import make
+from plasmax.wrappers import PhysicsRandomizationWrapper, unwrap_to_env_state
 
 BACKENDS = ("cgm", "bohm_gyrobohm", "qlknn", "tglfnn")
 N_STEPS = 100
 
 
 def _snapshot(state):
-    plasma = state.plasma
+    plasma = unwrap_to_env_state(state).plasma
     return (
         plasma.t,
         plasma.geo.rho_norm,
@@ -26,12 +27,12 @@ def _snapshot(state):
 
 
 def _collect_backend(backend: str) -> dict[str, object]:
-    env = make("iter/hybrid/flattop", backend, variant="realistic").unwrapped
+    env = PhysicsRandomizationWrapper(make("iter/hybrid/flattop", backend))
 
     @jax.jit
     def rollout(key: jax.Array):
         state, _ = env.init(key)
-        action = state.prev_action
+        action = unwrap_to_env_state(state).prev_action
         initial = _snapshot(state)
 
         def advance(carry, _):

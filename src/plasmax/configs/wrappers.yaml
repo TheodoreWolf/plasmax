@@ -2,7 +2,7 @@
 #
 # Env files still define the base oracle observation space because scales and
 # bounds can be scenario-specific. This file only defines optional wrappers
-# layered on top for variant='realistic'.
+# layered on top by RealisticWrappers.
 
 observations:
   realistic:

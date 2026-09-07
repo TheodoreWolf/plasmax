@@ -34,6 +34,7 @@ from experiments.studies.baseline_study import run_slug, seed_keys, validate_rew
 from experiments.studies.transfer_eval import transfer_metrics, write_transfer_summary
 from plasmax.environment.factory import make
 from plasmax.environment.registry import resolve_backend
+from plasmax.wrappers import OracleWrappers, RealisticWrappers
 from training.envelope_gymnax import EnvelopeGymnax
 from training.vmap_logging import SeedBufferLogger
 
@@ -140,12 +141,13 @@ def _backend_name(alias_or_path: str) -> str:
 
 
 def _load_envelope(cfg: Config, backend: str):
-    return make(
-        cfg.env.env_setup,
-        backend,
-        reward=cfg.env.reward,
-        variant=cfg.env.variant,
-        disruption_penalty=cfg.env.disruption_penalty,
+    return (RealisticWrappers if cfg.env.variant == "realistic" else OracleWrappers)(
+        make(
+            cfg.env.env_setup,
+            backend,
+            reward=cfg.env.reward,
+            disruption_penalty=cfg.env.disruption_penalty,
+        )
     )
 
 

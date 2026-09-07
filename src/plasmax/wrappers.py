@@ -19,6 +19,7 @@ import numpy as np
 from envelope import (
     Continuous,
     Discrete,
+    Environment,
     TruncationWrapper,
     WrappedState,
     Wrapper,
@@ -28,6 +29,7 @@ from envelope import (
 from envelope.environment import Info
 from envelope.typing import Key, PyTree, State
 
+from plasmax.environment.schema import WorldModelConfig
 from plasmax.spaces import ObsLayout
 
 _NOISE_SAMPLE_STREAM = 0x4E4F4953  # "NOIS"
@@ -42,6 +44,94 @@ def _require_typed_key(key: Key) -> None:
         or key.shape != ()
     ):
         raise ValueError("key must be a scalar typed, new-style `jax.random.key`.")
+
+
+class PhysicsRandomizationState(WrappedState):
+    """Inner environment state plus the physics-randomization PRNG stream."""
+
+    key: jax.Array = field()
+
+
+class PhysicsRandomizationWrapper(Wrapper):
+    """Sample configured physics parameters before each transition.
+
+    Relative bounds always use the configured nominal values. Reset restores
+    those values and restarts the wrapper's PRNG stream.
+    """
+
+    _paths: tuple[str, ...] = static_field(init=False)
+    _nominals: jax.Array = field(init=False)
+    _lows: jax.Array = field(init=False)
+    _highs: jax.Array = field(init=False)
+    _relative: jax.Array = field(init=False)
+
+    def __post_init__(self) -> None:
+        specs = self.env.physics_randomization
+        paths = tuple(specs)
+        nominals = jnp.asarray(tuple(self.env.physics_nominals[path] for path in paths))
+        object.__setattr__(self, "_paths", paths)
+        object.__setattr__(self, "_nominals", nominals)
+        object.__setattr__(
+            self,
+            "_lows",
+            jnp.asarray(
+                tuple(specs[path].bounds[0] for path in paths), dtype=nominals.dtype
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_highs",
+            jnp.asarray(
+                tuple(specs[path].bounds[1] for path in paths), dtype=nominals.dtype
+            ),
+        )
+        object.__setattr__(
+            self,
+            "_relative",
+            jnp.asarray(
+                tuple(specs[path].is_relative for path in paths), dtype=jnp.bool_
+            ),
+        )
+        super().__post_init__()
+
+    def _sample_physics_params(self, key: Key) -> dict[str, jax.Array]:
+        keys = jax.random.split(key, len(self._paths))
+
+        def sample_one(sample_key: Key, low: jax.Array, high: jax.Array) -> jax.Array:
+            return jax.random.uniform(
+                sample_key, (), minval=low, maxval=high, dtype=self._nominals.dtype
+            )
+
+        samples = jax.vmap(sample_one)(keys, self._lows, self._highs)
+        samples = jnp.where(self._relative, self._nominals * samples, samples)
+        return dict(zip(self._paths, samples, strict=True))
+
+    @override
+    def init(self, key: Key) -> tuple[PhysicsRandomizationState, Info]:
+        _require_typed_key(key)
+        step_key, _ = jax.random.split(key)
+        inner_state, info = self.env.init(key)
+        return PhysicsRandomizationState(inner_state=inner_state, key=step_key), info
+
+    @override
+    def reset(
+        self, state: PhysicsRandomizationState, key: Key
+    ) -> tuple[PhysicsRandomizationState, Info]:
+        _require_typed_key(key)
+        step_key, _ = jax.random.split(key)
+        inner_state, info = self.env.reset(state.inner_state, key)
+        return PhysicsRandomizationState(inner_state=inner_state, key=step_key), info
+
+    @override
+    def step(
+        self, state: PhysicsRandomizationState, action: PyTree
+    ) -> tuple[PhysicsRandomizationState, Info]:
+        next_key, physics_key = jax.random.split(state.key)
+        inner_state = self.env.with_physics(
+            state.inner_state, self._sample_physics_params(physics_key)
+        )
+        inner_state, info = self.env.step(inner_state, action)
+        return PhysicsRandomizationState(inner_state=inner_state, key=next_key), info
 
 
 @dataclasses.dataclass
@@ -72,10 +162,20 @@ class NoiseWrapper(Wrapper):
     advanced once per step.  Reset starts a fresh wrapper-local stream.
     """
 
-    noise_scale: jax.Array = field()
+    noise_scale: jax.Array | None = field(default=None)
 
     def __post_init__(self) -> None:
-        noise_scale = jnp.asarray(self.noise_scale)
+        noise_scale = self.noise_scale
+        if noise_scale is None:
+            layout = self.env.obs_layout()
+            sensors = layout.profile_names + layout.scalar_names
+            defaults = self.env.plasmax_config.observations.realistic.noise
+            noise_scale = SensorNoiseConfig(
+                relative_std={
+                    name: value for name, value in defaults.items() if name in sensors
+                }
+            ).to_noise_scale(layout)
+        noise_scale = jnp.asarray(noise_scale)
         if noise_scale.shape != self.env.observation_space.shape:
             raise ValueError(
                 "noise_scale shape must match observation space: "
@@ -180,19 +280,48 @@ def _build_indexed_layout(
 class ObsFilterWrapper(Wrapper):
     """Retain a subset of observation elements by index."""
 
-    indices: Sequence[int] = static_field()
+    indices: Sequence[int] | None = static_field(default=None)
     # ObsLayout is immutable wrapper metadata, but its Mapping fields are unhashable.
     layout: ObsLayout | None = static_field(default=None, unsafe=True)
 
     def __post_init__(self) -> None:
-        indices = tuple(int(index) for index in self.indices)
+        indices = self.indices
+        if indices is None:
+            configured = self.from_obs_config(self.env)
+            indices = configured.indices
+            object.__setattr__(self, "layout", configured.layout)
+        indices = tuple(int(index) for index in indices)
         object.__setattr__(self, "indices", indices)
         super().__post_init__()
 
     @classmethod
-    def from_obs_config(cls, env, config: ObsFilterConfig) -> ObsFilterWrapper:
+    def from_obs_config(
+        cls, env: Environment, config: ObsFilterConfig | None = None
+    ) -> ObsFilterWrapper:
         """Construct a filter from named profiles and scalars."""
         inner_layout = env.obs_layout()
+        if config is None:
+            defaults = env.plasmax_config.observations.realistic.filter
+            config = ObsFilterConfig(
+                profiles=list(
+                    inner_layout.profile_names
+                    if defaults is None
+                    else (
+                        name
+                        for name in defaults.profiles
+                        if name in inner_layout.profile_names
+                    )
+                ),
+                scalars=list(
+                    inner_layout.scalar_names
+                    if defaults is None
+                    else (
+                        name
+                        for name in defaults.scalars
+                        if name in inner_layout.scalar_names
+                    )
+                ),
+            )
         indices, layout = _build_indexed_layout(
             inner_layout,
             config.profiles,
@@ -203,10 +332,14 @@ class ObsFilterWrapper(Wrapper):
 
     @classmethod
     def from_resolution_config(
-        cls, env, config: ProfileResolutionConfig
+        cls, env: Environment, config: ProfileResolutionConfig | None = None
     ) -> ObsFilterWrapper:
         """Subsample profiles while preserving their order and all scalars."""
         inner_layout = env.obs_layout()
+        if config is None:
+            config = ProfileResolutionConfig(
+                n_obs=env.plasmax_config.observations.realistic.resolution
+            )
 
         def profile_indices(name: str, source: slice) -> list[int]:
             n_obs = config.n_obs.get(name, source.stop - source.start)
@@ -314,10 +447,15 @@ class ActionQuantizeConfig:
 class QuantizeActionWrapper(Wrapper):
     """Decode one discrete bin index per actuator into normalized actions."""
 
-    bin_counts: Sequence[int] = static_field()
+    bin_counts: Sequence[int] | None = static_field(default=None)
 
     def __post_init__(self) -> None:
-        bin_counts = tuple(int(count) for count in self.bin_counts)
+        bin_counts = self.bin_counts
+        if bin_counts is None:
+            bin_counts = ActionQuantizeConfig(
+                bins=self.env.plasmax_config.actions.realistic.quantize
+            ).to_bin_counts([spec.name for spec in self.env.actuator_specs])
+        bin_counts = tuple(int(count) for count in bin_counts)
         if len(bin_counts) != self.env.action_space.shape[0]:
             raise ValueError("bin counts must match the action dimensions")
         if not bin_counts or min(bin_counts) < 2:
@@ -362,9 +500,12 @@ class HistoryEnvState(WrappedState):
 class ObsHistoryWrapper(Wrapper):
     """Frame-stack the last ``k`` observations and policy-space actions."""
 
-    k: int = static_field()
+    k: int | None = static_field(default=None)
 
     def __post_init__(self) -> None:
+        if self.k is None:
+            history = self.env.plasmax_config.observations.history
+            object.__setattr__(self, "k", 1 if history is None else history.length)
         if self.k < 1:
             raise ValueError(f"history length k must be >= 1, got {self.k}")
         # Materialize any cached space properties before this wrapper is traced.
@@ -493,10 +634,20 @@ class DelayEnvState(WrappedState):
 class ObsDelayWrapper(Wrapper):
     """Stochastically hold previous observation values per dimension."""
 
-    hold_prob: jax.Array = field()
+    hold_prob: jax.Array | None = field(default=None)
 
     def __post_init__(self) -> None:
-        hold_prob = jnp.asarray(self.hold_prob)
+        hold_prob = self.hold_prob
+        if hold_prob is None:
+            layout = self.env.obs_layout()
+            sensors = layout.profile_names + layout.scalar_names
+            defaults = self.env.plasmax_config.observations.realistic.delay
+            hold_prob = ObsDelayConfig(
+                repeat_prob={
+                    name: value for name, value in defaults.items() if name in sensors
+                }
+            ).to_hold_prob(layout)
+        hold_prob = jnp.asarray(hold_prob)
         if hold_prob.shape != self.env.observation_space.shape:
             raise ValueError(
                 "hold_prob shape must match observation space: "
@@ -624,7 +775,11 @@ class TimeAwareWrapper(Wrapper):
 class PlasmaxTruncationWrapper(TruncationWrapper):
     """Episode horizon with TORAX termination-over-truncation precedence."""
 
+    max_steps: int | None = field(default=None, kw_only=True)
+
     def __post_init__(self) -> None:
+        if self.max_steps is None:
+            object.__setattr__(self, "max_steps", self.env.unwrapped.safe_max_steps)
         if isinstance(self.max_steps, bool):
             raise ValueError(f"max_steps must be an integer, got {self.max_steps!r}")
         try:
@@ -650,6 +805,76 @@ class PlasmaxTruncationWrapper(TruncationWrapper):
         # A genuine failure on the cutoff transition is a termination only.
         truncated = jnp.logical_and(info.truncated, jnp.logical_not(info.terminated))
         return state, info.update(truncated=truncated)
+
+
+def _training_wrappers(env: Environment, time_aware: bool) -> Environment:
+    """Common action scaling and observation history for training."""
+    if not isinstance(time_aware, bool):
+        raise ValueError(f"time_aware must be a boolean, got {time_aware!r}")
+    cfg = env.plasmax_config
+    if not isinstance(cfg, WorldModelConfig):
+        env = ActionRescaleWrapper(env)
+    if time_aware:
+        env = TimeAwareWrapper(env)
+    if not isinstance(cfg, WorldModelConfig) and cfg.observations.history is not None:
+        env = ObsHistoryWrapper(env)
+    return env
+
+
+def RealisticWrappers(
+    env: Environment,
+    *,
+    max_steps: int | None = None,
+    time_aware: bool = False,
+    quantize_bins: int | None = None,
+) -> Environment:
+    """Compose configured physics, sensor, and action effects for training."""
+    cfg = env.plasmax_config
+    if isinstance(cfg, WorldModelConfig):
+        if quantize_bins is not None:
+            raise ValueError("world-model environments do not support quantize_bins")
+    else:
+        if cfg.physics_randomization:
+            env = PhysicsRandomizationWrapper(env)
+        real = cfg.observations.realistic
+        if real.noise:
+            env = NoiseWrapper(env)
+        if real.resolution:
+            env = ObsFilterWrapper.from_resolution_config(env)
+        if real.filter is not None:
+            env = ObsFilterWrapper(env)
+        if real.delay:
+            env = ObsDelayWrapper(env)
+    env = _training_wrappers(env, time_aware)
+    if quantize_bins is not None:
+        if isinstance(quantize_bins, bool):
+            raise ValueError(f"quantize_bins must be an integer, got {quantize_bins!r}")
+        try:
+            quantize_bins = operator.index(quantize_bins)
+        except TypeError as error:
+            raise ValueError(
+                f"quantize_bins must be an integer, got {quantize_bins!r}"
+            ) from error
+        if quantize_bins < 2:
+            raise ValueError(f"quantize_bins must be at least 2, got {quantize_bins}")
+        env = QuantizeActionWrapper(env, (quantize_bins,) * len(env.actuator_specs))
+    elif not isinstance(cfg, WorldModelConfig) and cfg.actions.realistic.quantize:
+        env = QuantizeActionWrapper(env)
+    return PlasmaxTruncationWrapper(env, max_steps=max_steps)
+
+
+def OracleWrappers(
+    env: Environment,
+    *,
+    max_steps: int | None = None,
+    time_aware: bool = False,
+) -> Environment:
+    """Compose action scaling, optional time, history, and truncation."""
+    if isinstance(env.plasmax_config, WorldModelConfig):
+        raise ValueError("kstar_worldmodel only supports RealisticWrappers")
+    return PlasmaxTruncationWrapper(
+        _training_wrappers(env, time_aware), max_steps=max_steps
+    )
 
 
 def iter_wrappers(env):

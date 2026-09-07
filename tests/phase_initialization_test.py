@@ -20,6 +20,7 @@ from plasmax.environment.initialization import (
 from plasmax.environment.registry import CONFIGS_DIR
 from plasmax.environment.schema import PlasmaxConfig
 from plasmax.spaces import ActuatorSpec
+from plasmax.wrappers import OracleWrappers
 
 _SNAPSHOT_PEDESTAL = {
     "model_name": "set_T_ped_n_ped",
@@ -373,11 +374,8 @@ def test_phase_snapshot_is_resolved_on_final_config(
 def test_packaged_snapshot_rebuilds_two_backends_and_jits_first_steps() -> None:
     states = {}
     for backend in ("bohm_gyrobohm", "cgm"):
-        env = make(
-            "iter/hybrid/flattop",
-            backend,
-            variant="oracle",
-            max_steps=1,
+        env = OracleWrappers(
+            make("iter/hybrid/flattop", backend), max_steps=1
         ).unwrapped
         state = env._dynamics._initial_env_state
         assert float(state.plasma.t) == 0.0

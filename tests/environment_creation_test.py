@@ -52,8 +52,11 @@ from plasmax.wrappers import (
     NoiseWrapper,
     ObsDelayWrapper,
     ObsFilterWrapper,
+    OracleWrappers,
+    PhysicsRandomizationWrapper,
     PlasmaxTruncationWrapper,
     QuantizeActionWrapper,
+    RealisticWrappers,
     TimeAwareWrapper,
     iter_wrappers,
 )
@@ -85,11 +88,7 @@ class PublicApiTest:
             "env",
             "backend",
             "reward",
-            "variant",
             "disruption_penalty",
-            "max_steps",
-            "time_aware",
-            "quantize_bins",
         )
         assert (
             signature.parameters["env"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
@@ -103,16 +102,16 @@ class PublicApiTest:
         assert signature.parameters["backend"].default is None
         assert signature.parameters["reward"].default is None
         assert signature.parameters["disruption_penalty"].default is None
-        assert signature.parameters["variant"].default == "realistic"
-        assert signature.parameters["max_steps"].default is None
-        assert signature.parameters["time_aware"].default is False
-        assert signature.parameters["quantize_bins"].default is None
 
     def test_backend_can_be_positional(self):
         assert make(_MOCK_ENV, _MOCK_BACKEND) is not None
 
     def test_removed_keywords_have_no_compatibility_aliases(self):
         for keyword in (
+            "variant",
+            "max_steps",
+            "time_aware",
+            "quantize_bins",
             "validate",
             "ablate",
             "num_steps",
@@ -399,7 +398,7 @@ class ValidationTest:
 
 class LoadScenarioOracleTest:
     def test_loader_returns_scalar_non_autoresetting_envelope_env(self):
-        env = make(_MOCK_ENV, backend=_MOCK_BACKEND, variant="oracle")
+        env = OracleWrappers(make(_MOCK_ENV, backend=_MOCK_BACKEND))
         state, info = env.init(jax.random.key(0))
         assert isinstance(env, Environment)
         assert isinstance(env, PlasmaxTruncationWrapper)
@@ -413,7 +412,7 @@ class LoadScenarioOracleTest:
         assert state.steps == 0
 
     def test_envelope_step_returns_state_and_structured_info(self):
-        env = make(_MOCK_ENV, backend=_MOCK_BACKEND, variant="oracle")
+        env = OracleWrappers(make(_MOCK_ENV, backend=_MOCK_BACKEND))
         state, _ = env.init(jax.random.key(0))
         next_state, info = jax.jit(env.step)(state, jnp.zeros(env.action_space.shape))
         jax.block_until_ready((next_state, info))
@@ -424,32 +423,35 @@ class LoadScenarioOracleTest:
 
 class LoaderMaxStepsContractTest:
     def test_default_is_derived_from_torax_safe_horizon(self):
-        assert make(_MOCK_ENV, backend=_MOCK_BACKEND).max_steps == 5
+        assert RealisticWrappers(make(_MOCK_ENV, backend=_MOCK_BACKEND)).max_steps == 5
 
     def test_shorter_caller_horizon_is_allowed(self):
-        assert make(_MOCK_ENV, backend=_MOCK_BACKEND, max_steps=1).max_steps == 1
+        assert (
+            RealisticWrappers(
+                make(_MOCK_ENV, backend=_MOCK_BACKEND), max_steps=1
+            ).max_steps
+            == 1
+        )
 
     def test_max_steps_cannot_exceed_backend_safe_horizon(self):
         with pytest.raises(ValueError, match="safe horizon|at most"):
-            make(_MOCK_ENV, backend=_MOCK_BACKEND, max_steps=6)
+            RealisticWrappers(make(_MOCK_ENV, backend=_MOCK_BACKEND), max_steps=6)
 
     @pytest.mark.parametrize("value", [0, -1])
     def test_max_steps_must_be_positive(self, value):
         with pytest.raises(ValueError, match="max_steps"):
-            make(_MOCK_ENV, backend=_MOCK_BACKEND, max_steps=value)
+            RealisticWrappers(make(_MOCK_ENV, backend=_MOCK_BACKEND), max_steps=value)
 
     @pytest.mark.parametrize("value", [True, 1.5])
     def test_max_steps_must_be_integral(self, value):
         with pytest.raises(ValueError, match="max_steps"):
-            make(_MOCK_ENV, backend=_MOCK_BACKEND, max_steps=value)
+            RealisticWrappers(make(_MOCK_ENV, backend=_MOCK_BACKEND), max_steps=value)
 
 
-class VariantWrapperTest:
+class PresetWrapperTest:
     def test_full_wrapper_stack_has_contract_order(self):
-        env = make(
-            "iter/hybrid/rampup",
-            "cgm",
-            variant="realistic",
+        env = RealisticWrappers(
+            make("iter/hybrid/rampup", "cgm"),
             max_steps=1,
             time_aware=True,
             quantize_bins=3,
@@ -464,6 +466,7 @@ class VariantWrapperTest:
             ObsFilterWrapper,
             ObsFilterWrapper,
             NoiseWrapper,
+            PhysicsRandomizationWrapper,
         ]
         assert layers[-1] is env.unwrapped
         assert isinstance(env.action_space, Discrete)
@@ -486,33 +489,12 @@ class VariantWrapperTest:
 
     def test_quantize_bins_validation(self):
         with pytest.raises(ValueError, match=">= 2|at least 2"):
-            make(
-                _MOCK_ENV,
-                backend=_MOCK_BACKEND,
-                variant="realistic",
-                quantize_bins=1,
-            )
-        with pytest.raises(ValueError, match="realistic action degradation"):
-            make(
-                _MOCK_ENV,
-                backend=_MOCK_BACKEND,
-                variant="oracle",
-                quantize_bins=3,
-            )
-
-    def test_unknown_variant_raises(self):
-        with pytest.raises(ValueError, match="variant"):
-            make(_MOCK_ENV, backend=_MOCK_BACKEND, variant="invalid")
+            RealisticWrappers(make(_MOCK_ENV, backend=_MOCK_BACKEND), quantize_bins=1)
 
 
 class ShippedConfigSmokeTest:
     def test_load_env_quantize_bins(self):
-        env = make(
-            _MOCK_ENV,
-            backend=_MOCK_BACKEND,
-            variant="realistic",
-            quantize_bins=5,
-        )
+        env = RealisticWrappers(make(_MOCK_ENV, backend=_MOCK_BACKEND), quantize_bins=5)
         assert isinstance(env.action_space, Discrete)
         low = jnp.array([spec.low for spec in env.unwrapped.actuator_specs])
         high = jnp.array([spec.high for spec in env.unwrapped.actuator_specs])

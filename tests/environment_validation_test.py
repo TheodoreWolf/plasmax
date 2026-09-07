@@ -11,6 +11,7 @@ from plasmax.environment.validation import (
     validate_physics_randomization,
 )
 from plasmax.spaces import ActuatorSpec
+from plasmax.wrappers import PhysicsRandomizationWrapper, unwrap_to_env_state
 
 
 def _provider(extra_config=None):
@@ -69,17 +70,21 @@ class ValidatePhysicsRandomizationTest:
             )
 
     def test_scalar_randomization_survives_environment_step(self):
-        env = make_test_env(
-            physics_randomization={
-                "numerics.resistivity_multiplier": PhysicsRandomizationSpec(
-                    absolute=(0.5, 1.5)
-                )
-            }
+        env = PhysicsRandomizationWrapper(
+            make_test_env(
+                physics_randomization={
+                    "numerics.resistivity_multiplier": PhysicsRandomizationSpec(
+                        absolute=(0.5, 1.5)
+                    )
+                }
+            )
         )
         state, _ = env.init(jax.random.key(0))
         action = jnp.asarray((env.action_space.low + env.action_space.high) / 2)
         next_state, info = env.step(state, action)
-        np_value = next_state.phys_params["numerics.resistivity_multiplier"]
+        np_value = unwrap_to_env_state(next_state).phys_params[
+            "numerics.resistivity_multiplier"
+        ]
         assert 0.5 <= float(np_value) <= 1.5
         assert not bool(info.terminated)
         assert not bool(info.truncated)
