@@ -164,10 +164,21 @@ Tests use pytest and NumPy testing helpers. Prefer:
 - `pytest.raises(..., match=...)` for error behavior.
 
 The default `uv run pytest` command includes tests marked `integration`. CI
-partitions execution explicitly: the fast job selects `not integration`, and the
-integration suite runs in seven shards. Keep focused geometry, STEP, KSTAR, and
-fixed-duration tests in the fast suite; keep full-matrix and external-reference
-parity checks marked `integration`.
+partitions execution explicitly: the fast job selects `not integration`, and
+one integration job runs the slow specialised checks, including
+external-reference parity and one representative `tglfnn_nr` canary. Keep
+focused geometry, STEP, KSTAR, and fixed-duration tests in the fast suite.
+
+The dedicated environment trajectory workflow owns the seven-way
+environment/backend/variant matrix. Do not duplicate that full matrix in the
+pytest integration suite.
+
+`tests/env_trajectory_test.py` is the fast test suite for
+`benchmarks/env_trajectory.py`; it must never execute the real 126-case
+trajectory matrix. Use synthetic reports and mocked environments there to test
+case selection, incremental output, failures, JSON validation, comparisons,
+Markdown summaries, baselines, and seven-shard merging. Run real trajectories
+only through the benchmark command or its dedicated GitHub Actions workflow.
 
 Release checks build a wheel and a source distribution and run `twine check` on
 them. Nothing installs or smoke-tests the built artifacts.
@@ -178,8 +189,13 @@ thin adapters rather than optimizer internals.
 
 ## Experiments and tracking
 
-New tracked runs use W&B entity `flair` and project `plasmax`. If online logging
-is requested, never silently downgrade to offline. Stop if authorization or
+Run control algorithms through their dedicated repository scripts, such as
+`scripts/train_ppo.py` and `scripts/train_sac.py`; do not substitute ad hoc
+training runners. All transport backends except TGLFNN may be vmapped across
+training seeds. Run TGLFNN seeds as independent single-seed processes or jobs.
+
+Control-algorithm runs use online W&B logging unless the user explicitly requests otherwise. Never
+silently downgrade to offline or disable logging; stop if authorization or
 initialization fails.
 
 Generic launchers inherit reward and terminal penalty from task metadata. Pass

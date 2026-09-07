@@ -158,6 +158,9 @@ git checkout {name}/{what_you_are_changing}
 Then you can open a PR in this repository. Make sure to run tests, CI will do this for you as well.
 Please have respect for the developer's time and do not submit PRs that can not be reasonably reviewed (even with the help of agents).
 
+See [Testing plasmax](TESTING.md) for the test commands and the local
+environment trajectory benchmark used by the pull-request report.
+
 ## Repository layout
 
 ```text
