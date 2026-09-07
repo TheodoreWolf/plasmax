@@ -549,6 +549,7 @@ def test_comparison_rejects_incomplete_or_erroneous_baseline() -> None:
 
 
 def test_build_report_has_nonblocking_timing_warnings_and_stale_baseline(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     key = ("mock/default", "fixed", "oracle")
@@ -556,9 +557,16 @@ def test_build_report_has_nonblocking_timing_warnings_and_stale_baseline(
     baseline_path = tmp_path / "baseline.json"
     output = tmp_path / "out" / "current.json"
     markdown_output = tmp_path / "out" / "summary.md"
+    github_output = tmp_path / "github-output"
+    github_output.write_text("existing=value\n")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
     _write_json(
         _report(
-            (_ok_result(key, first_trajectory_seconds=10.0, steps=6),),
+            (
+                _ok_result(
+                    key, creation_seconds=3.0, first_trajectory_seconds=10.0, steps=6
+                ),
+            ),
             revision="pr-commit",
         ),
         current_path,
@@ -589,15 +597,63 @@ def test_build_report_has_nonblocking_timing_warnings_and_stale_baseline(
     assert "Behavior changes" in markdown
     assert "Possible slowdowns" in markdown
     assert "exact PR base baseline was unavailable" in markdown
+    assert github_output.read_text() == (
+        "existing=value\nbehavior_changes=1\npossible_slowdowns=1\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected_status", "expected_output"),
+    [
+        ("unchanged", 0, "behavior_changes=0\npossible_slowdowns=0\n"),
+        ("current-error", 1, ""),
+        ("no-baseline", 0, ""),
+        ("local", 0, ""),
+    ],
+)
+def test_build_report_emits_outputs_only_for_successful_comparisons(
+    scenario: str,
+    expected_status: int,
+    expected_output: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    key = ("mock/default", "fixed", "oracle")
+    current_path = tmp_path / "current.json"
+    baseline_path = tmp_path / "baseline.json"
+    github_output = tmp_path / "github-output"
+    github_output.write_text("")
+    if scenario == "local":
+        monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    else:
+        monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+    result = _error_result(key) if scenario == "current-error" else _ok_result(key)
+    _write_json(_report((result,), revision="pr-commit"), current_path)
+    _write_json(_report((_ok_result(key),), revision="main-commit"), baseline_path)
+
+    status = env_trajectory.build_report(
+        env_trajectory.ReportConfig(
+            inputs=current_path,
+            output=tmp_path / "out" / "current.json",
+            markdown_output=tmp_path / "out" / "summary.md",
+            baseline=None if scenario == "no-baseline" else baseline_path,
+        )
+    )
+
+    assert status == expected_status
+    assert github_output.read_text() == expected_output
 
 
 def test_build_report_without_required_baseline_writes_current_and_fails(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     key = ("mock/default", "fixed", "oracle")
     current_path = tmp_path / "current.json"
     output = tmp_path / "out" / "current.json"
     markdown_output = tmp_path / "out" / "summary.md"
+    github_output = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
     _write_json(_report((_ok_result(key),), revision="pr-commit"), current_path)
 
     status = env_trajectory.build_report(
@@ -612,11 +668,13 @@ def test_build_report_without_required_baseline_writes_current_and_fails(
     assert status == 1
     assert env_trajectory.load_report(output).revision == "pr-commit"
     assert "no valid main baseline was found" in markdown_output.read_text()
+    assert not github_output.exists()
 
 
 @pytest.mark.parametrize("baseline_kind", ["incomplete", "error", "incompatible"])
 def test_build_report_rejects_unusable_baselines_but_keeps_current_result(
     baseline_kind: str,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     key = ("mock/default", "fixed", "oracle")
@@ -624,6 +682,8 @@ def test_build_report_rejects_unusable_baselines_but_keeps_current_result(
     baseline_path = tmp_path / "baseline.json"
     output = tmp_path / "out" / "current.json"
     markdown_output = tmp_path / "out" / "summary.md"
+    github_output = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
     _write_json(_report((_ok_result(key),), revision="pr-commit"), current_path)
 
     if baseline_kind == "incomplete":
@@ -655,6 +715,7 @@ def test_build_report_rejects_unusable_baselines_but_keeps_current_result(
     assert status == 1
     assert env_trajectory.load_report(output).revision == "pr-commit"
     assert "Comparison unavailable" in markdown_output.read_text()
+    assert not github_output.exists()
 
 
 def test_build_report_detects_missing_shard(tmp_path: Path) -> None:
