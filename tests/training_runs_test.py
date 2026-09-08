@@ -1,6 +1,7 @@
 """Host orchestration uses real cheap agents and mocked external tracking."""
 
 import dataclasses
+from types import SimpleNamespace
 from typing import Any
 
 import jax
@@ -17,7 +18,8 @@ from agents.policy_io import LoadedPolicy, environment_interface, load_policy
 from agents.ppo import PPOAdapter
 from agents.sac import SACAdapter
 from plasmax.spaces import ObsLayout
-from training import runs
+from scripts import train_ppo, train_sac
+from training import runs, vmap_logging
 from training.envelope_gymnax import EnvelopeGymnax
 
 
@@ -165,6 +167,43 @@ def test_failed_seed_blocks_the_whole_batch_before_any_export(tmp_path, monkeypa
             batched=True,
         )
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("launcher", [train_ppo, train_sac], ids=["ppo", "sac"])
+def test_rejax_launcher_defaults_export_to_default_destination(
+    tmp_path, monkeypatch, launcher
+):
+    config = launcher.Config()
+    state = SimpleNamespace(global_step=jnp.asarray(12))
+    calls = []
+    saved_path = tmp_path / "policy.msgpack"
+
+    def save(agent, state, path, **kwargs):
+        calls.append((path, kwargs))
+        return saved_path
+
+    monkeypatch.setattr(runs, "save_policy", save)
+    paths = runs.save_run_policies(None, state, config, "defaults", batched=False)
+
+    assert paths == (saved_path,)
+    path, options = calls[0]
+    assert path is None
+    assert options["metadata"]["config"] == dataclasses.asdict(config)
+    assert options["metadata"]["actual_train_steps"] == 12
+    assert options["deterministic"] == config.env.deterministic_eval
+
+
+def test_native_artifact_upload_uses_the_logger_owned_run(tmp_path, monkeypatch):
+    uploaded = []
+    run = SimpleNamespace(log_artifact=uploaded.append)
+    monkeypatch.setattr(vmap_logging, "wandb_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(vmap_logging.wandb, "init", lambda **kwargs: run)
+    logger = vmap_logging.SeedBufferLogger(num_seeds=1, run_name="native")
+    artifact = object()
+
+    logger.log_artifact(artifact)
+
+    assert uploaded == [artifact]
 
 
 @pytest.mark.parametrize("algorithm", ["ppo", "sac"])

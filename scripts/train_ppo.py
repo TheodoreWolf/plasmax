@@ -162,6 +162,7 @@ class Config:
     # Optional dir to dump per-seed metric history as an .npz (numpy only,
     # num_seeds > 1 only).
     history_dir: str | None = None
+    checkpoint_dir: str | None = None
 
 
 def _fmt_steps(n: int) -> str:

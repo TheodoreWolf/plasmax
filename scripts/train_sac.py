@@ -93,6 +93,7 @@ class Config:
     seed: int = 0
     num_seeds: int = 10
     history_dir: str | None = None
+    checkpoint_dir: str | None = None
     algorithm: Literal["sac"] = "sac"
     study: str = "debug"
     # Optional study guard; the generic launcher accepts explicit task overrides.
