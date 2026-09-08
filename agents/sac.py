@@ -52,5 +52,12 @@ class SACAdapter(SAC):
 
         return act
 
+    def make_act(self, train_state, deterministic: bool = False):
+        """Bind an inference snapshot while preserving singleton action axes."""
+        if deterministic:
+            return self.make_deterministic_act(train_state)
+        sample = super().make_act(train_state)
+        return lambda obs, rng: jnp.reshape(sample(obs, rng), self.action_space.shape)
+
 
 __all__ = ["SACAdapter"]

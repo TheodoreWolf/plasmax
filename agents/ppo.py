@@ -233,14 +233,21 @@ class PPOAdapter(PPO):
                     obs,
                     method="_action_dist",
                 )
-                action = jnp.clip(
-                    action_dist.mode(),
-                    self.action_space.low,
-                    self.action_space.high,
-                )
+                action = action_dist.mode()
+                if not self.discrete:
+                    action = jnp.clip(
+                        action, self.action_space.low, self.action_space.high
+                    )
             return jnp.squeeze(action, axis=0)
 
         return act
+
+    def make_act(self, train_state, deterministic: bool = False):
+        """Bind an inference snapshot while preserving singleton action axes."""
+        if deterministic:
+            return self.make_deterministic_act(train_state)
+        sample = super().make_act(train_state)
+        return lambda obs, rng: jnp.reshape(sample(obs, rng), self.action_space.shape)
 
     @property
     def discrete(self):

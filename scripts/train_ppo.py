@@ -10,7 +10,7 @@ Behaviour is selected by two flags:
   per-seed figures can't be meaningfully averaged).
 * ``--env.transfer-backend NAME`` (default unset): after training, zero-shot
   evaluate the frozen policy (with its frozen obs-normalisation stats) on a
-  second, typically higher-fidelity backend via rejax's ``evaluate``, logging
+  second, typically higher-fidelity backend via the shared Envelope collector, logging
   the transfer gap under ``transfer/``. Works with either seed mode.
 
 This subsumes ``train_ppo_wandb.py``, ``train_ppo_vmap.py``,
@@ -21,15 +21,15 @@ a ``plasmax.environment.registry`` alias (e.g. ``iter/hybrid/flattop``,
 ``cgm``) — see ``registry.ENV_ALIASES`` / ``BACKEND_ALIASES``.
 
 Run inside Docker, e.g.:
-    python3 scripts/train_ppo.py \\
+    uv run python scripts/train_ppo.py \\
         --env.env_setup iter/hybrid/flattop \\
         --env.backend   cgm
 
     # multi-seed:
-    python3 scripts/train_ppo.py --num-seeds 3 ...
+    uv run python scripts/train_ppo.py --num-seeds 3 ...
 
     # zero-shot transfer eval after training:
-    python3 scripts/train_ppo.py --env.transfer-backend qlknn ...
+    uv run python scripts/train_ppo.py --env.transfer-backend qlknn ...
 """
 
 # ruff: noqa: E402
@@ -39,7 +39,7 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from _runtime import set_default_xla_flags
+from scripts._runtime import set_default_xla_flags
 
 # Disable command-buffer dispatch: vmapping NUM_SEEDS independent runs
 # multiplies the number of "alive" CUDA graphs XLA keeps around for
@@ -52,8 +52,6 @@ import jax.numpy as jnp
 import numpy as np
 import tyro
 import wandb
-from project_paths import wandb_dir
-from rejax.evaluate import evaluate
 
 from agents.ppo import PPOAdapter
 from experiments.plotting.wandb_logging import (
@@ -66,16 +64,15 @@ from experiments.studies.baseline_study import seed_keys
 from experiments.studies.disruption_sweep import (
     calibrated_disruption_penalty,
 )
-from experiments.studies.transfer_eval import (
-    transfer_metrics as _transfer_metrics,
-)
-from experiments.studies.transfer_eval import (
-    write_transfer_summary,
-)
 from plasmax.environment.factory import make
 from plasmax.environment.registry import resolve_backend
 from plasmax.wrappers import OracleWrappers, RealisticWrappers
+from scripts.project_paths import wandb_dir
 from training.envelope_gymnax import EnvelopeGymnax
+from training.evaluation import (
+    write_transfer_summary,
+)
+from training.runs import evaluate_transfer, save_run_policies, validate_seeds
 from training.vmap_logging import SeedBufferLogger
 
 # ---------------------------------------------------------------------------
@@ -353,64 +350,15 @@ def _train_single(cfg: Config, env, algo):
     # trips a const-arg mismatch on JAX 0.10.x ("compiled for N inputs but called
     # with 1") because algo.train closes over many constant arrays.
     def _run():
-        ts, _ = train_fn(rng)
+        ts, results = train_fn(rng)
+        jax.block_until_ready((ts, results))
         jax.effects_barrier()
-        return ts
+        return ts, results
 
-    ts, t_train = _timed("Training", _run)
-    wandb.log({"time/train_s": t_train})
-    return ts
-
-
-def _transfer_eval_single(cfg: Config, backend_name: str, env, algo, ts):
-    del env
-    transfer_backend_name = _stem(cfg.env.transfer_backend, resolve_backend)
-    act = (
-        algo.make_deterministic_act(ts)
-        if cfg.env.deterministic_eval
-        else algo.make_act(ts)
-    )
-
-    print(f"Loading transfer env ({transfer_backend_name})...", flush=True)
-    transfer_env = EnvelopeGymnax(_load_env(cfg, cfg.env.transfer_backend))
-    source_env = algo.env
-
-    eval_rng = jax.random.PRNGKey(cfg.env.eval_seed)
-
-    def _eval_both():
-        src_lengths, src_returns = evaluate(
-            act,
-            eval_rng,
-            source_env,
-            source_env.default_params,
-            num_seeds=cfg.env.transfer_n_envs,
-        )
-        tgt_lengths, tgt_returns = evaluate(
-            act,
-            eval_rng,
-            transfer_env,
-            transfer_env.default_params,
-            num_seeds=cfg.env.transfer_n_envs,
-        )
-        jax.block_until_ready(tgt_returns)
-        return src_returns, src_lengths, tgt_returns, tgt_lengths
-
-    outs, t_eval = _timed("Evaluating source + transfer backends", _eval_both)
-    # Single seed: add a leading seed axis so the metrics helper is shared.
-    src_returns, src_lengths, tgt_returns, tgt_lengths = (
-        np.asarray(x)[None] for x in outs
-    )
-    metrics = _transfer_metrics(
-        backend_name,
-        transfer_backend_name,
-        src_returns,
-        src_lengths,
-        tgt_returns,
-        tgt_lengths,
-        t_eval,
-    )
-    _print_transfer_metrics(metrics)
+    (ts, results), t_train = _timed("Training", _run)
+    metrics = {"time/train_s": t_train, "run/actual_train_steps": int(ts.global_step)}
     wandb.log(metrics)
+    return ts, results, metrics
 
 
 def _run_single(cfg: Config, run_name: str) -> None:
@@ -429,11 +377,33 @@ def _run_single(cfg: Config, run_name: str) -> None:
     env = _load_env(cfg, cfg.env.backend)
     algo = _build_algo(cfg, env)
 
-    ts = _train_single(cfg, env, algo)
+    ts, results, metrics = _train_single(cfg, env, algo)
+    paths = save_run_policies(
+        algo,
+        ts,
+        cfg,
+        run_name,
+        batched=False,
+        results=results,
+        metrics=metrics,
+    )
+    artifact = wandb.Artifact(run_name, type="model")
+    for path in paths:
+        artifact.add_file(str(path))
+        print(f"Saved policy to {path}", flush=True)
+    wandb.log_artifact(artifact)
 
     if cfg.env.transfer_backend is not None:
-        backend_name = _stem(cfg.env.backend, resolve_backend)
-        _transfer_eval_single(cfg, backend_name, env, algo, ts)
+        transfer_summary = evaluate_transfer(
+            algo,
+            ts,
+            env,
+            _load_env(cfg, cfg.env.transfer_backend),
+            cfg,
+            batched=False,
+        )
+        _print_transfer_metrics(transfer_summary)
+        wandb.log(transfer_summary)
 
     wandb.finish()
     print("Done.")
@@ -495,99 +465,48 @@ def _run_vmap(cfg: Config, run_name: str) -> None:
     logger.start_time = time.time()
 
     def _run():
-        ts, _evals = train_fn(seeds, run_idxs)
+        ts, results = train_fn(seeds, run_idxs)
+        jax.block_until_ready((ts, results))
         jax.effects_barrier()
-        return ts
+        return ts, results
 
-    ts, t_train = _timed("Training", _run)
+    (ts, results), t_train = _timed("Training", _run)
 
     log_once = {
         "time/lower_s": t_lower,
         "time/compile_s": t_compile,
         "time/train_s": t_train,
+        "run/actual_train_steps": int(np.asarray(ts.global_step[0])),
     }
 
     if cfg.env.transfer_backend is not None:
-        backend_name = _stem(cfg.env.backend, resolve_backend)
-        transfer_backend_name = _stem(cfg.env.transfer_backend, resolve_backend)
-        transfer_summary = _transfer_eval_vmap(
-            cfg,
-            backend_name,
-            transfer_backend_name,
-            env,
+        transfer_summary = evaluate_transfer(
             algo,
             ts,
+            env,
+            _load_env(cfg, cfg.env.transfer_backend),
+            cfg,
+            batched=True,
         )
         log_once.update(transfer_summary)
         write_transfer_summary(cfg.history_dir, run_name, transfer_summary)
 
+    save_run_policies(
+        algo,
+        ts,
+        cfg,
+        run_name,
+        batched=True,
+        results=results,
+        metrics=log_once,
+    )
     logger.log_once(log_once)
     logger.finish()
     print("Done.")
 
 
-def _transfer_eval_vmap(
-    cfg: Config, backend_name, transfer_backend_name, env, algo, ts
-):
-    del env
-    # Transfer: evaluate every seed's trained policy (frozen obs-norm stats
-    # baked into `act` via make_act) on both backends. `evaluate`'s `act`/`env`
-    # args are static, so each seed's `act` closure is built *inside* the
-    # vmapped function over the stacked train states.
-    print(f"Loading transfer env ({transfer_backend_name})...", flush=True)
-    transfer_env = EnvelopeGymnax(_load_env(cfg, cfg.env.transfer_backend))
-    source_env = algo.env
-
-    def eval_transfer(seed_ts, rng):
-        act = (
-            algo.make_deterministic_act(seed_ts)
-            if cfg.env.deterministic_eval
-            else algo.make_act(seed_ts)
-        )
-        src_lengths, src_returns = evaluate(
-            act,
-            rng,
-            source_env,
-            source_env.default_params,
-            num_seeds=cfg.env.transfer_n_envs,
-        )
-        tgt_lengths, tgt_returns = evaluate(
-            act,
-            rng,
-            transfer_env,
-            transfer_env.default_params,
-            num_seeds=cfg.env.transfer_n_envs,
-        )
-        return src_returns, src_lengths, tgt_returns, tgt_lengths
-
-    eval_rng = jax.random.PRNGKey(cfg.env.eval_seed)
-    eval_rngs = jnp.broadcast_to(eval_rng, (cfg.num_seeds, *eval_rng.shape))
-    eval_fn = jax.jit(jax.vmap(eval_transfer))
-
-    def _eval_all():
-        outs = eval_fn(ts, eval_rngs)
-        jax.block_until_ready(outs[2])
-        return outs
-
-    outs, t_eval = _timed(
-        f"Evaluating {cfg.num_seeds} seeds on source + transfer backends", _eval_all
-    )
-    # Shapes: (num_seeds, transfer_n_envs).
-    src_returns, src_lengths, tgt_returns, tgt_lengths = (np.asarray(x) for x in outs)
-    metrics = _transfer_metrics(
-        backend_name,
-        transfer_backend_name,
-        src_returns,
-        src_lengths,
-        tgt_returns,
-        tgt_lengths,
-        t_eval,
-    )
-    _print_transfer_metrics(metrics)
-    return metrics
-
-
 def main(cfg: Config) -> None:
+    validate_seeds(cfg.env.backend, cfg.num_seeds)
     run_name = _run_name(cfg)
     if cfg.num_seeds > 1:
         _run_vmap(cfg, run_name)

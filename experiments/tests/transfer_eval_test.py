@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from experiments.studies.transfer_eval import transfer_metrics, write_transfer_summary
+from training.evaluation import transfer_metrics, write_transfer_summary
 
 
 def test_transfer_metrics_aggregate_paired_seed_gaps():
