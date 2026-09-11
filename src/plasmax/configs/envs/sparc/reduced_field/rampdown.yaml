@@ -10,9 +10,9 @@ task:
 torax:
   profile_conditions:
     Ip: {0: 5.7e+6, 5: 1.0e+6}
-    T_i_right_bc: {0: 2.30769, 5: 0.1}
-    T_e_right_bc: {0: 2.52959, 5: 0.1}
-    n_e_right_bc: {0: 9.66667e+19, 5: 1.0e+19}
+    T_i_right_bc: {0: 2.308, 5: 0.1}
+    T_e_right_bc: {0: 2.53, 5: 0.1}
+    n_e_right_bc: {0: 9.667e+19, 5: 1.0e+19}
   numerics:
     t_final: 5.0
   geometry:
@@ -22,14 +22,14 @@ torax:
       5.0: {geometry_file: sparc_reduced_field_ip010.eqdsk}   # limited end-of-discharge shape
   sources:
     generic_heat:
-      P_total: 25000000.0
+      P_total: 2.5e+7
     ecrh:
       P_total: 0.0
       gaussian_location: 0.3
     gas_puff:
       S_total: 0.0
 actuators:
-- {name: P_nbi, low: 0.0, high: 25000000.0, max_delta: 2000000.0, init: 25000000.0}
-- {name: P_eccd, low: 0.0, high: 10000000.0, max_delta: 1000000.0, init: 0.0}
+- {name: P_nbi, low: 0.0, high: 2.5e+7, max_delta: 2.0e+6, init: 2.5e+7}
+- {name: P_eccd, low: 0.0, high: 1.0e+7, max_delta: 1.0e+6, init: 0.0}
 - {name: rho_eccd, low: 0.2, high: 0.8, max_delta: 0.05, init: 0.3}
 - {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 0.0}

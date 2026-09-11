@@ -22,7 +22,7 @@ torax:
     Ip: 9.0e+6                   # constant flat-top plasma current [A]
     T_i_right_bc: 0.2            # edge T_i BC [keV]
     T_e_right_bc: 0.2
-    n_e_right_bc: 4.34633e+19
+    n_e_right_bc: 4.346e+19
   numerics:
     t_final: 840.0               # flat-top duration [s] → 8400 steps
   geometry:
@@ -31,14 +31,20 @@ torax:
     generic_current:
       fraction_of_total_current: 1.0
     generic_heat:
-      P_total: 34000000.0
+      P_total: 5.1e+7
     ecrh:
-      P_total: 34000000.0
-      gaussian_location: 0.5
+      P_total: 0.0
+      gaussian_location: 0.1274
     gas_puff:
-      S_total: 6e+21
+      S_total: 1.0e+20
+# Cross-scenario actuator transfer: retain the hybrid flat-top heating and
+# current-drive vector, but reduce gas puffing to 1e20 s^-1 for the advanced
+# scenario. The pedestal is enforced through adaptive transport rather than a
+# hidden source, so this is an operating point rather than a claim of
+# source-clamped steady state. Keep reset-source values aligned with actuator
+# initial values.
 actuators:
-- {name: P_nbi, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 34000000.0}
-- {name: P_eccd, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 34000000.0}
-- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.5}
-- {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 6e+21}
+- {name: P_nbi, low: 0.0, high: 5.1e+7, max_delta: 2.0e+6, init: 5.1e+7}
+- {name: P_eccd, low: 0.0, high: 5.0e+7, max_delta: 2.0e+6, init: 0.0}
+- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.1274}
+- {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 1.0e+20}

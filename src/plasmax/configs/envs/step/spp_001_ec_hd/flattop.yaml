@@ -51,7 +51,6 @@ torax:
     v_loop_lcfs: 0.0
   numerics:
     t_final: 400.0
-    fixed_dt: 10.0
     resistivity_multiplier: 1.0
     min_rho_norm: 0.015
     evolve_ion_heat: true
@@ -74,7 +73,7 @@ torax:
       # point but is not a launcher-resolved replay.
       gaussian_location: 0.3384
       gaussian_width: 0.1704
-      P_total: 150000000.0
+      P_total: 1.5e+08
       # Exact current-drive efficiency from TORAX v1.4.2.
       current_drive_efficiency: 0.14
     pellet:
@@ -93,7 +92,7 @@ torax:
     T_e_ped: 5.0
     n_e_ped: 6.0e+19
 actuators:
-- {name: P_eccd, low: 50000000.0, high: 300000000.0, max_delta: 20000000.0, init: 150000000.0}
+- {name: P_eccd, low: 5.0e+07, high: 3.0e+08, max_delta: 2.0e+07, init: 1.5e+08}
 - {name: rho_eccd, low: 0.3, high: 0.7, max_delta: 0.05, init: 0.3384}
 - {name: pellet_rate, low: 1e+20, high: 5e+22, max_delta: 5e+20, init: 3.0e+21}
 

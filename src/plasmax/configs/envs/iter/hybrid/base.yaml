@@ -39,17 +39,17 @@ torax:
       # Both local heat channels retain the exact upstream spatial shape; only
       # their powers are split to expose two controls while preserving the
       # upstream 51 MW / 68% electron-heating source.
-      gaussian_location: 0.12741589640723575
-      gaussian_width: 0.07280908366127758
-      P_total: 23.314285714285713e+6
+      gaussian_location: 0.1274
+      gaussian_width: 0.07281
+      P_total: 23.31e+6
       electron_heat_fraction: 0.3
     generic_current:               # NBI-driven non-inductive current
       gaussian_location: 0.36
       gaussian_width: 0.075
     ecrh:
-      gaussian_location: 0.12741589640723575
-      gaussian_width: 0.07280908366127758
-      P_total: 27.685714285714287e+6
+      gaussian_location: 0.1274
+      gaussian_width: 0.07281
+      P_total: 27.69e+6
       current_drive_efficiency: 0.3
     fusion: {}                     # D-T alpha heating
     ei_exchange:
@@ -62,6 +62,8 @@ torax:
     n_e_ped: 6.2e+19
     n_e_ped_is_fGW: false
     rho_norm_ped_top: 0.9
+    formation_model:
+      sharpness: 10
   # The short crash is an internal event; the environment then completes the
   # remainder of the physical control interval with the action held constant.
   mhd:

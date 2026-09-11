@@ -26,6 +26,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import tyro
+import wandb
 
 from agents.sac import SACAdapter
 from experiments.plotting.wandb_logging import make_buffered_seed_callback
@@ -93,11 +94,13 @@ class Config:
     seed: int = 0
     num_seeds: int = 10
     history_dir: str | None = None
-    checkpoint_dir: str | None = None
     algorithm: Literal["sac"] = "sac"
     study: str = "debug"
     # Optional study guard; the generic launcher accepts explicit task overrides.
     strict_phase_reward: bool = False
+    # Optional display name and policy destination; default: outputs/policies.
+    run_name: str | None = None
+    checkpoint_dir: str | None = None
 
 
 def _fmt_steps(steps: int) -> str:
@@ -157,17 +160,20 @@ def main(cfg: Config) -> None:
     if cfg.strict_phase_reward:
         validate_reward(cfg.env.env_setup, cfg.env.reward, cfg.env.backend)
 
-    run_name = run_slug(
-        cfg.algorithm,
-        cfg.env.env_setup,
-        cfg.env.backend,
-        cfg.env.variant,
-        cfg.env.reward,
-        cfg.num_seeds,
-    )
-    if cfg.env.transfer_backend is not None:
-        run_name = f"{run_name}-to-{_backend_name(cfg.env.transfer_backend)}"
-    run_name = f"{run_name}-{_fmt_steps(cfg.sac.total_timesteps)}"
+    if cfg.run_name is None:
+        run_name = run_slug(
+            cfg.algorithm,
+            cfg.env.env_setup,
+            cfg.env.backend,
+            cfg.env.variant,
+            cfg.env.reward,
+            cfg.num_seeds,
+        )
+        if cfg.env.transfer_backend is not None:
+            run_name = f"{run_name}-to-{_backend_name(cfg.env.transfer_backend)}"
+        run_name = f"{run_name}-{_fmt_steps(cfg.sac.total_timesteps)}"
+    else:
+        run_name = cfg.run_name
     logger = SeedBufferLogger(
         num_seeds=cfg.num_seeds,
         seed_ids=tuple(range(cfg.seed, cfg.seed + cfg.num_seeds)),
@@ -237,7 +243,7 @@ def main(cfg: Config) -> None:
         )
         summary.update(transfer_summary)
         write_transfer_summary(cfg.history_dir, run_name, transfer_summary)
-    save_run_policies(
+    checkpoints = save_run_policies(
         algo,
         train_states,
         cfg,
@@ -246,6 +252,13 @@ def main(cfg: Config) -> None:
         results=results,
         metrics=summary,
     )
+    if checkpoints:
+        artifact = wandb.Artifact(f"{run_name}-checkpoints", type="model")
+        for checkpoint in checkpoints:
+            artifact.add_file(str(checkpoint))
+            print(f"Saved checkpoint to {checkpoint}", flush=True)
+        logger.log_artifact(artifact)
+        summary["run/checkpoints_saved"] = len(checkpoints)
     logger.log_once(summary)
     logger.finish()
 

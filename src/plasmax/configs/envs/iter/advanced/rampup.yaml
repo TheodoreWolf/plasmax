@@ -33,14 +33,14 @@ torax:
     generic_current:
       fraction_of_total_current: {0: 0.15, 100: 0.5}
     generic_heat:
-      P_total: 20000000.0
+      P_total: 2.0e+7
       electron_heat_fraction: 1.0
     ecrh:
       P_total: 0.0
     gas_puff:
       S_total: 0.0
 actuators:
-- {name: P_nbi, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 20000000.0}
-- {name: P_eccd, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 0.0}
+- {name: P_nbi, low: 0.0, high: 5.0e+7, max_delta: 2.0e+6, init: 2.0e+7}
+- {name: P_eccd, low: 0.0, high: 5.0e+7, max_delta: 2.0e+6, init: 0.0}
 - {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.5}
 - {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 0.0}

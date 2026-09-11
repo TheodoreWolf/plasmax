@@ -40,9 +40,9 @@ torax:
     generic_particle:
       S_total: 0.0
     generic_heat:
-      gaussian_location: 0.12741589640723575
-      gaussian_width: 0.07280908366127758
-      P_total: 20000000.0
+      gaussian_location: 0.1274
+      gaussian_width: 0.07281
+      P_total: 2.0e+7
       electron_heat_fraction: 1.0
     ecrh:
       P_total: 0.0
@@ -55,7 +55,7 @@ torax:
     n_e_ped_is_fGW: true
     rho_norm_ped_top: 0.9
 actuators:
-- {name: P_nbi, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 20000000.0}
-- {name: P_eccd, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 0.0}
-- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.12741589640723575}
+- {name: P_nbi, low: 0.0, high: 5.0e+7, max_delta: 2.0e+6, init: 2.0e+7}
+- {name: P_eccd, low: 0.0, high: 5.0e+7, max_delta: 2.0e+6, init: 0.0}
+- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.1274}
 - {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 0.0}

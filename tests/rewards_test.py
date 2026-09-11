@@ -94,12 +94,31 @@ class SoftBarrierTest:
         assert self._barrier_at(1.0) < -1.0
 
     def test_monotonic_decreasing(self):
-        vals = [self._barrier_at(x) for x in (0.5, 0.8, 0.95, 1.05)]
+        vals = [self._barrier_at(x) for x in (0.5, 0.8, 0.95, 1.05, 1.2, 10.0)]
         assert all(b < a for a, b in zip(vals, vals[1:], strict=False))
 
     def test_finite_above_limit(self):
-        # Input is clipped, so even a large overshoot stays finite (no -inf).
+        # Stable log-sigmoid evaluation stays finite even for large overshoots.
         assert np.isfinite(self._barrier_at(10.0))
+
+    def test_negative_quantities_share_the_zero_floor(self) -> None:
+        np.testing.assert_allclose(
+            self._barrier_at(-1.0), self._barrier_at(0.0), atol=0.0, rtol=0.0
+        )
+
+    def test_large_violations_keep_negative_gradients(self) -> None:
+        barrier = rewards_lib.soft_barrier(lambda value: value, limit=2.0)
+
+        def reward_at(value: jax.Array) -> jax.Array:
+            return barrier(None, None, None, value)
+
+        gradients = jax.jit(jax.vmap(jax.grad(reward_at)))(
+            jnp.asarray([2.4, 4.0, 20.0])
+        )
+
+        assert np.all(np.isfinite(gradients))
+        # Far above the limit, the penalty keeps its asymptotic slope / limit.
+        np.testing.assert_allclose(gradients, -20.0, atol=2e-4, rtol=0.0)
 
 
 def _with_postout(state, **updates):
@@ -158,6 +177,54 @@ class RampdownRewardTest:
         gradient = jax.grad(reward_at)(jnp.asarray(0.0))
 
         assert np.isfinite(float(gradient))
+
+
+class LHTransitionRewardTest:
+    """Power shaping keeps its time-weighted gradient for every positive ratio."""
+
+    @classmethod
+    def setup_class(cls) -> None:
+        cls._state = _make_env_state()
+
+    @pytest.mark.parametrize("t_final", [10.0, 100.0])
+    def test_power_shaping_is_uncapped_with_zero_floor(self, t_final: float) -> None:
+        plasma = self._state.plasma
+        state = dataclasses.replace(
+            self._state,
+            plasma=dataclasses.replace(
+                plasma,
+                sim=dataclasses.replace(plasma.sim, t=jnp.asarray(0.5 * t_final)),
+            ),
+        )
+
+        def reward_at(ratio: jax.Array) -> jax.Array:
+            next_state = _with_postout(state, P_SOL_total=ratio * 2e6, P_LH=2e6)
+            return rewards_lib.lh_transition(
+                state.prev_action,
+                state,
+                state.prev_action,
+                next_state,
+                t_final=t_final,
+            )
+
+        values, gradients = jax.jit(jax.vmap(jax.value_and_grad(reward_at)))(
+            jnp.asarray([-1.0, 0.0, 0.5, 1.5, 2.0, 10.0])
+        )
+
+        # At half the ramp duration the power term has weight 1/4; subtracting
+        # the zero-power reward isolates it from mode bonuses and barriers.
+        np.testing.assert_allclose(
+            values - values[1],
+            [0.0, 0.0, 0.125, 0.375, 0.5, 2.5],
+            atol=1e-6,
+            rtol=0.0,
+        )
+        np.testing.assert_allclose(
+            gradients,
+            [0.0, 0.0, 0.25, 0.25, 0.25, 0.25],
+            atol=1e-6,
+            rtol=0.0,
+        )
 
 
 class ResolveRewardFnTest:

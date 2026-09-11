@@ -6,7 +6,8 @@
 # significant figures in settled.yaml. Ramp-down uses a separate hot reference.
 #
 # Geometry:  Static 10.5 MA EQDSK, rescaled to the live Ip. No ramp
-#            interpolation. The task spans the full 100--540 s flat-top:
+#            interpolation. The empirically stable source allocation is
+#            documented below. The task spans the full 100--540 s flat-top:
 #            t_final = 440 s -> 4400 steps.
 
 phase: flattop
@@ -19,8 +20,10 @@ initialization: ${DATA_DIR}/initializations/iter/hybrid/settled.yaml
 
 task:
   reward: P_diff
-  # Intentionally uncalibrated; flat-top termination currently has no penalty.
-  terminal_penalty: 0.0
+  # Maximum auxiliary power is 101 MW, so even a zero-fusion full-horizon
+  # trajectory returns about -444 at worst. Keep every physical disruption or
+  # solver failure strictly worse than completing that valid trajectory.
+  terminal_penalty: -1000
 
 torax:
   profile_conditions:
@@ -28,9 +31,6 @@ torax:
     T_i_right_bc: 0.2            # edge T_i BC [keV]
     T_e_right_bc: 0.2
     n_e_right_bc: 2.5e+19        # exact TORAX v1.4.2 boundary [m^-3]
-  pedestal:
-    formation_model:
-      sharpness: 10
   numerics:
     t_final: 440.0               # full flat-top control horizon [s] -> 4400 steps
     # Physical resistivity. Values above one are reserved for explicitly
@@ -42,14 +42,14 @@ torax:
     generic_current:
       fraction_of_total_current: 0.46  # flat-top hybrid fraction (constant)
     generic_heat:
-      P_total: 23314285.714285713
+      P_total: 5.1e+7
     ecrh:
-      P_total: 27685714.285714287
-      gaussian_location: 0.12741589640723575
+      P_total: 0.0
+      gaussian_location: 0.13
     gas_puff:
       S_total: 6.0e+21
 actuators:
-- {name: P_nbi, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 23314285.714285713}
-- {name: P_eccd, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 27685714.285714287}
-- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.12741589640723575}
+- {name: P_nbi, low: 0.0, high: 5.1e+7, max_delta: 2.0e+6, init: 5.1e+7}
+- {name: P_eccd, low: 0.0, high: 5.0e+7, max_delta: 2.0e+6, init: 0.0}
+- {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.1274}
 - {name: gas_puff_rate, low: 1e+20, high: 1e+22, max_delta: 2e+20, init: 6.0e+21}

@@ -98,3 +98,46 @@ def test_seed_logger_accepts_an_all_nan_diagnostic_metric(monkeypatch):
     _, logged = fake_run.logged[0]
     assert np.isnan(logged["train/grad_norm"])
     assert np.isnan(logged["train/grad_norm_seed_std"])
+
+
+def test_wandb_only_batches_do_not_add_local_history_steps(monkeypatch, tmp_path):
+    fake_run = _FakeRun("wandb-name")
+    monkeypatch.setattr(vmap_logging.wandb, "init", lambda **_: fake_run)
+    logger = vmap_logging.SeedBufferLogger(
+        num_seeds=2,
+        seed_ids=(1, 2),
+        run_name="per-update-diagnostics",
+        out_dir=str(tmp_path),
+    )
+
+    logger.log_wandb_batch(
+        10,
+        {
+            "train/grad_norm": np.asarray([2.0, 4.0]),
+            "train/grad_clip_scale": np.asarray([0.5, 0.25]),
+        },
+    )
+    logger.log_batch(
+        20,
+        {
+            "evaluation/return_mean": np.asarray([1.0, 3.0]),
+            "train/grad_norm": np.asarray([1.5, 2.5]),
+            "train/grad_clip_scale": np.asarray([2.0 / 3.0, 0.4]),
+        },
+    )
+    logger.finish()
+
+    assert [step for step, _ in fake_run.logged] == [10, 20]
+    assert fake_run.logged[0][1]["train/grad_norm"] == 3.0
+    assert fake_run.logged[1][1]["evaluation/return_mean"] == 2.0
+
+    history = np.load(tmp_path / "per-update-diagnostics_history.npz")
+    np.testing.assert_array_equal(history["steps"], [20])
+    np.testing.assert_array_equal(history["train/grad_norm"], [[1.5, 2.5]])
+
+    with (tmp_path / "per-update-diagnostics_metrics.csv").open(
+        newline=""
+    ) as csv_file:
+        rows = list(csv.DictReader(csv_file))
+    assert len(rows) == 2
+    assert {int(row["train_steps"]) for row in rows} == {20}

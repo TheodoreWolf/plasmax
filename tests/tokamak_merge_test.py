@@ -16,17 +16,18 @@ def _merge(env, backend="cgm"):
 
 
 class TokamakMergeTest:
-    def test_actuators_and_disruption_inherited_from_tokamak(self):
-        # Actuators/disruption live only in tokamaks/iter.yaml now; every ITER
-        # scenario inherits the unified values.
-        for env in (
-            "iter/hybrid/flattop",
-            "iter/baseline/rampup",
-            "iter/advanced/flattop",
-        ):
+    def test_actuator_overrides_and_disruption_inherited_from_tokamak(self):
+        # Flat-top experiments widen the NBI ceiling to the transferred 51 MW
+        # operating point; other phases retain the 50 MW tokamak default.
+        expected_nbi_high = {
+            "iter/hybrid/flattop": 51.0e6,
+            "iter/baseline/rampup": 50.0e6,
+            "iter/advanced/flattop": 51.0e6,
+        }
+        for env, nbi_high in expected_nbi_high.items():
             m = _merge(env)
             acts = {a["name"]: a for a in m["actuators"]}
-            assert acts["P_nbi"]["high"] == 50.0e6
+            assert acts["P_nbi"]["high"] == nbi_high
             assert acts["rho_eccd"]["low"] == 0.0
             assert m["disruption"]["greenwald_metric"] == "volume_avg"
             assert m["disruption"]["greenwald_threshold"] == 1.0
@@ -58,16 +59,14 @@ class TokamakMergeTest:
         assert flattop["torax"]["pedestal"]["T_i_ped"] == 4.5
         for merged in (rampup, flattop):
             assert merged["physics_randomization"]
-        # The ramp source is exact upstream. The hot 51 MW source is split into
-        # two exposed controls while preserving its shape and electron share.
+        # The ramp source is exact upstream. The flat top uses the transferred
+        # TORAX-reference vector with all 51 MW in generic NBI heat.
         assert rampup["torax"]["sources"]["generic_heat"]["P_total"] == 20.0e6
-        assert flattop["torax"]["sources"]["generic_heat"]["P_total"] == (
-            23_314_285.714285713
-        )
+        assert flattop["torax"]["sources"]["generic_heat"]["P_total"] == 51.0e6
         rampup_actuators = {item["name"]: item for item in rampup["actuators"]}
         flattop_actuators = {item["name"]: item for item in flattop["actuators"]}
         assert rampup_actuators["P_nbi"]["init"] == 20.0e6
-        assert flattop_actuators["P_nbi"]["init"] == 23_314_285.714285713
+        assert flattop_actuators["P_nbi"]["init"] == 51.0e6
         # Phase deltas differ and win over base.
         assert rampup["torax"]["numerics"]["t_final"] == 100.0
         assert rampup["torax"]["numerics"]["fixed_dt"] == 0.1

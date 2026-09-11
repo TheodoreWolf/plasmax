@@ -209,6 +209,48 @@ class SeedBufferLogger:
                 {name: value[run_idx] for name, value in arrays.items()},
             )
 
+    def log_wandb_batch(
+        self,
+        global_step: int,
+        metrics: dict[str, np.ndarray],
+    ) -> None:
+        """Log a host-side metric batch without changing local history.
+
+        This is intended for high-frequency optimizer diagnostics. Evaluation
+        checkpoints should continue to use :meth:`log_batch`, which owns the
+        stable CSV/NPZ history schema.
+        """
+        arrays = {name: np.asarray(value) for name, value in metrics.items()}
+        for name, value in arrays.items():
+            if value.shape != (self.num_seeds,):
+                raise ValueError(
+                    f"metric {name!r} must have shape ({self.num_seeds},), "
+                    f"got {value.shape}"
+                )
+
+        ddof = 1 if self.num_seeds > 1 else 0
+        stats = {
+            name: _finite_mean_and_std(value.tolist(), ddof)
+            for name, value in arrays.items()
+        }
+        log_data: dict[str, float] = {}
+        for name, (mean, std) in stats.items():
+            log_data[name] = mean
+            if self.num_seeds > 1:
+                log_data[f"{name}_seed_std"] = std
+
+        now = time.time()
+        if self._prev_flush_time is not None:
+            elapsed = now - self._prev_flush_time
+            if elapsed > 0:
+                self._sps = (global_step - self._prev_flush_step) / elapsed
+        self._prev_flush_time = now
+        self._prev_flush_step = global_step
+        total_time = now - self.start_time if self.start_time is not None else 0.0
+        log_data["time/sps"] = self._sps
+        log_data["time/total_time"] = total_time
+        self._run.log(log_data, step=global_step)
+
     # ------------------------------------------------------------------
     def log_once(self, data: dict) -> None:
         """Record one-off scalars (compile/lower/train times) to wandb summary."""

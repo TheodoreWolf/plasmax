@@ -76,7 +76,7 @@ observations:
     # Unified time normalization across all ITER scenarios: 1000 s covers the
     # longest phase (advanced flat-top) with no clipping; shorter phases use a
     # compressed [0, <1] range. (Per-scenario t_final still sets episode length.)
-    - {name: t,               scale: 1000.0, bounds: [0.0, 1000.0]}
+    - {name: t,               scale: 1.0e+3, bounds: [0.0, 1.0e+3]}
     - {name: Ip,              scale: 1.0e+7, bounds: [0.0, 2.0e+7]}
     - {name: q_min,           scale: 3.0,    bounds: [0.0, 10.0]}
     - {name: q95,             scale: 5.0,    bounds: [0.0, 20.0]}

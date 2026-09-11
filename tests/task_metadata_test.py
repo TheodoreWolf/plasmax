@@ -27,7 +27,7 @@ _EXPECTED_TASKS: dict[str, tuple[str, float | None]] = {
     "iter/baseline/flattop": ("P_diff", 0.0),
     "iter/baseline/rampdown": ("rampdown", -1325),
     "iter/hybrid/rampup": ("lh_transition", -100),
-    "iter/hybrid/flattop": ("P_diff", 0.0),
+    "iter/hybrid/flattop": ("P_diff", -1000),
     "iter/hybrid/rampdown": ("rampdown", -1000),
     "sparc/prd/rampup": ("lh_transition", -10),
     "sparc/prd/flattop": ("P_diff", 0.0),

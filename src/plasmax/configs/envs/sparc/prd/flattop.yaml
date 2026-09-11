@@ -11,23 +11,23 @@ task:
 torax:
   profile_conditions:
     Ip: 8.7e+6                    # constant (scalar, not time-keyed)
-    T_i_right_bc: 0.56762038
-    T_e_right_bc: 0.2660709
-    n_e_right_bc: 8.4359166e+19
+    T_i_right_bc: 0.5676
+    T_e_right_bc: 0.2661
+    n_e_right_bc: 8.436e+19
   numerics:
     t_final: 15.0
   geometry:
     geometry_file: references/sparc_prd_freegs_20221013.eqdsk
   sources:
     generic_heat:
-      P_total: 11000000.0
+      P_total: 1.1e+7
     ecrh:
       P_total: 0.0
       gaussian_location: 0.3
     gas_puff:
       S_total: 4e+21
 actuators:
-- {name: P_nbi, low: 1000000.0, high: 25000000.0, max_delta: 2000000.0, init: 11000000.0}
-- {name: P_eccd, low: 0.0, high: 10000000.0, max_delta: 1000000.0, init: 0.0}
+- {name: P_nbi, low: 1.0e+6, high: 2.5e+7, max_delta: 2.0e+6, init: 1.1e+7}
+- {name: P_eccd, low: 0.0, high: 1.0e+7, max_delta: 1.0e+6, init: 0.0}
 - {name: rho_eccd, low: 0.2, high: 0.8, max_delta: 0.05, init: 0.3}
 - {name: gas_puff_rate, low: 1e+20, high: 1e+22, max_delta: 2e+20, init: 4e+21}

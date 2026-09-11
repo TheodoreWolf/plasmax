@@ -47,59 +47,59 @@ references:
       torax_component: torax.sources.generic_heat
       matched_quantities: [integrated_power, volume_weighted_centroid, rms_width, electron_ion_partition]
       source_targets:
-        power_W: 32204566.10558545
-        rho_centroid: 0.5048100773961027
-        rho_rms_width: 0.21657692524735792
-        electron_heat_fraction: 0.6349488250037933
+        power_W: 3.22e+7
+        rho_centroid: 0.5048
+        rho_rms_width: 0.2166
+        electron_heat_fraction: 0.6349
       torax_parameters:
-        P_total: 32204566.10558545
-        gaussian_location: 0.2556776403728281
-        gaussian_width: 0.3334149540677585
-        electron_heat_fraction: 0.6349488250037933
+        P_total: 3.22e+7
+        gaussian_location: 0.2557
+        gaussian_width: 0.3334
+        electron_heat_fraction: 0.6349
       notes:
       - Gaussian parameters are fitted on the converted 25-cell ITPA geometry; they are not themselves the physical centroid and width.
     - source_component: ITPA core_sources/ec electron heat
       torax_component: torax.sources.ecrh
       matched_quantities: [integrated_power, volume_weighted_centroid, rms_width, electron_ion_partition]
       source_targets:
-        power_W: 16875121.09102656
-        rho_centroid: 0.21154895623267286
-        rho_rms_width: 0.0674905480965164
+        power_W: 1.688e+7
+        rho_centroid: 0.2115
+        rho_rms_width: 0.06749
         electron_heat_fraction: 1.0
       torax_parameters:
-        P_total: 16875121.09102656
-        gaussian_location: 0.18092074381061005
-        gaussian_width: 0.07447085458047044
+        P_total: 1.688e+7
+        gaussian_location: 0.1809
+        gaussian_width: 0.07447
       notes:
       - The local EC current-drive efficiency is not supplied by this profile projection and remains an editable local parameter.
     - source_component: ITPA core_sources/nbi ion particles
       torax_component: torax.sources.generic_particle
       matched_quantities: [integrated_particles, volume_weighted_centroid, rms_width]
       source_targets:
-        particles_per_s: 1.958196187096854e+20
-        rho_centroid: 0.5001969452749675
-        rho_rms_width: 0.2194036058345459
+        particles_per_s: 1.958e+20
+        rho_centroid: 0.5002
+        rho_rms_width: 0.2194
       torax_parameters:
-        S_total: 1.958196187096854e+20
-        deposition_location: 0.2129021131867942
-        particle_width: 0.3524989016656593
+        S_total: 1.958e+20
+        deposition_location: 0.2129
+        particle_width: 0.3525
     - source_component: ITPA core_sources/pellet ion particles
       torax_component: torax.sources.pellet
       matched_quantities: [integrated_particles, volume_weighted_centroid, rms_width]
       source_targets:
-        particles_per_s: 3.2822178577250456e+22
-        rho_centroid: 0.8419126869793957
-        rho_rms_width: 0.06735942621600581
+        particles_per_s: 3.282e+22
+        rho_centroid: 0.8419
+        rho_rms_width: 0.06736
       torax_parameters:
-        S_total: 3.2822178577250456e+22
-        pellet_deposition_location: 0.8413844189838808
-        pellet_width: 0.07053089225185659
+        S_total: 3.282e+22
+        pellet_deposition_location: 0.8414
+        pellet_width: 0.07053
     targets:
       source_time_s: 450.0
-      Ip_A: 15000000.0
-      q_min: 0.9655333353712965
-      auxiliary_power_W: 49079687.196612
-      fusion_power_total_W: 705823585.1070224
+      Ip_A: 1.5e+7
+      q_min: 0.9655
+      auxiliary_power_W: 4.908e+7
+      fusion_power_total_W: 7.058e+8
 
   iter_baseline_cold_3ma:
     machine: iter
@@ -125,7 +125,7 @@ references:
     - initialization
     - actuators
     targets:
-      Ip_A: 3000000.0
+      Ip_A: 3.0e+6
       f_GW: 0.3
       axis_temperature_keV: 6.0
       edge_temperature_keV: 0.1
@@ -168,22 +168,22 @@ references:
       torax_component: torax.sources.generic_heat + torax.sources.ecrh
       matched_quantities: [integrated_power, complete_radial_shape, electron_ion_partition]
       source_targets:
-        power_W: 51000000.0
-        gaussian_location: 0.12741589640723575
-        gaussian_width: 0.07280908366127758
+        power_W: 5.1e+7
+        gaussian_location: 0.1274
+        gaussian_width: 0.07281
         electron_heat_fraction: 0.68
       torax_parameters:
-        generic_heat_P_total_W: 23314285.714285713
+        generic_heat_P_total_W: 2.331e+7
         generic_heat_electron_fraction: 0.3
-        ecrh_P_total_W: 27685714.285714287
-        shared_gaussian_location: 0.12741589640723575
-        shared_gaussian_width: 0.07280908366127758
+        ecrh_P_total_W: 2.769e+7
+        shared_gaussian_location: 0.1274
+        shared_gaussian_width: 0.07281
       notes:
       - Both projected channels use the identical upstream Gaussian, so their sum reproduces the complete released source shape rather than only its first two moments.
     targets:
-      Ip_A: 10500000.0
+      Ip_A: 1.05e+7
       f_GW: 0.8
-      auxiliary_power_W: 51000000.0
+      auxiliary_power_W: 5.1e+7
       electron_heat_fraction: 0.68
 
   iter_hybrid_cold_v1_4_2:
@@ -216,7 +216,7 @@ references:
     - torax.pedestal.rho_norm_ped_top
     - actuators
     targets:
-      Ip_A: 3000000.0
+      Ip_A: 3.0e+6
       f_GW: 0.3
       axis_temperature_keV: 6.0
       edge_temperature_keV: 0.1
@@ -241,13 +241,13 @@ references:
       crop: [1320, 420, 1970, 1460]
       digitization_tolerance_pixels: 2.0
       axis_transform:
-        rho_pixels: [1334.0, 1948.0]
+        rho_pixels: [1.334e+3, 1.948e+3]
         rho_values: [0.0, 1.0]
         temperature_pixels: [881.0, 444.0]
         temperature_keV: [0.0, 30.0]
         density_pixels: [881.0, 444.0]
         density_1e20_m-3: [0.0, 1.0]
-        q_pixels: [1448.0, 1040.0]
+        q_pixels: [1.448e+3, 1.04e+3]
         q_values: [0.0, 10.0]
       notes:
       - Curves are illustrative; the stored CSV and generated overlay are the inspection record.
@@ -266,9 +266,9 @@ references:
       torax_component: torax.sources.generic_heat + torax.sources.generic_current
       matched_quantities: [integrated_power]
       source_targets:
-        power_W: 34000000.0
+        power_W: 3.4e+7
       torax_parameters:
-        generic_heat_P_total_W: 34000000.0
+        generic_heat_P_total_W: 3.4e+7
         generic_current_fraction_of_total_current: 1.0
       notes:
       - Slide 25 does not publish a deposition curve; the existing local Gaussian shape and non-inductive-current split remain editable within physical plausibility.
@@ -276,20 +276,20 @@ references:
       torax_component: torax.sources.ecrh
       matched_quantities: [integrated_power]
       source_targets:
-        power_W: 34000000.0
+        power_W: 3.4e+7
       torax_parameters:
-        P_total_W: 34000000.0
+        P_total_W: 3.4e+7
       notes:
       - TORAX exposes no lower-hybrid source in this task, so the electron-heating channel is represented by ecrh; the local deposition and current-efficiency parameters are explicitly not source-locked.
     targets:
-      Ip_A: 9000000.0
+      Ip_A: 9.0e+6
       q95: 5.3
-      edge_poloidal_flux_Wb: 42.0772
+      edge_poloidal_flux_Wb: 42.08
       H98: 1.3
       beta_N: 2.56
-      lower_hybrid_power_W: 34000000.0
-      neutral_beam_power_W: 34000000.0
-      fusion_power_W: 340000000.0
+      lower_hybrid_power_W: 3.4e+7
+      neutral_beam_power_W: 3.4e+7
+      fusion_power_W: 3.4e+8
 
   iter_advanced_cold_3ma:
     machine: iter
@@ -314,7 +314,7 @@ references:
     - initialization
     - actuators
     targets:
-      Ip_A: 3000000.0
+      Ip_A: 3.0e+6
       f_GW: 0.3
       axis_temperature_keV: 6.0
       edge_temperature_keV: 0.1
@@ -361,17 +361,17 @@ references:
       torax_component: torax.sources.generic_heat
       matched_quantities: [integrated_power]
       source_targets:
-        power_W: 11000000.0
+        power_W: 1.1e+7
       torax_parameters:
-        P_total_W: 11000000.0
+        P_total_W: 1.1e+7
         gaussian_location: 0.1
         gaussian_width: 0.2
         electron_heat_fraction: 0.5
       notes:
       - The released profile table contains no ICRF deposition curve; the local source shape and electron-ion partition remain editable within physical bounds.
     targets:
-      Ip_A: 8700000.0
-      ICRF_power_W: 11000000.0
+      Ip_A: 8.7e+6
+      ICRF_power_W: 1.1e+7
       profile_variant: released high-density profile
 
   sparc_prd_cold_1ma:
@@ -398,7 +398,7 @@ references:
     - initialization
     - actuators
     targets:
-      Ip_A: 1000000.0
+      Ip_A: 1.0e+6
       f_GW: 0.3
       axis_temperature_keV: 1.0
       edge_temperature_keV: 0.1
@@ -426,7 +426,7 @@ references:
       axis_transform:
         Ti_rho_pixels: [310.0, 636.0]
         Ti_keV_pixels: [449.0, 218.0]
-        Te_rho_pixels: [720.0, 1045.0]
+        Te_rho_pixels: [720.0, 1.045e+3]
         Te_keV_pixels: [449.0, 222.0]
         ne_rho_pixels: [519.0, 840.0]
         ne_1e19_m-3_pixels: [750.0, 548.0]
@@ -446,19 +446,19 @@ references:
       torax_component: torax.sources.generic_heat
       matched_quantities: [integrated_power]
       source_targets:
-        power_W: 25000000.0
+        power_W: 2.5e+7
       torax_parameters:
-        P_total_W: 25000000.0
+        P_total_W: 2.5e+7
         gaussian_location: 0.1
         gaussian_width: 0.2
         electron_heat_fraction: 0.5
       notes:
       - Figure 16 publishes converged state profiles but no ICRF deposition curve; the local source shape and partition are explicitly not source-locked.
     targets:
-      Ip_A: 5700000.0
+      Ip_A: 5.7e+6
       f_GW: 0.46
       q_star_uckan: 3.0
-      ICRF_power_W: 25000000.0
+      ICRF_power_W: 2.5e+7
 
   sparc_h8_cold_1ma:
     machine: sparc
@@ -484,7 +484,7 @@ references:
     - initialization
     - actuators
     targets:
-      Ip_A: 1000000.0
+      Ip_A: 1.0e+6
       f_GW: 0.3
       axis_temperature_keV: 1.0
       edge_temperature_keV: 0.1
@@ -538,11 +538,11 @@ references:
       torax_component: torax.sources.ecrh
       matched_quantities: [integrated_power, volume_weighted_centroid, rms_width]
       source_targets:
-        power_W: 150000000.0
-        rho_centroid: 0.3938490669119931
-        rho_rms_width: 0.14595495422825847
+        power_W: 1.5e+8
+        rho_centroid: 0.3938
+        rho_rms_width: 0.146
       torax_parameters:
-        P_total_W: 150000000.0
+        P_total_W: 1.5e+8
         gaussian_location: 0.3384
         gaussian_width: 0.1704
         current_drive_efficiency: 0.14
@@ -552,9 +552,9 @@ references:
       torax_component: torax.sources.pellet
       matched_quantities: [volume_weighted_centroid, rms_width]
       source_targets:
-        released_particles_per_s: 1.1754882422741837e+22
-        rho_centroid: 0.7558262303011922
-        rho_rms_width: 0.13770938492751514
+        released_particles_per_s: 1.175e+22
+        rho_centroid: 0.7558
+        rho_rms_width: 0.1377
       torax_parameters:
         S_total: 3.0e+21
         pellet_deposition_location: 0.8
@@ -562,8 +562,8 @@ references:
       notes:
       - The Gaussian shape matches the released moments, while its total rate is intentionally the exact TORAX v1.4.2 value rather than the larger OpenSTEP source total.
     targets:
-      Ip_A: 21228640.0
-      ecrh_power_W: 150000000.0
+      Ip_A: 2.123e+7
+      ecrh_power_W: 1.5e+8
       ecrh_current_drive_efficiency: 0.14
       pellet_rate_s-1: 3.0e+21
       bgb_multiplier: 0.15

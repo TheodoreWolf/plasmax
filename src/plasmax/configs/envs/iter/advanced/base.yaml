@@ -44,8 +44,8 @@ torax:
     ei_exchange:
       Qei_multiplier: 1.0
   pedestal:
-    T_i_ped: 1.651376
-    T_e_ped: 2.201835
-    n_e_ped: 5.733945e+19
+    T_i_ped: 1.651
+    T_e_ped: 2.202
+    n_e_ped: 5.734e+19
     n_e_ped_is_fGW: false
     rho_norm_ped_top: 0.94
