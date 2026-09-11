@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 
-from plasmax.environment.initialization import load_snapshot
 from plasmax.environment.initialization_data import (
     ToraxInitialization,
     load_initialization,
@@ -21,30 +20,6 @@ def test_zero_step_capture_exports_the_selected_nominal_state(tmp_path: Path) ->
     main(Config(environment="iter/hybrid/flattop", output=path))
     selected = CONFIGS_DIR / "data/initializations/iter/hybrid/settled.yaml"
     assert path.read_bytes() == selected.read_bytes()
-
-
-def test_historical_npz_conversion_preserves_rounded_profiles_and_history(
-    tmp_path: Path,
-) -> None:
-    source = CONFIGS_DIR / "data/initializations/iter/hybrid/flattop_bgb_settled.npz"
-    path = tmp_path / "converted.yaml"
-    main(Config(import_npz=source, output=path))
-    restored = load_snapshot(path)
-    with np.load(source, allow_pickle=False) as archive:
-        for name in (
-            "T_i",
-            "T_e",
-            "n_e",
-            "psi",
-            "dW_thermal_i_dt_smoothed",
-            "dW_thermal_e_dt_smoothed",
-            "confinement_mode",
-        ):
-            np.testing.assert_array_equal(
-                getattr(restored, name), round_significant(archive[name])
-            )
-    assert restored.metadata.source_step == 1000
-    assert restored.metadata.source_time_s == 100.0
 
 
 def test_kstar_capture_reproduces_the_packaged_rounded_history(tmp_path: Path) -> None:

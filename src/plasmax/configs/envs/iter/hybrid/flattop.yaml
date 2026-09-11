@@ -6,8 +6,7 @@
 # significant figures in settled.yaml. Ramp-down uses a separate hot reference.
 #
 # Geometry:  Static 10.5 MA EQDSK, rescaled to the live Ip. No ramp
-#            interpolation. The original settled NPZ remains a provenance
-#            artifact. The task spans the full 100--540 s flat-top:
+#            interpolation. The task spans the full 100--540 s flat-top:
 #            t_final = 440 s -> 4400 steps.
 
 phase: flattop

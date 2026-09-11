@@ -134,58 +134,6 @@ nominal values. `PhysicsRandomizationWrapper` samples before every step,
 always using the configured nominals for relative ranges. Each stochastic
 wrapper owns its RNG; `init(key)` and `reset(state, key)` seed these streams.
 
-## Initializations
-
-Every task YAML references one complete starting state, for example:
-
-```yaml
-initialization: ${DATA_DIR}/initializations/iter/baseline/cold.yaml
-```
-
-Browse the [initialization files](src/plasmax/configs/data/initializations/) to
-inspect or edit a starting state. Each file contains `schema_version: 1`, a
-`kind` (`torax` or `kstar`), a description, provenance, and named state fields.
-Source hashes, simulator versions, and capture details stay in that document.
-All saved floating-point values have at most **four significant figures**;
-these rounded values are authoritative. Simulation arithmetic keeps its usual
-precision.
-
-TORAX files contain cell and face coordinates, cell arrays `T_i_keV`, `T_e_keV`,
-`n_e_m3`, and `psi_Wb`, plus confinement mode and smoothed energy derivatives.
-STEP includes composition on the union of cell and face coordinates. Geometry,
-actuator settings, source settings, current schedules, and edge boundary
-schedules stay in task configuration. Resolved profile arrays are applied after
-configuration composition, so a cold ramp-up cannot inherit hot radial points.
-
-Flat-top and ramp-down share a YAML only when their entire stored state is
-identical. ITER hybrid flat-top uses the existing settled Bohm–GyroBohm snapshot;
-its ramp-down uses a separate hot reference. The historical NPZ and original
-source data remain provenance artifacts. STEP's NetCDF remains the geometry
-asset. Neither source format supplies profiles at runtime.
-
-KSTAR stores named engineering inputs, one resolved 21-column history row and
-its repeat count of ten, and the three target defaults and bounds. Its task's
-`random_target` switch still controls per-reset target sampling; model weights
-remain separate.
-
-To edit a state, copy its YAML if only one phase should change, update that
-task's reference, and edit the complete named arrays. Keep the grid compatible
-with the task geometry. To normalize formatting or export a selected state:
-
-```bash
-uv run python tools/generate_phase_initialization.py \
-  --environment iter/baseline/rampup --output /tmp/cold.yaml
-```
-
-The shared serializer validates and rounds once when writing. A zero-step
-TORAX export preserves the selected nominal state; KSTAR export materializes
-its history using the packaged weights. Explicit `--source-steps N` captures a
-held-action TORAX state without reset noise; `--import-npz PATH` converts a
-historical snapshot without running a trajectory. No companion data file is
-needed. After intentionally changing a reference, review its provenance and
-update `profile_sha256` in `configs/references.yaml` using
-`plasmax.environment.references.reset_reference_sha256(environment, backend)`.
-Do not change a reference hash just to silence an unexpected mismatch.
 
 ## Environment boundary
 

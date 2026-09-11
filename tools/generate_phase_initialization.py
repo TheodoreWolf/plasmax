@@ -1,8 +1,7 @@
 """Capture a nominal task state as one readable YAML initialization.
 
 Use --source-steps 0 to export the selected nominal state, or explicitly request
-held-action evolution with --source-steps N. --import-npz converts a historical
-TORAX source artifact; NPZ is never an environment initialization format.
+held-action evolution with --source-steps N. Initializations use YAML exclusively.
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ import tyro
 from plasmax.environment import factory as factory_lib
 from plasmax.environment.config import parse_env_and_backend
 from plasmax.environment.initialization import (
-    PhaseSnapshot,
     initialization_from_snapshot,
     snapshot_from_state,
 )
@@ -41,15 +39,6 @@ class Config:
     source_steps: int = 0
     seed: int = 0
     output: Path | None = None
-    import_npz: Path | None = None
-
-
-def _legacy_snapshot(path: Path) -> PhaseSnapshot:
-    """Import the immutable historical source, only in this conversion tool."""
-    with np.load(path, allow_pickle=False) as archive:
-        values = {name: np.array(archive[name]) for name in archive.files}
-    values["metadata"] = json.loads(values.pop("metadata_json").item())
-    return PhaseSnapshot.model_validate(values)
 
 
 def _backend(config: Config) -> str | None:
@@ -83,7 +72,7 @@ def capture(config: Config) -> ToraxInitialization | KstarInitialization:
     ).hexdigest()
 
     if isinstance(parsed, WorldModelConfig):
-        if config.source_steps or config.import_npz is not None:
+        if config.source_steps:
             raise ValueError("KSTAR export captures its nominal learned initialization")
         from plasmax.models.world_model import load_bundle, predict_nn
         from plasmax.models.world_model_env import _steady_features
@@ -120,36 +109,29 @@ def capture(config: Config) -> ToraxInitialization | KstarInitialization:
 
     assert isinstance(parsed, PlasmaxConfig)
     assert isinstance(document, ToraxInitialization)
-    if config.import_npz is not None:
-        if config.source_steps:
-            raise ValueError("import_npz and source_steps are mutually exclusive")
-        snapshot = _legacy_snapshot(config.import_npz)
-    elif config.source_steps == 0:
+    if config.source_steps == 0:
         return document
-    else:
-        parsed = parsed.model_copy(
-            update={"state_noise": {}, "physics_randomization": {}}
-        )
-        env = factory_lib._build_env(parsed, reward=None, disruption_penalty=None)
-        state, _ = env.init(jax.random.key(config.seed))
-        step = jax.jit(env.step)
-        for index in range(config.source_steps):
-            state, info = step(state, state.prev_action)
-            jax.block_until_ready((state, info))
-            if not bool(info.control_step_complete) or bool(
-                info.terminated | info.truncated
-            ):
-                raise RuntimeError(f"source trajectory ended at step {index + 1}")
-        snapshot = snapshot_from_state(
-            state.plasma.sim,
-            environment=config.environment,
-            source_backend=backend,
-            source_step=config.source_steps,
-            seed=config.seed,
-            source_config_sha256=digest,
-        )
+    parsed = parsed.model_copy(update={"state_noise": {}, "physics_randomization": {}})
+    env = factory_lib._build_env(parsed, reward=None, disruption_penalty=None)
+    state, _ = env.init(jax.random.key(config.seed))
+    step = jax.jit(env.step)
+    for index in range(config.source_steps):
+        state, info = step(state, state.prev_action)
+        jax.block_until_ready((state, info))
+        if not bool(info.control_step_complete) or bool(
+            info.terminated | info.truncated
+        ):
+            raise RuntimeError(f"source trajectory ended at step {index + 1}")
+    snapshot = snapshot_from_state(
+        state.plasma.sim,
+        environment=config.environment,
+        source_backend=backend,
+        source_step=config.source_steps,
+        seed=config.seed,
+        source_config_sha256=digest,
+    )
     provenance = document.provenance.model_copy(update=snapshot.metadata.model_dump())
-    source = config.import_npz or parsed.initialization
+    source = parsed.initialization
     provenance = provenance.model_copy(
         update={
             "sources": (
@@ -165,9 +147,7 @@ def capture(config: Config) -> ToraxInitialization | KstarInitialization:
                 grid=f"{len(snapshot.rho_norm)} TORAX cells and "
                 f"{len(snapshot.rho_face_norm)} faces",
                 notes=(
-                    "Converted from the historical NPZ without transition steps."
-                    if config.import_npz is not None
-                    else f"Captured after {config.source_steps} held-action steps "
+                    f"Captured after {config.source_steps} held-action steps "
                     "with reset noise and physics randomization disabled.",
                 ),
             ),

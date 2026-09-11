@@ -575,18 +575,17 @@ references:
     kind: constrained
     confidence: high
     sources:
-    - title: Settled Bohm-GyroBohm hybrid state
+    - title: Historical settled Bohm-GyroBohm hybrid state
       url: https://github.com/TheodoreWolf/plasmax
       sha256: d84a6e3ad0f8bbfbb08123626fd01da6655ca2a413eb0006140e92a724b3add5
       revision: TORAX 1.4.2; seed 0; 1000 source steps
       license: Apache-2.0
-      redistribution: vendored
-      local_path: data/initializations/iter/hybrid/flattop_bgb_settled.npz
+      redistribution: checksum_only
     extraction:
       method: simulation_capture
       grid: 25 TORAX cells and 26 faces
       notes:
-      - Converted directly from the saved NPZ, without rerunning the settling trajectory.
+      - Migrated directly from the historical settled state without rerunning its trajectory.
       - Stored physical values rounded to four significant figures.
     profile_sha256: f454da4ba4a7d2dc9339475a3eedcd85d5b4639fb5e1b5448d3311a652aca91e
     artifacts: {}

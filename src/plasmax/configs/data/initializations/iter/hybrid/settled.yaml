@@ -17,15 +17,15 @@ provenance:
     sha256: 0b2ee110defc5979b78be8ecf5807a04d329fc71ad310873e176fecfd9712f79
     license: Apache-2.0
     redistribution: checksum_only
-  - title: Settled Bohm-GyroBohm state
-    local_path: data/initializations/iter/hybrid/flattop_bgb_settled.npz
+  - title: Historical settled Bohm-GyroBohm state
+    redistribution: checksum_only
     sha256: d84a6e3ad0f8bbfbb08123626fd01da6655ca2a413eb0006140e92a724b3add5
   extraction:
     method: simulation_capture
     grid: 25 TORAX cells and 26 faces
     axis_transform: {}
     notes:
-    - Converted directly from the saved NPZ, without rerunning the settling trajectory.
+    - Migrated directly from the historical settled state without rerunning its trajectory.
     - Stored physical values rounded to four significant figures.
   artifacts: {}
   notes:
