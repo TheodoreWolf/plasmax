@@ -1,118 +1,110 @@
-"""Visualize an optimized open-loop discharge against the setpoint-hold baseline.
+"""Plot a saved MessagePack policy against a paired setpoint-hold episode.
 
-Loads the ``.npz`` written by ``experiments/studies/optimize_open_loop.py`` and
-replays the optimized actuator schedule and constant setpoint-hold schedule
-through the env. It plots scalar traces (with q_min / Greenwald limits
-drawn in), the four actuator ramps, and the optimization learning curve.
-
-Usage::
-
-    uv run python experiments/plotting/plot_open_loop.py
     uv run python experiments/plotting/plot_open_loop.py \
-        --npz outputs/open_loop_baseline.npz \
-        --out plots/open_loop_discharge.png
+        --policy outputs/policies/run.msgpack --out plots/open_loop_discharge.png
 """
 
 from __future__ import annotations
 
-import argparse
+import dataclasses
 from pathlib import Path
+from typing import Any
 
 import jax
-import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 
-from plasmax.environment import factory as sc
-from plasmax.wrappers import RealisticWrappers, unwrap_to_env_state
-
-
-def _replay(env, key, actions_norm):
-    """Roll a normalized schedule and retain only its first episode."""
-
-    def body(carry, a):
-        state, active = carry
-
-        def step_active(_):
-            next_state, info = env.step(state, a)
-            plasma = unwrap_to_env_state(next_state).plasma
-            boundary = info.terminated | info.truncated
-            return (next_state, ~boundary), (
-                plasma.sim,
-                plasma,
-                jnp.asarray(True),
-            )
-
-        def pad(_):
-            plasma = unwrap_to_env_state(state).plasma
-            return (state, jnp.asarray(False)), (
-                plasma.sim,
-                plasma,
-                jnp.asarray(False),
-            )
-
-        return jax.lax.cond(active, step_active, pad, operand=None)
-
-    state, _ = env.init(key)
-    _, (ss, po, valid) = jax.lax.scan(body, (state, jnp.asarray(True)), actions_norm)
-    return ss, po, np.asarray(valid)
+from agents.policy_io import load_policy
+from plasmax.wrappers import unwrap_to_env_state
+from training.evaluation import evaluate_policy, trajectory_arrays
+from training.runs import load_policy_env
 
 
-def _scalars(ss, po, valid):
-    """Extract scalar traces, excluding fixed-scan padding."""
-    end = int(valid.sum())
-    sl = slice(0, end)
+@dataclasses.dataclass(frozen=True)
+class Config:
+    policy: Path
+    out: Path = Path("plots/open_loop_discharge.png")
+    seed: int = 0
+    backend: str | None = None
+    max_steps: int | None = None
+
+
+def _scalars(arrays: dict[str, np.ndarray]) -> dict[str, Any]:
+    """Extract physical scalar traces from the common trajectory arrays."""
+    valid = arrays["valid"]
     return {
-        "t": np.asarray(ss.t)[sl],
-        "Ip": np.asarray(ss.core_profiles.Ip_profile_face[:, -1])[sl] / 1e6,
-        "P_fus": np.asarray(po.P_fusion)[sl] / 1e6,
-        "P_aux": np.asarray(po.P_aux_total)[sl] / 1e6,
-        "q_min": np.asarray(po.q_min)[sl],
-        "fgw": np.asarray(po.fgw_n_e_line_avg)[sl],
-        "beta_N": np.asarray(po.beta_N)[sl],
-        "end": end,
+        "t": arrays["time_s"][valid],
+        "Ip": arrays["Ip"][valid] / 1e6,
+        "P_fus": arrays["P_fusion"][valid] / 1e6,
+        "P_aux": arrays["P_aux_total"][valid] / 1e6,
+        "q_min": arrays["q_min"][valid],
+        "fgw": arrays["fgw_n_e_line_avg"][valid],
+        "beta_N": arrays["beta_N"][valid],
+        "end": int(valid.sum()),
     }
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--npz", default="outputs/open_loop_baseline.npz")
-    p.add_argument("--out", default="plots/open_loop_discharge.png")
-    args = p.parse_args()
+def _learning_curve(results: Any) -> tuple[np.ndarray, np.ndarray] | None:
+    if not isinstance(results, dict) or "global_step" not in results:
+        return None
+    evaluation = results["evaluation"]
+    if isinstance(evaluation, dict):
+        returns = evaluation.get(
+            "evaluation/return_mean", evaluation.get("eval/return_mean")
+        )
+        if returns is None:
+            return None
+    else:
+        returns = np.asarray(evaluation[1]).mean(axis=-1)
+    return np.asarray(results["global_step"]), np.asarray(returns)
 
-    data = np.load(args.npz, allow_pickle=True)
-    env_path = str(data["env"])
-    backend_path = str(data["backend"])
-    reward = str(data["reward"])
-    opt_actions = jnp.asarray(data["actions_norm"])  # (T, A) normalized in [-1,1]
-    num_steps = opt_actions.shape[0]
 
-    env = RealisticWrappers(
-        sc.make(env_path, backend_path, reward=reward), max_steps=num_steps
+def _compare(policy: Any, env: Any, key: jax.Array) -> tuple[dict, dict, dict, dict]:
+    """Collect both controllers with identical environment and policy key banks."""
+    # collect_episodes splits the episode key, then collect_episode splits its
+    # environment and policy streams. Match that reset to choose the hold value.
+    initial_key = jax.random.split(jax.random.split(key, 1)[0])[0]
+    state, _ = env.init(initial_key)
+    initial_action = unwrap_to_env_state(state).prev_action
+    setpoint = env.from_physical(initial_action)
+
+    def hold(obs: jax.Array, rng: jax.Array) -> jax.Array:
+        del obs, rng
+        return setpoint
+
+    optimized_metrics, optimized = evaluate_policy(policy, env, key, num_episodes=1)
+    baseline_metrics, baseline = evaluate_policy(hold, env, key, num_episodes=1)
+    return (
+        optimized_metrics,
+        trajectory_arrays(optimized, env),
+        baseline_metrics,
+        trajectory_arrays(baseline, env),
     )
-    key = jax.random.key(0)
 
-    # Setpoint-hold schedule: the env reset setpoint, normalized, held for the run.
-    s0, _ = env.init(key)
-    s0 = unwrap_to_env_state(s0)
-    base = env.unwrapped
-    low = jnp.asarray(base.action_space.low)
-    high = jnp.asarray(base.action_space.high)
-    setp_norm = 2.0 * (s0.prev_action - low) / (high - low) - 1.0
-    setp_actions = jnp.broadcast_to(setp_norm, (num_steps, setp_norm.shape[0]))
 
-    actuators = [spec.name for spec in base.actuator_specs]
-
-    print(f"Replaying optimized + setpoint-hold ({num_steps} steps each)...")
-    opt = _scalars(*_replay(env, key, opt_actions))
-    base_run = _scalars(*_replay(env, key, setp_actions))
-
-    opt_phys = np.asarray(env.to_physical(opt_actions))
-    setp_phys = np.asarray(env.to_physical(setp_actions))
-
-    base_cum = float(data["baseline_cum_reward"])
-    opt_cum = float(data["optimized_cum_reward"])
-    best_iter = int(data["best_iter"]) if "best_iter" in data else -1
+def main(config: Config) -> None:
+    policy = load_policy(config.policy)
+    env = load_policy_env(policy, backend=config.backend, max_steps=config.max_steps)
+    env_config = policy.metadata.get("config", {}).get("env", {})
+    env_path = env_config.get("env_setup", "saved task")
+    backend_path = config.backend or env_config.get("backend") or "native"
+    reward = env_config.get("reward") or "task"
+    actuators = [spec.name for spec in env.unwrapped.actuator_specs]
+    opt_metrics, opt_arrays, base_metrics, base_arrays = _compare(
+        policy,
+        env,
+        jax.random.key(config.seed),
+    )
+    opt, base_run = _scalars(opt_arrays), _scalars(base_arrays)
+    opt_phys = opt_arrays["command_physical"][opt_arrays["valid"]]
+    setp_phys = base_arrays["command_physical"][base_arrays["valid"]]
+    num_steps = opt_arrays["valid"].shape[-1]
+    base_cum = float(np.asarray(base_metrics["returns"])[0])
+    opt_cum = float(np.asarray(opt_metrics["returns"])[0])
+    gain = f"Δ {opt_cum - base_cum:+.2f}"
+    if base_cum != 0:
+        gain += f", {100 * (opt_cum - base_cum) / abs(base_cum):+.1f}%"
 
     optimized_color, baseline_color = "tab:red", "tab:gray"
     fig, axes = plt.subplots(3, 4, figsize=(20, 12))
@@ -120,9 +112,7 @@ def main() -> None:
         f"Optimized open-loop discharge vs setpoint-hold — {Path(env_path).stem} / "
         f"{Path(backend_path).stem} / reward={reward}\n"
         f"cum_reward: optimized {opt_cum:+.2f}  vs  baseline {base_cum:+.2f}  "
-        f"(Δ {opt_cum - base_cum:+.2f}, "
-        f"{100 * (opt_cum - base_cum) / abs(base_cum):+.1f}%)"
-        + (f"   [best iterate #{best_iter}]" if best_iter >= 0 else ""),
+        f"({gain})",
         fontsize=14,
     )
 
@@ -163,21 +153,25 @@ def main() -> None:
     )
 
     # Row 1: actuator schedules (optimized ramp vs constant setpoint).
-    t_full = np.asarray(jnp.arange(num_steps))  # actuator index axis (pre-truncation)
     for j, name in enumerate(actuators[:4]):
         ax = axes[1, j]
         ax.plot(
-            t_full,
+            base_run["t"],
             setp_phys[:, j],
             color=baseline_color,
             ls="--",
             lw=1.5,
             label="setpoint-hold",
         )
-        ax.plot(t_full, opt_phys[:, j], color=optimized_color, lw=2, label="optimized")
-        ax.set(xlabel="step", ylabel=name, title=f"Actuator: {name}")
+        ax.plot(
+            opt["t"], opt_phys[:, j], color=optimized_color, lw=2, label="optimized"
+        )
+        ax.set(xlabel="t [s]", ylabel=name, title=f"Actuator: {name}")
         ax.grid(alpha=0.3)
         ax.legend(fontsize=8, loc="best")
+
+    for ax in axes[1, len(actuators[:4]) :]:
+        ax.axis("off")
 
     # Row 2: net gain, beta_N, learning curve; 4th panel off.
     ax = axes[2, 0]
@@ -208,31 +202,31 @@ def main() -> None:
     _trace(axes[2, 1], "beta_N", "β_N", "Normalized beta")
 
     ax = axes[2, 2]
-    if "history_iter" in data:
-        ax.plot(
-            np.asarray(data["history_iter"]),
-            np.asarray(data["history_raw_cum"]),
-            color=optimized_color,
-        )
-        if best_iter >= 0:
-            ax.axvline(best_iter, color="k", ls=":", lw=1, label=f"best #{best_iter}")
-            ax.legend(fontsize=8)
-    ax.set(xlabel="iteration", ylabel="cum_reward", title="Optimization learning curve")
+    curve = _learning_curve(policy.results)
+    if curve is not None:
+        ax.plot(*curve, color=optimized_color)
+    ax.set(
+        xlabel="training transitions",
+        ylabel="episode return",
+        title="Optimization learning curve",
+    )
     ax.grid(alpha=0.3)
 
     axes[2, 3].axis("off")
 
     fig.tight_layout(rect=(0, 0, 1, 0.95))  # leave room for the suptitle
-    out = Path(args.out)
+    out = config.out
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=130, bbox_inches="tight")
     print(f"Saved {out}")
-    print(
-        f"optimized final: Ip={opt['Ip'][-1]:.2f}MA  P_fus={opt['P_fus'][-1]:.1f}MW  "
-        f"q_min={opt['q_min'][-1]:.2f}  n/n_GW={opt['fgw'][-1]:.3f}  "
-        f"alive={opt['end']}/{num_steps}"
-    )
+    if opt["end"]:
+        print(
+            f"optimized final: Ip={opt['Ip'][-1]:.2f}MA  "
+            f"P_fus={opt['P_fus'][-1]:.1f}MW  "
+            f"q_min={opt['q_min'][-1]:.2f}  n/n_GW={opt['fgw'][-1]:.3f}  "
+            f"alive={opt['end']}/{num_steps}"
+        )
 
 
 if __name__ == "__main__":
-    main()
+    main(tyro.cli(Config))

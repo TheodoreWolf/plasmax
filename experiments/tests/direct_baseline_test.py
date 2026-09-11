@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 
-from experiments.studies.direct_gradient import (
+from agents.direct_gradient import (
     apply_updates_with_backoff,
     make_knot_chunk,
 )

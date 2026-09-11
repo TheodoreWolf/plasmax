@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from _runtime import set_default_xla_flags
+from scripts._runtime import set_default_xla_flags
 
 set_default_xla_flags("--xla_gpu_enable_command_buffer=")
 
@@ -26,16 +26,16 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import tyro
-from rejax.evaluate import evaluate
 
 from agents.sac import SACAdapter
 from experiments.plotting.wandb_logging import make_buffered_seed_callback
 from experiments.studies.baseline_study import run_slug, seed_keys, validate_reward
-from experiments.studies.transfer_eval import transfer_metrics, write_transfer_summary
 from plasmax.environment.factory import make
 from plasmax.environment.registry import resolve_backend
 from plasmax.wrappers import OracleWrappers, RealisticWrappers
 from training.envelope_gymnax import EnvelopeGymnax
+from training.evaluation import write_transfer_summary
+from training.runs import evaluate_transfer, save_run_policies, validate_seeds
 from training.vmap_logging import SeedBufferLogger
 
 
@@ -93,6 +93,7 @@ class Config:
     seed: int = 0
     num_seeds: int = 10
     history_dir: str | None = None
+    checkpoint_dir: str | None = None
     algorithm: Literal["sac"] = "sac"
     study: str = "debug"
     # Optional study guard; the generic launcher accepts explicit task overrides.
@@ -151,74 +152,8 @@ def _load_envelope(cfg: Config, backend: str):
     )
 
 
-def _evaluate_transfer(
-    cfg: Config,
-    algo: SACAdapter,
-    train_states,
-) -> dict[str, float | str]:
-    if cfg.env.transfer_backend is None:
-        raise ValueError("transfer_backend is required for transfer evaluation")
-
-    source_backend = _backend_name(cfg.env.backend)
-    target_backend = _backend_name(cfg.env.transfer_backend)
-    print(f"Loading transfer env ({target_backend})...", flush=True)
-    source_env = algo.env
-    target_env = EnvelopeGymnax(_load_envelope(cfg, cfg.env.transfer_backend))
-
-    def evaluate_seed(train_state, key):
-        act = (
-            algo.make_deterministic_act(train_state)
-            if cfg.env.deterministic_eval
-            else algo.make_act(train_state)
-        )
-        source_lengths, source_returns = evaluate(
-            act,
-            key,
-            source_env,
-            source_env.default_params,
-            num_seeds=cfg.env.transfer_n_envs,
-        )
-        target_lengths, target_returns = evaluate(
-            act,
-            key,
-            target_env,
-            target_env.default_params,
-            num_seeds=cfg.env.transfer_n_envs,
-        )
-        return source_returns, source_lengths, target_returns, target_lengths
-
-    eval_key = jax.random.PRNGKey(cfg.env.eval_seed)
-    eval_keys = jnp.broadcast_to(eval_key, (cfg.num_seeds, *eval_key.shape))
-    evaluate_all = jax.jit(jax.vmap(evaluate_seed))
-    start = time.monotonic()
-    outputs = evaluate_all(train_states, eval_keys)
-    jax.block_until_ready(outputs[2])
-    eval_seconds = time.monotonic() - start
-    source_returns, source_lengths, target_returns, target_lengths = (
-        np.asarray(value) for value in outputs
-    )
-    metrics = transfer_metrics(
-        source_backend,
-        target_backend,
-        source_returns,
-        source_lengths,
-        target_returns,
-        target_lengths,
-        eval_seconds,
-    )
-    print(
-        f"Transfer {source_backend} -> {target_backend}: "
-        f"source return {metrics['transfer/source_return_mean']:.3f}, "
-        f"target return {metrics['transfer/target_return_mean']:.3f} "
-        f"(ratio {metrics['transfer/return_ratio']:.3f})",
-        flush=True,
-    )
-    return metrics
-
-
 def main(cfg: Config) -> None:
-    if cfg.num_seeds <= 0:
-        raise ValueError("num_seeds must be positive")
+    validate_seeds(cfg.env.backend, cfg.num_seeds)
     if cfg.strict_phase_reward:
         validate_reward(cfg.env.env_setup, cfg.env.reward, cfg.env.backend)
 
@@ -276,8 +211,9 @@ def main(cfg: Config) -> None:
     logger.start_time = time.time()
 
     start = time.monotonic()
-    train_states, _ = train(keys, run_indices)
-    jax.block_until_ready(train_states.global_step)
+    train_states, results = train(keys, run_indices)
+    jax.block_until_ready((train_states, results))
+    jax.effects_barrier()
     train_seconds = time.monotonic() - start
     actual_steps = int(np.asarray(train_states.global_step[0]))
     expected_steps = math.ceil(cfg.sac.total_timesteps / cfg.sac.eval_freq)
@@ -291,9 +227,25 @@ def main(cfg: Config) -> None:
         "run/update_to_data_ratio": cfg.sac.num_epochs / cfg.sac.num_envs,
     }
     if cfg.env.transfer_backend is not None:
-        transfer_summary = _evaluate_transfer(cfg, algo, train_states)
+        transfer_summary = evaluate_transfer(
+            algo,
+            train_states,
+            envelope_env,
+            _load_envelope(cfg, cfg.env.transfer_backend),
+            cfg,
+            batched=True,
+        )
         summary.update(transfer_summary)
         write_transfer_summary(cfg.history_dir, run_name, transfer_summary)
+    save_run_policies(
+        algo,
+        train_states,
+        cfg,
+        run_name,
+        batched=True,
+        results=results,
+        metrics=summary,
+    )
     logger.log_once(summary)
     logger.finish()
 

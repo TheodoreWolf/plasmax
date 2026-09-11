@@ -194,13 +194,16 @@ environment trajectory benchmark used by the pull-request report.
 ```text
 src/plasmax/        installed environments, tooling, configs, and data
 agents/             clone-only baseline agents
-training/           clone-only training adapters
-scripts/            generic baseline and rollout launchers
+training/           clone-only training launchers, adapters, and shared utilities
+scripts/            generic evaluation and rollout launchers
 tools/              artifact and equilibrium generation
 benchmarks/         backend agreement and throughput benchmarks
 experiments/        research studies and plotting
 tests/              library and release tests
 ```
+
+See [training commands](training/README.md) and
+[evaluation and rollout commands](scripts/README.md) for the clone-only entrypoints.
 
 ## License and attribution
 

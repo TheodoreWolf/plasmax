@@ -67,8 +67,8 @@ variables.
 ```text
 src/plasmax/        published environment library and packaged task data
 agents/             clone-only baseline agents
-training/           clone-only adapters and training wrappers
-scripts/            generic PPO, SAC, evaluation, and rollout launchers
+training/           clone-only training launchers, adapters, and shared utilities
+scripts/            generic evaluation and rollout launchers
 tools/              artifact and equilibrium generation
 benchmarks/         backend agreement and throughput measurements
 experiments/        research studies and plotting
@@ -196,7 +196,7 @@ thin adapters rather than optimizer internals.
 ## Experiments and tracking
 
 Run control algorithms through their dedicated repository scripts, such as
-`scripts/train_ppo.py` and `scripts/train_sac.py`; do not substitute ad hoc
+`training/train_ppo.py` and `training/train_sac.py`; do not substitute ad hoc
 training runners. All transport backends except TGLFNN may be vmapped across
 training seeds. Run TGLFNN seeds as independent single-seed processes or jobs.
 

@@ -216,6 +216,11 @@ class SeedBufferLogger:
             self.print_fn(f"{k}: {v:.4f}" if isinstance(v, float) else f"{k}: {v}")
         self._run.summary.update(data)
 
+    def log_artifact(self, artifact: wandb.Artifact) -> None:
+        """Upload an artifact through the owned W&B run."""
+
+        self._run.log_artifact(artifact)
+
     def finish(self) -> None:
         try:
             import jax

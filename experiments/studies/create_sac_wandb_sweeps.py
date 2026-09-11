@@ -65,7 +65,7 @@ def _sweep_config(env: str, args: Args) -> dict[str, Any]:
     ]
     command.append("${args}")
     return {
-        "program": "scripts/train_sac.py",
+        "program": "training/train_sac.py",
         "project": args.project,
         "entity": args.entity,
         "name": f"sac-hparam-{slug}-realistic",
