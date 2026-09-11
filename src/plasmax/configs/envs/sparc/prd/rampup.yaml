@@ -1,22 +1,17 @@
 # SPARC PRD — ramp-up phase. Cold start, drive Ip 1 -> 8.7 MA over 10 s.
 phase: rampup
 reset_reference: sparc_prd_cold_1ma
+initialization: ${DATA_DIR}/initializations/sparc/prd/cold.yaml
+
 task:
   reward: lh_transition
   terminal_penalty: -10
 torax:
   profile_conditions:
     Ip: {0: 1.0e+6, 10: 8.7e+6}
-    T_i: {0.0: {0.0: 1.0, 1.0: 0.1}}
     T_i_right_bc: {0: 0.1, 10: 0.5}
-    T_e: {0.0: {0.0: 1.0, 1.0: 0.1}}
     T_e_right_bc: {0: 0.1, 10: 0.5}
     n_e_right_bc: {0: 1.0e+19, 10: 3.0e+19}
-    n_e: {0.0: {0.0: 1.5, 1.0: 1.0}}
-    nbar: 0.3
-    initial_psi_mode: geometry
-    normalize_n_e_to_nbar: true
-    n_e_nbar_is_fGW: true
   numerics:
     t_final: 10.0
   geometry:

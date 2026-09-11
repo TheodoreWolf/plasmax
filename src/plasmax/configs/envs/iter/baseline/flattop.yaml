@@ -9,6 +9,8 @@
 phase: flattop
 reset_reference: iter_baseline_hot_450s
 
+initialization: ${DATA_DIR}/initializations/iter/baseline/hot.yaml
+
 task:
   reward: P_diff
   # Intentionally uncalibrated; flat-top termination currently has no penalty.

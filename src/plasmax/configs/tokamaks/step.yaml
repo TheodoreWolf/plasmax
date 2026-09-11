@@ -1,10 +1,9 @@
 # STEP — device-level defaults (compact high-field spherical tokamak).
 #
-# STEP's initial state, composition and geometry come from the OpenSTEP IMAS
-# release, so the scenario env (envs/step.yaml) keeps the _imas_init
-# directive, the IMAS geometry file, and its (unusual) numerics; only the IMAS
-# geometry plumbing and the RL interface are device-level and live here. A
-# scenario sets `tokamak: step` to inherit this.
+# STEP's profiles and composition are exported from OpenSTEP into the scenario's
+# initialization YAML. The NetCDF remains the geometry asset. Shared geometry
+# plumbing, numerics, and the RL interface live here; a scenario sets
+# `tokamak: step` to inherit them.
 
 torax:
   # STEP does not inherit the conventional ITER/SPARC base. Keep its complete

@@ -1,0 +1,50 @@
+schema_version: 1
+kind: torax
+description: 'iter/advanced/rampup: resolved nominal initialization'
+provenance:
+  environment: iter/advanced/rampup
+  source_backend: bohm_gyrobohm
+  source_step: 0
+  source_time_s: 0.0
+  seed: 0
+  source_config_sha256: e065147ec106789ec594b7811ada0f21b6c516daf48f1719e1393905259392a2
+  torax_version: 1.4.2
+  reference: iter_advanced_cold_3ma
+  sources:
+  - title: ITER steady-state scenario, First ITER Summer School
+    url: https://www.iter.org/sites/default/files/education/ITER_Physics_Campbell.pdf
+    revision: slide 25 machine and 9 MA target context
+    sha256: 29b25019c8fb1b47ed354b5ecb218c7fb55e77a567f6ea1ec0c7beebe2b7a3c3
+    license: redistribution terms not stated on the deck
+    redistribution: checksum_only
+  extraction:
+    method: constrained_template
+    grid: TORAX profile endpoints with geometry-derived psi
+    axis_transform: {}
+    notes:
+    - Cold anchor is a physical L-mode startup template, not a stationary state.
+  artifacts: {}
+  notes:
+  - Nominal resolved state before reset noise; stored at four significant figures.
+  - Cold phase profiles replace the entire inherited profile before materialization.
+grid:
+  rho_norm: [0.02, 0.06, 0.1, 0.14, 0.18, 0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5, 0.54,
+    0.58, 0.62, 0.66, 0.7, 0.74, 0.78, 0.82, 0.86, 0.9, 0.94, 0.98]
+  rho_face_norm: [0.0, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24, 0.28, 0.32, 0.36, 0.4, 0.44, 0.48,
+    0.52, 0.56, 0.6, 0.64, 0.68, 0.72, 0.76, 0.8, 0.84, 0.88, 0.92, 0.96, 1.0]
+profiles:
+  T_i_keV: [5.882, 5.646, 5.41, 5.174, 4.938, 4.702, 4.466, 4.23, 3.994, 3.758, 3.522, 3.286,
+    3.05, 2.814, 2.578, 2.342, 2.106, 1.87, 1.634, 1.398, 1.162, 0.926, 0.69, 0.454, 0.218]
+  T_e_keV: [5.882, 5.646, 5.41, 5.174, 4.938, 4.702, 4.466, 4.23, 3.994, 3.758, 3.522, 3.286,
+    3.05, 2.814, 2.578, 2.342, 2.106, 1.87, 1.634, 1.398, 1.162, 0.926, 0.69, 0.454, 0.218]
+  n_e_m3: [1.011e+19, 9.976e+18, 9.84e+18, 9.704e+18, 9.568e+18, 9.433e+18, 9.297e+18, 9.161e+18,
+    9.026e+18, 8.89e+18, 8.754e+18, 8.618e+18, 8.483e+18, 8.347e+18, 8.211e+18, 8.076e+18,
+    7.94e+18, 7.804e+18, 7.668e+18, 7.533e+18, 7.397e+18, 7.261e+18, 7.125e+18, 6.99e+18,
+    6.854e+18]
+  psi_Wb: [0.0351, 0.1053, 0.2132, 0.409, 0.6744, 1.005, 1.401, 1.858, 2.376, 2.951, 3.58,
+    4.257, 4.978, 5.739, 6.532, 7.35, 8.188, 9.037, 9.889, 10.74, 11.57, 12.39, 13.17, 13.92,
+    14.63]
+reset_state:
+  confinement_mode: 0
+  dW_thermal_i_dt_smoothed: 0.0
+  dW_thermal_e_dt_smoothed: 0.0

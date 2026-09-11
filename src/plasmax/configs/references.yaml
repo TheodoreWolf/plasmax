@@ -30,19 +30,12 @@ references:
       - Psi is shifted by the released magnetic-axis value before interpolation.
       - The equilibrium is explicitly converted from IMAS DD3 COCOS 17 to a deterministic COCOS-7 GEQDSK.
       - The 450 s state is selected because q_min=0.9655; the 415 s state has q_min approximately 0.73.
-    profile_sha256: cd6d237860306adffcbeef54594c5c01f20a9518672850b822daaf9b1f7594ee
+    profile_sha256: 8c6b8004f8c7cdd2195875f928c83d9697e0402f304b3195ce787a8e9f50212b
     artifacts:
       data/references/iter_baseline_450s_profiles_25.csv: 2447bf4a5e773a4df9cccf4cd2128b9cff2626f7bfa3dca8f7c84fbe070fb7b2
       data/references/iter_baseline_450s.eqdsk: 4b37fc63cdcabadc9557acd2eb81ee5d018c3b04722f8ea767ca06f13e8ea800
     locked_paths:
-    - torax.profile_conditions.Ip
-    - torax.profile_conditions.T_i
-    - torax.profile_conditions.T_e
-    - torax.profile_conditions.n_e
-    - torax.profile_conditions.psi
-    - torax.profile_conditions.T_i_right_bc
-    - torax.profile_conditions.T_e_right_bc
-    - torax.profile_conditions.n_e_right_bc
+    - initialization
     - torax.geometry.geometry_file
     - torax.sources.generic_heat
     - torax.sources.ecrh
@@ -127,14 +120,9 @@ references:
       grid: TORAX profile endpoints with geometry-derived psi
       notes:
       - Cold anchor is a physical L-mode startup template, not a backend-relaxed stationary state.
-    profile_sha256: db7cc164f6f65de39b4568d0612e58fd44ec5292a27b93d8a9e948d50d1b47b3
+    profile_sha256: 9d293807858cbbbf652fd9582db7baded2378c08ceb7c36af9326c75bc4978e4
     locked_paths:
-    - torax.profile_conditions.Ip
-    - torax.profile_conditions.T_i
-    - torax.profile_conditions.T_e
-    - torax.profile_conditions.n_e
-    - torax.profile_conditions.nbar
-    - torax.profile_conditions.initial_psi_mode
+    - initialization
     - actuators
     targets:
       Ip_A: 3000000.0
@@ -161,9 +149,9 @@ references:
       notes:
       - Upstream profiles, composition, pedestal targets, current fraction, source totals, and schedules are locked.
       - Controller dynamics retain the prescribed pedestal targets but enforce them through adaptive transport rather than hidden sources/sinks.
-    profile_sha256: b991a79d06af13c7fb8b7b739a3e92a023a437ee421c4dbf88e2d096d6b62bd4
+    profile_sha256: f3df48ee6b7cadd08362931593fbeee3cfa8a2eec874a4aff78547a1ace5d031
     locked_paths:
-    - torax.profile_conditions
+    - initialization
     - torax.plasma_composition
     - torax.pedestal.T_i_ped
     - torax.pedestal.T_e_ped
@@ -217,14 +205,9 @@ references:
       notes:
       - The upstream current, pedestal targets, source and geometry schedules are retained; the common ITER cold state uses 6-to-0.1 keV and f_GW=0.30.
       - Controller dynamics retain the prescribed pedestal targets but enforce them through adaptive transport rather than hidden sources/sinks.
-    profile_sha256: 2479c90397765042bbdc08f6f03ccb379d6587ff7e21e1ed6d4bcff844862462
+    profile_sha256: 0f8602b5601132a57e2e6507087b69139cdeb13d958a24671472ac2f8e63699e
     locked_paths:
-    - torax.profile_conditions.Ip
-    - torax.profile_conditions.T_i
-    - torax.profile_conditions.T_e
-    - torax.profile_conditions.n_e
-    - torax.profile_conditions.nbar
-    - torax.profile_conditions.initial_psi_mode
+    - initialization
     - torax.sources
     - torax.pedestal.T_i_ped
     - torax.pedestal.T_e_ped
@@ -269,15 +252,11 @@ references:
       notes:
       - Curves are illustrative; the stored CSV and generated overlay are the inspection record.
       - Psi is reconstructed from digitized q by integrating rho/q and normalized to the local 9 MA equilibrium edge flux.
-    profile_sha256: 089ee22d9c40a23efb033b06e8dd7f3890915094a43b5f17026ae3930354c102
+    profile_sha256: 5192dc666bd04202cdb40e3fe456332a80174c304df8bb07b0af5a0bd53f97e7
     artifacts:
       data/references/iter_advanced_slide25_profiles_25.csv: 926b24067bf00fd98e6197f0585a75819b1435535cd0f13608080c1c2f6e4484
     locked_paths:
-    - torax.profile_conditions.Ip
-    - torax.profile_conditions.T_i
-    - torax.profile_conditions.T_e
-    - torax.profile_conditions.n_e
-    - torax.profile_conditions.psi
+    - initialization
     - torax.sources.generic_current
     - torax.sources.generic_heat
     - torax.sources.ecrh
@@ -330,14 +309,9 @@ references:
       grid: TORAX profile endpoints with geometry-derived psi
       notes:
       - Cold anchor is a physical L-mode startup template, not a stationary state.
-    profile_sha256: 178a041884d1ddaf21c0f10eea7e8b9cef68a630b3372842a10e013fef25fb30
+    profile_sha256: 930038110c21f1a73e21bdde73f6a7b7268dd3630688f2c53df484e9300476a2
     locked_paths:
-    - torax.profile_conditions.Ip
-    - torax.profile_conditions.T_i
-    - torax.profile_conditions.T_e
-    - torax.profile_conditions.n_e
-    - torax.profile_conditions.nbar
-    - torax.profile_conditions.initial_psi_mode
+    - initialization
     - actuators
     targets:
       Ip_A: 3000000.0
@@ -373,16 +347,12 @@ references:
       - Poloidal flux in Wb/radian is multiplied by 2pi for TORAX profile_conditions.
       - The released GEQDSK is used without modification.
       - TORAX uses last_surface_factor=0.9725, the largest value passing a 1e-4 deterministic contour sweep; this excludes non-closed edge contours without modifying the released GEQDSK.
-    profile_sha256: 8d61e32901e93bd14f70099d289c0bab33d29f9cd3e0c3917e3efa27704bbbce
+    profile_sha256: a4e08176ec6490a3f6c1e1a95065688d9799818410198d4248b2b049c6395e88
     artifacts:
       data/references/sparc_prd_transp_20221013.txt: 1637755cada719c96b1a75eec1b697aee39805274114ab2180803268f2992db9
       data/references/sparc_prd_freegs_20221013.eqdsk: 6299e73a1ba1f2b8a1bb6d5e0dfa35f424ec09eebe153c96ea7779420eee85c6
     locked_paths:
-    - torax.profile_conditions.Ip
-    - torax.profile_conditions.T_i
-    - torax.profile_conditions.T_e
-    - torax.profile_conditions.n_e
-    - torax.profile_conditions.psi
+    - initialization
     - torax.geometry.geometry_file
     - torax.sources.generic_heat
     - actuators
@@ -423,14 +393,9 @@ references:
       grid: TORAX profile endpoints with geometry-derived psi
       notes:
       - Cold anchor is a 1 MA limited L-mode template, not a backend-relaxed state.
-    profile_sha256: 24aa1dfc3fa1d11ad1a9c6010c421935a1e3c9e308c155cd507deb9425f79d8a
+    profile_sha256: 19bc8f9f3c71d5c06fe94b2034ec7d2d17b474c2cf380b9a4c93e11f461d8614
     locked_paths:
-    - torax.profile_conditions.Ip
-    - torax.profile_conditions.T_i
-    - torax.profile_conditions.T_e
-    - torax.profile_conditions.n_e
-    - torax.profile_conditions.nbar
-    - torax.profile_conditions.initial_psi_mode
+    - initialization
     - actuators
     targets:
       Ip_A: 1000000.0
@@ -469,14 +434,11 @@ references:
       - The pointwise median is the reset profile; the 10-90% curves are retained as its digitization envelope.
       - The generated overlay is the visual inspection record.
       - Figure 16 contains kinetic profiles but no q curve; psi therefore comes from the chosen 5.7 MA FreeGS geometry, whose q95 is 3.20 and is consistent with the published Uckan q-star=3 operating point.
-    profile_sha256: 629174bcedfab0854676e15120babc9882491a5f8bd2c1a463eea719728414ad
+    profile_sha256: 601c7d7cbaf3316e09ba072c55cf7885c3a0e1a9999c84e608da84b0448f5374
     artifacts:
       data/references/sparc_h8_figure16_profiles_25.csv: 815ceffa2b88b29bf07b1cfee29c376d45fc7234aa678f713d2d61b7e2666ac0
     locked_paths:
-    - torax.profile_conditions.Ip
-    - torax.profile_conditions.T_i
-    - torax.profile_conditions.T_e
-    - torax.profile_conditions.n_e
+    - initialization
     - torax.sources.generic_heat
     - actuators
     projections:
@@ -517,14 +479,9 @@ references:
       grid: TORAX profile endpoints with geometry-derived psi
       notes:
       - Cold anchor is a 1 MA limited L-mode template, not a backend-relaxed state.
-    profile_sha256: cf1ff705b6498f574fb4594f636939c0b1f70418688a60b76d3e4efba0e54d45
+    profile_sha256: 0a78370a57fdef0a2ca1b8e2ae4482638eef283ead328b8d9ba7d8e971f078e5
     locked_paths:
-    - torax.profile_conditions.Ip
-    - torax.profile_conditions.T_i
-    - torax.profile_conditions.T_e
-    - torax.profile_conditions.n_e
-    - torax.profile_conditions.nbar
-    - torax.profile_conditions.initial_psi_mode
+    - initialization
     - actuators
     targets:
       Ip_A: 1000000.0
@@ -560,12 +517,12 @@ references:
       - The released IMAS state is used without backend relaxation.
       - TORAX v1.4.2 pedestal targets, source, current-efficiency and BgB settings are locked.
       - Controller dynamics retain the prescribed pedestal targets but enforce them through adaptive transport rather than hidden sources/sinks.
-    profile_sha256: cfbefa59510c570a71975ea866d69eb99d574342aed22937f66fdcdb8d24f9e6
+    profile_sha256: 587ff34913d0b076d99eb081fe9ecb7af9817c0df51cad1768f9ae3bfde9bae3
     artifacts:
       data/STEP_SPP_001_ECHD_ftop.nc: 64fe9e0d7f634be8ce4b748c08090ecdca2a4a5212473fb5a2c33cb2b6fd4bad
     locked_paths:
     - torax._imas_init
-    - torax.profile_conditions
+    - initialization
     - torax.plasma_composition
     - torax.geometry
     - torax.pedestal.T_i_ped
@@ -610,3 +567,28 @@ references:
       ecrh_current_drive_efficiency: 0.14
       pellet_rate_s-1: 3.0e+21
       bgb_multiplier: 0.15
+
+  iter_hybrid_settled_bgb:
+    machine: iter
+    scenario: hybrid
+    anchor: hot
+    kind: constrained
+    confidence: high
+    sources:
+    - title: Settled Bohm-GyroBohm hybrid state
+      url: https://github.com/TheodoreWolf/plasmax
+      sha256: d84a6e3ad0f8bbfbb08123626fd01da6655ca2a413eb0006140e92a724b3add5
+      revision: TORAX 1.4.2; seed 0; 1000 source steps
+      license: Apache-2.0
+      redistribution: vendored
+      local_path: data/initializations/iter/hybrid/flattop_bgb_settled.npz
+    extraction:
+      method: simulation_capture
+      grid: 25 TORAX cells and 26 faces
+      notes:
+      - Converted directly from the saved NPZ, without rerunning the settling trajectory.
+      - Stored physical values rounded to four significant figures.
+    profile_sha256: f454da4ba4a7d2dc9339475a3eedcd85d5b4639fb5e1b5448d3311a652aca91e
+    artifacts: {}
+    locked_paths:
+    - initialization

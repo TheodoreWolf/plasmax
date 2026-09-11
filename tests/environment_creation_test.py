@@ -40,7 +40,6 @@ from plasmax.environment.schema import (
     ObsFilterSpec,
     ObsProfileConfig,
     ObsScalarConfig,
-    PhaseInitializationConfig,
     PlasmaxConfig,
     RealisticObsConfig,
     SteppingConfig,
@@ -325,13 +324,13 @@ class FinalSchemaTest:
         assert "reset_reference" not in dumped
         assert dumped["environment_key"] == "iter/hybrid/flattop"
 
-    def test_initialization_is_asset_resolved_and_checksum_normalized(self):
+    def test_initialization_is_an_asset_resolved_yaml_path(self):
         config = parse_env_and_backend("iter/hybrid/flattop", "cgm")
         assert config.initialization is not None
-        assert config.initialization.path.is_absolute()
-        assert config.initialization.path.is_file()
-        assert config.initialization.path.is_relative_to(CONFIGS_DIR / "data")
-        assert config.initialization.sha256 == config.initialization.sha256.lower()
+        assert config.initialization.is_absolute()
+        assert config.initialization.is_file()
+        assert config.initialization.is_relative_to(CONFIGS_DIR / "data")
+        assert config.initialization.suffix == ".yaml"
 
     def test_kstar_is_one_complete_config_with_explicit_weights(self):
         config = parse_env_and_backend("kstar_worldmodel")
@@ -340,27 +339,6 @@ class FinalSchemaTest:
         assert config.world_model.weights_path.is_absolute()
         assert config.world_model.weights_path.is_file()
         assert config.world_model.max_steps_in_episode == 100
-
-
-class PhaseInitializationConfigTest:
-    def test_validates_and_freezes_snapshot_reference(self):
-        config = PhaseInitializationConfig(path="state.npz", sha256="A" * 64)
-        assert config.sha256 == "a" * 64
-        with pytest.raises(pydantic.ValidationError, match="frozen"):
-            config.path = "other.npz"
-
-    @pytest.mark.parametrize(
-        "values",
-        [
-            {"path": "", "sha256": "0" * 64},
-            {"path": 1, "sha256": "0" * 64},
-            {"path": "state.npz", "sha256": "not-a-checksum"},
-            {"path": "state.npz", "sha256": "0" * 64, "unknown": True},
-        ],
-    )
-    def test_rejects_invalid_snapshot_reference(self, values):
-        with pytest.raises(pydantic.ValidationError):
-            PhaseInitializationConfig.model_validate(values)
 
 
 class SteppingConfigTest:

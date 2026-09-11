@@ -10,6 +10,8 @@
 phase: flattop
 reset_reference: iter_advanced_hot_slide25
 
+initialization: ${DATA_DIR}/initializations/iter/advanced/hot.yaml
+
 task:
   reward: P_diff
   # Intentionally uncalibrated; flat-top termination currently has no penalty.
@@ -21,7 +23,6 @@ torax:
     T_i_right_bc: 0.2            # edge T_i BC [keV]
     T_e_right_bc: 0.2
     n_e_right_bc: 4.34633e+19
-    initial_psi_mode: profile_conditions
   numerics:
     t_final: 840.0               # flat-top duration [s] → 8400 steps
   geometry:

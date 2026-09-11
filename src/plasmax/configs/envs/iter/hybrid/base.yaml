@@ -2,8 +2,8 @@
 #
 # Physics common to the ramp-up, flat-top, and ramp-down phases. Each phase file
 # in this directory overlays only its deltas: the Ip
-# schedule + initial/boundary profiles, t_final, geometry, and the driven-
-# current fraction. Device-level config (ion mix, numerics evolve flags,
+# schedule, initialization reference, boundary conditions, t_final, geometry,
+# and driven-current fraction. Device-level config (ion mix, numerics evolve flags,
 # geometry plumbing, actuators, observations, disruption) is inherited from
 # tokamaks/iter.yaml via `tokamak: iter`.
 #
@@ -21,17 +21,8 @@ torax:
   # plasma_composition — main_ion/impurity from tokamak; Z_eff is scenario-set.
   plasma_composition:
     Z_eff: 1.6
-  # Exact hot anchor from TORAX v1.4.2
-  # iterhybrid_predictor_corrector.py. Ramp-up overrides this with the exact
-  # cold anchor from iterhybrid_rampup.py.
+  # Boundary density is absolute; each phase references its resolved profiles.
   profile_conditions:
-    T_i: {0.0: {0.0: 15.0, 1.0: 0.2}}
-    T_e: {0.0: {0.0: 15.0, 1.0: 0.2}}
-    n_e: {0.0: {0.0: 1.5, 1.0: 1.0}}
-    nbar: 0.8
-    initial_psi_mode: geometry
-    normalize_n_e_to_nbar: true
-    n_e_nbar_is_fGW: true
     n_e_right_bc_is_fGW: false
   # sources — magnitudes used at reset; the RL agent overrides P_nbi / P_eccd /
   # rho_eccd / gas_puff_rate each step. The driven-current *fraction* is

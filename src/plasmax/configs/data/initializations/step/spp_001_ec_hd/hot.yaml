@@ -1,0 +1,88 @@
+schema_version: 1
+kind: torax
+description: 'step/spp_001_ec_hd/flattop: resolved nominal initialization'
+provenance:
+  environment: step/spp_001_ec_hd/flattop
+  source_backend: bohm_gyrobohm_step
+  source_step: 0
+  source_time_s: 0.0
+  seed: 0
+  source_config_sha256: 9c9da7531391a4fc988c1284fc4acbd5108b2dd46deb62d389bff12890e6322f
+  torax_version: 1.4.2
+  reference: step_hot_openstep_v1_4_2
+  sources:
+  - title: OpenSTEP SPP-001 EC-HD flat-top IMAS state
+    url: https://github.com/ukaea/OpenSTEP/blob/v1.0/ec-hd/ftop/STEP_SPP_001_ECHD_ftop.nc
+    doi: 10.14468/07jt-s540
+    revision: v1.0; commit 60b0ec2f6a036b9dc6a79dd52e9a20dec24c9930
+    sha256: 64fe9e0d7f634be8ce4b748c08090ecdca2a4a5212473fb5a2c33cb2b6fd4bad
+    license: CC-BY-4.0
+    redistribution: vendored
+    local_path: data/STEP_SPP_001_ECHD_ftop.nc
+  - title: TORAX STEP flat-top Bohm-GyroBohm example
+    url: https://github.com/google-deepmind/torax/blob/v1.4.2/torax/examples/step_flattop_bgb.py
+    revision: v1.4.2
+    sha256: 94234eaa673530c07041ea633a2b6657fd0ab7fd367a4ddd5d4730030980ff08
+    license: Apache-2.0
+    redistribution: checksum_only
+  extraction:
+    method: imas_import
+    grid: OpenSTEP IMAS profiles and equilibrium imported by TORAX at n_rho=25
+    axis_transform: {}
+    notes:
+    - The released IMAS state is used without backend relaxation.
+    - TORAX v1.4.2 pedestal targets, source, current-efficiency and BgB settings are locked.
+    - Controller dynamics retain the prescribed pedestal targets but enforce them through
+      adaptive transport rather than hidden sources/sinks.
+  artifacts:
+    data/STEP_SPP_001_ECHD_ftop.nc: 64fe9e0d7f634be8ce4b748c08090ecdca2a4a5212473fb5a2c33cb2b6fd4bad
+  notes:
+  - Nominal resolved state before reset noise; stored at four significant figures.
+grid:
+  rho_norm: [0.02, 0.06, 0.1, 0.14, 0.18, 0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5, 0.54,
+    0.58, 0.62, 0.66, 0.7, 0.74, 0.78, 0.82, 0.86, 0.9, 0.94, 0.98]
+  rho_face_norm: [0.0, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24, 0.28, 0.32, 0.36, 0.4, 0.44, 0.48,
+    0.52, 0.56, 0.6, 0.64, 0.68, 0.72, 0.76, 0.8, 0.84, 0.88, 0.92, 0.96, 1.0]
+profiles:
+  T_i_keV: [21.17, 21.14, 21.03, 20.76, 20.32, 19.73, 19.01, 18.19, 17.3, 16.35, 15.38, 14.38,
+    13.39, 12.41, 11.49, 10.63, 9.827, 9.076, 8.355, 7.642, 6.911, 6.119, 5.198, 3.793, 1.41]
+  T_e_keV: [19.43, 19.11, 18.69, 18.21, 17.69, 17.14, 16.55, 15.95, 15.31, 14.65, 13.97, 13.25,
+    12.5, 11.74, 10.99, 10.26, 9.565, 8.908, 8.279, 7.669, 7.066, 6.462, 5.841, 4.934, 2.085]
+  n_e_m3: [2.116e+20, 2.116e+20, 2.109e+20, 2.096e+20, 2.077e+20, 2.055e+20, 2.028e+20, 1.998e+20,
+    1.966e+20, 1.93e+20, 1.89e+20, 1.846e+20, 1.796e+20, 1.737e+20, 1.669e+20, 1.591e+20,
+    1.502e+20, 1.401e+20, 1.29e+20, 1.168e+20, 1.038e+20, 9.043e+19, 7.675e+19, 6.209e+19,
+    4.918e+19]
+  psi_Wb: [-28.73, -28.57, -28.24, -27.77, -27.15, -26.39, -25.5, -24.47, -23.32, -22.05,
+    -20.66, -19.16, -17.56, -15.89, -14.2, -12.52, -10.89, -9.327, -7.827, -6.398, -5.043,
+    -3.77, -2.589, -1.496, -0.4761]
+reset_state:
+  confinement_mode: 0
+  dW_thermal_i_dt_smoothed: 0.0
+  dW_thermal_e_dt_smoothed: 0.0
+composition:
+  rho_norm: [0.0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.12, 0.14, 0.16, 0.18, 0.2, 0.22, 0.24, 0.26,
+    0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.52, 0.54, 0.56,
+    0.58, 0.6, 0.62, 0.64, 0.66, 0.68, 0.7, 0.72, 0.74, 0.76, 0.78, 0.8, 0.82, 0.84, 0.86,
+    0.88, 0.9, 0.92, 0.94, 0.96, 0.98, 1.0]
+  main_ion:
+    D: 0.5398
+    T: 0.4602
+  Z_eff: [3.139, 3.143, 3.148, 3.143, 3.13, 3.114, 3.097, 3.081, 3.068, 3.057, 3.05, 3.047,
+    3.047, 3.052, 3.06, 3.071, 3.085, 3.102, 3.121, 3.143, 3.166, 3.19, 3.213, 3.236, 3.254,
+    3.27, 3.274, 3.27, 3.256, 3.224, 3.183, 3.12, 3.045, 2.953, 2.846, 2.73, 2.604, 2.473,
+    2.339, 2.205, 2.077, 1.957, 1.845, 1.743, 1.656, 1.576, 1.496, 1.475, 1.544, 1.829, 2.749]
+  impurity_mode: n_e_ratios_Z_eff
+  impurity_species:
+    Xe: [0.0004043, 0.0004056, 0.0004073, 0.0004065, 0.0004037, 0.0004001, 0.0003967, 0.0003939,
+      0.0003919, 0.000391, 0.0003912, 0.0003926, 0.0003952, 0.0003993, 0.0004046, 0.0004109,
+      0.0004186, 0.0004274, 0.000437, 0.0004477, 0.000459, 0.000471, 0.000483, 0.0004952,
+      0.0005061, 0.0005165, 0.0005237, 0.0005283, 0.0005292, 0.0005238, 0.0005153, 0.0004982,
+      0.0004773, 0.0004499, 0.0004171, 0.0003807, 0.0003412, 0.0002996, 0.0002572, 0.0002155,
+      0.0001763, 0.0001407, 0.0001087, 8.09e-05, 5.828e-05, 3.854e-05, 2.034e-05, 1.011e-05,
+      4.975e-06, 2.109e-06, 1.46e-06]
+    He: [0.1203, 0.1203, 0.1203, 0.1202, 0.1201, 0.12, 0.1198, 0.1195, 0.1191, 0.1186, 0.1181,
+      0.1174, 0.1165, 0.1156, 0.1145, 0.1134, 0.1121, 0.1107, 0.1092, 0.1076, 0.1059, 0.1042,
+      0.1023, 0.1004, 0.09852, 0.09658, 0.09464, 0.09273, 0.09086, 0.08906, 0.08732, 0.08568,
+      0.08411, 0.08264, 0.08124, 0.0799, 0.07863, 0.0774, 0.07622, 0.07508, 0.07396, 0.07286,
+      0.07179, 0.07074, 0.0697, 0.06863, 0.06775, 0.06669, 0.06621, 0.06558, 0.06109]
+    Ar: null

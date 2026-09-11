@@ -1,6 +1,8 @@
 # SPARC reduced-field — flat-top phase. Hot start at 5.7 MA, static geometry.
 phase: flattop
 reset_reference: sparc_h8_hot_figure16
+initialization: ${DATA_DIR}/initializations/sparc/reduced_field/hot.yaml
+
 task:
   reward: P_diff
   # Intentionally uncalibrated; flat-top termination currently has no penalty.

@@ -14,6 +14,8 @@
 phase: rampup
 reset_reference: iter_hybrid_cold_v1_4_2
 
+initialization: ${DATA_DIR}/initializations/iter/hybrid/cold.yaml
+
 task:
   reward: lh_transition
   terminal_penalty: -100
@@ -21,17 +23,10 @@ task:
 torax:
   profile_conditions:
     Ip: {0: 3.0e+6, 100: 10.5e+6}
-    T_i: {0.0: {0.0: 6.0, 1.0: 0.1}}
     T_i_right_bc: 0.1
-    T_e: {0.0: {0.0: 6.0, 1.0: 0.1}}
     T_e_right_bc: 0.1
     n_e_right_bc: {0: 0.1, 100: 0.3}
     n_e_right_bc_is_fGW: true
-    n_e: {0.0: {0.0: 1.5, 1.0: 1.0}}
-    nbar: 0.3
-    initial_psi_mode: geometry
-    normalize_n_e_to_nbar: true
-    n_e_nbar_is_fGW: true
   numerics:
     t_final: 100.0               # full ramp-up control horizon [s] -> 1000 steps
   geometry:

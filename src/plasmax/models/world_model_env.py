@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import dataclasses
 from functools import cached_property
+from pathlib import Path
 from typing import Self
 
 import jax
@@ -29,12 +30,15 @@ import jax.numpy as jnp
 import numpy as np
 from envelope import Continuous, Environment, Info, InfoContainer, static_field
 
+from plasmax.environment.initialization_data import (
+    KstarInitialization,
+    load_initialization,
+)
 from plasmax.environment.schema import WorldModelConfig
 from plasmax.models.world_model import (
     load_bundle,
     predict_bpw,
     predict_lstm,
-    predict_nn,
 )
 from plasmax.spaces import ObsLayout
 
@@ -42,18 +46,12 @@ from plasmax.spaces import ObsLayout
 # float64 on purpose: these feed the slider quantization (_quantize), which must
 # see the true decimal (e.g. 1.8, not float32's 1.79999995) to match NeoRL2's
 # Python-float ``f2i``/``i2f`` round-trip exactly.
-INPUT_INIT = np.array(
-    [0.5, 1.8, 0.275, 1.5, 1.5, 0.5, 0.0, 0.0, 0.0, 0.0, 1.32, 2.22, 1.7, 0.3, 0.75]
-)
 INPUT_MINS = np.array(
     [0.3, 1.5, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, -10, -10, 1.265, 2.18, 1.6, 0.1, 0.5]
 )
 INPUT_MAXS = np.array(
     [0.8, 2.7, 0.6, 1.75, 1.75, 1.5, 0.8, 0.8, 10, 10, 1.36, 2.29, 2.0, 0.5, 0.9]
 )
-TARGET_INIT = np.array([1.6, 5.0, 0.95])
-TARGET_MINS = np.array([1.1, 3.8, 0.84])
-TARGET_MAXS = np.array([2.1, 6.2, 1.06])
 
 CTRL_IDX = np.array([0, 12, 13, 14, 10, 11])  # action -> input_params indices
 NBI_IDX = np.array([3, 4, 5])  # Pnb1a/b/c
@@ -93,9 +91,9 @@ OBS_LOW = np.array(
         -np.inf,
         -np.inf,
         -np.inf,
-        1.1,
-        3.8,
-        0.84,
+        -np.inf,
+        -np.inf,
+        -np.inf,
         0.0,
         0.0,
         0.0,
@@ -113,9 +111,9 @@ OBS_HIGH = np.array(
         np.inf,
         np.inf,
         np.inf,
-        2.1,
-        6.2,
-        1.06,
+        np.inf,
+        np.inf,
+        np.inf,
         1.75,
         1.75,
         1.5,
@@ -206,9 +204,36 @@ class _WorldModelDynamics:
         the vendored npz).
     """
 
-    def __init__(self, bundle=None, plasmax_config: WorldModelConfig | None = None):
+    def __init__(
+        self,
+        bundle=None,
+        plasmax_config: WorldModelConfig | None = None,
+        initialization: KstarInitialization | None = None,
+    ):
         self._bundle = load_bundle() if bundle is None else bundle
         self.plasmax_config = plasmax_config
+        if initialization is None:
+            initialization = load_initialization(
+                Path(__file__).parents[1]
+                / "configs/data/initializations/kstar/nominal.yaml",
+                kind="kstar",
+            )
+        assert isinstance(initialization, KstarInitialization)
+        self._initial_inputs = jnp.asarray(
+            [initialization.inputs[name] for name in initialization.input_order],
+            dtype=jnp.float32,
+        )
+        self._initial_history = jnp.broadcast_to(
+            jnp.asarray(initialization.history_row, dtype=jnp.float32),
+            (initialization.history_length, 21),
+        )
+        targets = [initialization.targets[name] for name in ("betap", "q95", "li")]
+        # Preserve the original float64 uniform sampling, followed by float32.
+        self._target_default = jnp.asarray(
+            [t.default for t in targets], dtype=jnp.float64
+        )
+        self._target_min = jnp.asarray([t.minimum for t in targets], dtype=jnp.float64)
+        self._target_max = jnp.asarray([t.maximum for t in targets], dtype=jnp.float64)
         # Construct spaces eagerly, outside any JAX transformation.  In
         # particular, this prevents a first property access during tracing
         # from leaving cached tracer-valued bounds on the dynamics object.
@@ -216,7 +241,10 @@ class _WorldModelDynamics:
             low=-jnp.ones(6, jnp.float32), high=jnp.ones(6, jnp.float32)
         )
         self._observation_space = Continuous(
-            low=jnp.asarray(OBS_LOW), high=jnp.asarray(OBS_HIGH)
+            low=jnp.asarray(OBS_LOW).at[9:12].set(self._target_min.astype(jnp.float32)),
+            high=jnp.asarray(OBS_HIGH)
+            .at[9:12]
+            .set(self._target_max.astype(jnp.float32)),
         )
 
     # --- spaces ---
@@ -252,24 +280,19 @@ class _WorldModelDynamics:
         self, key: jax.Array, *, random_target: bool
     ) -> tuple[WorldModelEnvState, InfoContainer]:
         _validate_typed_key(key)
-        inputs = _quantize(jnp.asarray(INPUT_INIT))
+        inputs = self._initial_inputs
         if random_target:
             targets = jax.random.uniform(
                 key,
                 (3,),
-                minval=jnp.asarray(TARGET_MINS),
-                maxval=jnp.asarray(TARGET_MAXS),
+                minval=self._target_min,
+                maxval=self._target_max,
             )
         else:
-            targets = jnp.asarray(TARGET_INIT)
+            targets = self._target_default
         targets = targets.astype(jnp.float32)
 
-        # Steady-state init: fill every buffer row with [nn output | features].
-        feats = _steady_features(inputs)  # (17,)
-        y0 = predict_nn(self._bundle, feats)  # (4,) [βn,q95,q0,li]
-        x = jnp.zeros((10, 21), jnp.float32)
-        x = x.at[:, :4].set(y0)
-        x = x.at[:, 4:].set(feats)
+        x = self._initial_history
 
         beta_p = predict_bpw(self._bundle, _bpw_features(x[-1, 0], inputs))[0]
         obs = self._assemble_obs(inputs, x, targets, beta_p)
@@ -342,12 +365,15 @@ class WorldModelEnv(Environment):
         *,
         random_target: bool = True,
         _plasmax_config: WorldModelConfig | None = None,
+        _initialization: KstarInitialization | None = None,
     ) -> Self:
         """Constructs the backend from a caller-supplied JAX weight bundle."""
         return cls(
             random_target=random_target,
             _dynamics=_WorldModelDynamics(
-                bundle=bundle, plasmax_config=_plasmax_config
+                bundle=bundle,
+                plasmax_config=_plasmax_config,
+                initialization=_initialization,
             ),
         )
 

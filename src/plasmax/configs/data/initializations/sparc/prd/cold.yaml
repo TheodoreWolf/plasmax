@@ -1,0 +1,51 @@
+schema_version: 1
+kind: torax
+description: 'sparc/prd/rampup: resolved nominal initialization'
+provenance:
+  environment: sparc/prd/rampup
+  source_backend: bohm_gyrobohm
+  source_step: 0
+  source_time_s: 0.0
+  seed: 0
+  source_config_sha256: e6d67ec0dd4e56662e81b182c0b3e9b07b365822950a1a9a87969a8b9ea07225
+  torax_version: 1.4.2
+  reference: sparc_prd_cold_1ma
+  sources:
+  - title: CFS SPARCPublic Primary Reference Discharge
+    url: https://github.com/cfs-energy/SPARCPublic/tree/5b913b8216d05346b22e2e1e87c2ff100761613f/PrimaryReferenceDischarge
+    revision: 5b913b8216d05346b22e2e1e87c2ff100761613f
+    sha256: 1637755cada719c96b1a75eec1b697aee39805274114ab2180803268f2992db9
+    license: MIT
+    redistribution: vendored
+    local_path: data/references/sparc_prd_transp_20221013.txt
+  extraction:
+    method: constrained_template
+    grid: TORAX profile endpoints with geometry-derived psi
+    axis_transform: {}
+    notes:
+    - Cold anchor is a 1 MA limited L-mode template, not a backend-relaxed state.
+  artifacts: {}
+  notes:
+  - Nominal resolved state before reset noise; stored at four significant figures.
+  - Cold phase profiles replace the entire inherited profile before materialization.
+grid:
+  rho_norm: [0.02, 0.06, 0.1, 0.14, 0.18, 0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5, 0.54,
+    0.58, 0.62, 0.66, 0.7, 0.74, 0.78, 0.82, 0.86, 0.9, 0.94, 0.98]
+  rho_face_norm: [0.0, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24, 0.28, 0.32, 0.36, 0.4, 0.44, 0.48,
+    0.52, 0.56, 0.6, 0.64, 0.68, 0.72, 0.76, 0.8, 0.84, 0.88, 0.92, 0.96, 1.0]
+profiles:
+  T_i_keV: [0.982, 0.946, 0.91, 0.874, 0.838, 0.802, 0.766, 0.73, 0.694, 0.658, 0.622, 0.586,
+    0.55, 0.514, 0.478, 0.442, 0.406, 0.37, 0.334, 0.298, 0.262, 0.226, 0.19, 0.154, 0.118]
+  T_e_keV: [0.982, 0.946, 0.91, 0.874, 0.838, 0.802, 0.766, 0.73, 0.694, 0.658, 0.622, 0.586,
+    0.55, 0.514, 0.478, 0.442, 0.406, 0.37, 0.334, 0.298, 0.262, 0.226, 0.19, 0.154, 0.118]
+  n_e_m3: [7.173e+19, 7.076e+19, 6.98e+19, 6.884e+19, 6.788e+19, 6.691e+19, 6.595e+19, 6.499e+19,
+    6.403e+19, 6.306e+19, 6.21e+19, 6.114e+19, 6.017e+19, 5.921e+19, 5.825e+19, 5.729e+19,
+    5.632e+19, 5.536e+19, 5.44e+19, 5.343e+19, 5.247e+19, 5.151e+19, 5.055e+19, 4.958e+19,
+    4.862e+19]
+  psi_Wb: [0.003086, 0.009257, 0.01789, 0.03446, 0.05675, 0.08472, 0.1182, 0.1571, 0.2014,
+    0.251, 0.3054, 0.3646, 0.4282, 0.4958, 0.5669, 0.6411, 0.7179, 0.7965, 0.8764, 0.9568,
+    1.037, 1.116, 1.193, 1.268, 1.339]
+reset_state:
+  confinement_mode: 0
+  dW_thermal_i_dt_smoothed: 0.0
+  dW_thermal_e_dt_smoothed: 0.0

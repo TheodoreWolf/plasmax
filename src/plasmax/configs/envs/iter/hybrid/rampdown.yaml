@@ -1,8 +1,8 @@
 # ITER hybrid — ramp-down phase.
 #
-# The episode begins already in the flat-top burn (same hot initial conditions
-# as flattop) and Ip immediately ramps down from 10.5 MA to 1 MA — no ramp-up,
-# no flat-top hold. Isolates the terminal ramp-down as its own control problem.
+# The episode starts from the original TORAX hot reference, separate from the
+# settled flat-top initialization. Ip immediately ramps down from 10.5 MA to
+# 1 MA, isolating ramp-down as its own control problem.
 #
 # Geometry:  Per-Ip FreeGSnke EQDSKs (10.5 / 4.5 / 3 MA), anchored where the Ip
 #            schedule crosses each file's current; the 3 MA anchor is the
@@ -11,6 +11,8 @@
 
 phase: rampdown
 reset_reference: iter_hybrid_hot_v1_4_2
+
+initialization: ${DATA_DIR}/initializations/iter/hybrid/hot.yaml
 
 task:
   reward: rampdown

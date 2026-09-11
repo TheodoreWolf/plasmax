@@ -42,6 +42,8 @@ class ReferenceExtraction(BaseModel):
         "sectioned_profile",
         "figure_digitization",
         "constrained_template",
+        "simulation_capture",
+        "model_inference",
     ]
     grid: str
     page: int | None = None
@@ -172,39 +174,45 @@ def reset_reference_id(env: str) -> str:
 
 def reset_reference_payload(
     env: str,
-    backend: str = "bohm_gyrobohm",
+    backend: str | None = None,
 ) -> dict[str, Any]:
-    """Return the backend-independent time-zero state/action reset payload.
+    """Return the resolved physical initialization selected by a task.
 
-    Later phase schedules are deliberately collapsed to their first value. The
-    payload therefore compares the state and actuator initialization supplied
-    to each contextual backend, rather than the subsequent control task.
+    Current/boundary schedules and actuators are task context. The fingerprint
+    covers the complete saved state, including history and composition, and is
+    independent of the destination transport backend.
     """
 
-    from plasmax.environment.merge import _merge_env_and_backend
-    from plasmax.environment.schema import ActuatorConfig
+    from plasmax.environment.config import _load_initialization, _resolve_assets
+    from plasmax.environment.initialization_data import ToraxInitialization
+    from plasmax.environment.merge import _merge_env_and_backend, load_env_layers
 
-    raw = _merge_env_and_backend(env, backend)
-    torax = raw.get("torax") or {}
-    profile_conditions = dict(torax.get("profile_conditions") or {})
+    raw = (
+        load_env_layers(env)
+        if backend is None
+        else _merge_env_and_backend(env, backend)
+    )
+    _, initial = _load_initialization(_resolve_assets(raw), env)
+    assert isinstance(initial, ToraxInitialization)
+    profile_conditions = initial.profile_conditions()
     for field in _TIME_ZERO_PROFILE_FIELDS & profile_conditions.keys():
         profile_conditions[field] = _at_time_zero(profile_conditions[field])
     payload = {
         "profile_conditions": profile_conditions,
-        "actuators": {
-            actuator.name: actuator.init
-            for item in raw.get("actuators", ())
-            for actuator in (ActuatorConfig.model_validate(item),)
-        },
+        "grid": initial.grid.model_dump(),
+        "reset_state": initial.reset_state.model_dump(),
+        "composition": (
+            None if initial.composition is None else initial.composition.model_dump()
+        ),
     }
     return _canonical_json_value(payload)
 
 
 def reset_reference_sha256(
     env: str,
-    backend: str = "bohm_gyrobohm",
+    backend: str | None = None,
 ) -> str:
-    """Hash the canonical time-zero state/action payload for an environment."""
+    """Hash the complete rounded physical state selected by an environment."""
 
     payload = reset_reference_payload(env, backend)
     encoded = json.dumps(

@@ -1,0 +1,51 @@
+schema_version: 1
+kind: torax
+description: 'iter/hybrid/rampdown: resolved nominal initialization'
+provenance:
+  environment: iter/hybrid/rampdown
+  source_backend: bohm_gyrobohm
+  source_step: 0
+  source_time_s: 0.0
+  seed: 0
+  source_config_sha256: 110d5b5bad9e7232acc9af2a076e29b71ccc8d613657ba25047c173fd758d1ab
+  torax_version: 1.4.2
+  reference: iter_hybrid_hot_v1_4_2
+  sources:
+  - title: TORAX ITER hybrid predictor-corrector example
+    url: https://github.com/google-deepmind/torax/blob/v1.4.2/torax/examples/iterhybrid_predictor_corrector.py
+    revision: v1.4.2
+    sha256: 0b2ee110defc5979b78be8ecf5807a04d329fc71ad310873e176fecfd9712f79
+    license: Apache-2.0
+    redistribution: checksum_only
+  extraction:
+    method: torax_config
+    grid: TORAX v1.4.2 analytic profiles evaluated by TORAX
+    axis_transform: {}
+    notes:
+    - Upstream profiles, composition, pedestal targets, current fraction, source totals, and
+      schedules are locked.
+    - Controller dynamics retain the prescribed pedestal targets but enforce them through
+      adaptive transport rather than hidden sources/sinks.
+  artifacts: {}
+  notes:
+  - Nominal resolved state before reset noise; stored at four significant figures.
+grid:
+  rho_norm: [0.02, 0.06, 0.1, 0.14, 0.18, 0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5, 0.54,
+    0.58, 0.62, 0.66, 0.7, 0.74, 0.78, 0.82, 0.86, 0.9, 0.94, 0.98]
+  rho_face_norm: [0.0, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24, 0.28, 0.32, 0.36, 0.4, 0.44, 0.48,
+    0.52, 0.56, 0.6, 0.64, 0.68, 0.72, 0.76, 0.8, 0.84, 0.88, 0.92, 0.96, 1.0]
+profiles:
+  T_i_keV: [14.7, 14.11, 13.52, 12.93, 12.34, 11.74, 11.15, 10.56, 9.968, 9.376, 8.784, 8.192,
+    7.6, 7.008, 6.416, 5.824, 5.232, 4.64, 4.048, 3.456, 2.864, 2.272, 1.68, 1.088, 0.496]
+  T_e_keV: [14.7, 14.11, 13.52, 12.93, 12.34, 11.74, 11.15, 10.56, 9.968, 9.376, 8.784, 8.192,
+    7.6, 7.008, 6.416, 5.824, 5.232, 4.64, 4.048, 3.456, 2.864, 2.272, 1.68, 1.088, 0.496]
+  n_e_m3: [7.846e+19, 7.741e+19, 7.635e+19, 7.53e+19, 7.425e+19, 7.319e+19, 7.214e+19, 7.109e+19,
+    7.004e+19, 6.898e+19, 6.793e+19, 6.688e+19, 6.582e+19, 6.477e+19, 6.372e+19, 6.266e+19,
+    6.161e+19, 6.056e+19, 5.95e+19, 5.845e+19, 5.74e+19, 5.634e+19, 5.529e+19, 5.424e+19,
+    5.318e+19]
+  psi_Wb: [0.1681, 0.5043, 1.085, 2.038, 3.311, 4.889, 6.765, 8.927, 11.35, 14.02, 16.9, 19.95,
+    23.16, 26.47, 29.86, 33.27, 36.68, 40.04, 43.31, 46.47, 49.49, 52.33, 54.96, 57.36, 59.47]
+reset_state:
+  confinement_mode: 0
+  dW_thermal_i_dt_smoothed: 0.0
+  dW_thermal_e_dt_smoothed: 0.0

@@ -11,6 +11,8 @@
 phase: rampdown
 reset_reference: iter_advanced_hot_slide25
 
+initialization: ${DATA_DIR}/initializations/iter/advanced/hot.yaml
+
 task:
   reward: rampdown
   terminal_penalty: -330
@@ -21,7 +23,6 @@ torax:
     T_i_right_bc: {0: 0.2, 60: 0.1}  # edge T_i BC [keV]
     T_e_right_bc: {0: 0.2, 60: 0.1}
     n_e_right_bc: {0: 4.34633e+19, 60: 1.0e+19}
-    initial_psi_mode: profile_conditions
   numerics:
     t_final: 60.0                # ramp-down only [s] → 600 steps
   geometry:

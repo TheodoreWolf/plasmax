@@ -1,14 +1,10 @@
-"""Compact phase-snapshot schema and TORAX reset adapter."""
+"""Resolved TORAX state and adapter for readable YAML initializations."""
 
 from __future__ import annotations
 
 import dataclasses
 import hashlib
 import importlib.metadata
-import json
-import os
-import tempfile
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
@@ -30,6 +26,16 @@ from torax._src.orchestration.step_function import SimulationStepFn
 from torax._src.output_tools import post_processing
 from torax._src.transport_model import transport_coefficients_builder
 
+from plasmax.environment.initialization_data import (
+    Grid,
+    Profiles,
+    Provenance,
+    ResetState,
+    ToraxInitialization,
+    load_initialization,
+    write_initialization,
+)
+
 _GRID_FIELDS = ("rho_norm", "rho_face_norm")
 _PROFILE_FIELDS = ("T_i", "T_e", "n_e", "psi")
 _ENERGY_HISTORY_FIELDS = (
@@ -39,7 +45,7 @@ _ENERGY_HISTORY_FIELDS = (
 
 
 class SnapshotMetadata(BaseModel):
-    """Provenance encoded by the snapshot's ``metadata_json`` scalar."""
+    """Generation context of a resolved TORAX state."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -60,7 +66,7 @@ class SnapshotMetadata(BaseModel):
 
 
 class PhaseSnapshot(BaseModel):
-    """Backend-agnostic physical state stored by a phase NPZ."""
+    """Backend-agnostic physical state reconstructed from a YAML initialization."""
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -155,126 +161,62 @@ class PhaseSnapshot(BaseModel):
         return self
 
 
-def _archive_value_fields() -> tuple[str, ...]:
-    """Fields stored directly rather than inside ``metadata_json``."""
-    return tuple(name for name in PhaseSnapshot.model_fields if name != "metadata")
-
-
-def _snapshot_from_archive(
-    arrays: Mapping[str, np.ndarray],
-    expected_environment: str | None,
-) -> PhaseSnapshot:
-    """Decode one NPZ mapping and validate it against ``PhaseSnapshot``."""
-    keys = set(arrays)
-    expected_keys = {*_archive_value_fields(), "metadata_json"}
-    if len(arrays) != len(expected_keys) or keys != expected_keys:
-        raise ValueError(
-            "snapshot fields differ; "
-            f"missing={sorted(expected_keys - keys)}, "
-            f"extra={sorted(keys - expected_keys)}"
-        )
-
-    metadata_array = arrays["metadata_json"]
-    if metadata_array.shape != ():
-        raise ValueError(
-            f"snapshot metadata_json has shape {metadata_array.shape}; expected ()"
-        )
-    if metadata_array.dtype.kind not in "US":
-        raise ValueError(
-            f"snapshot metadata_json has incompatible dtype {metadata_array.dtype}"
-        )
-    encoded = metadata_array.item()
-    if isinstance(encoded, bytes):
-        try:
-            encoded = encoded.decode("utf-8")
-        except UnicodeDecodeError as error:
-            raise ValueError("snapshot metadata_json is not valid UTF-8") from error
-    try:
-        metadata = json.loads(encoded)
-    except (json.JSONDecodeError, TypeError) as error:
-        raise ValueError("snapshot metadata_json is not valid JSON") from error
-    if not isinstance(metadata, dict):
-        raise ValueError("snapshot metadata_json must encode an object")
-
-    values = {name: arrays[name] for name in _archive_value_fields()}
-    values["metadata"] = metadata
-    snapshot = PhaseSnapshot.model_validate(values, strict=True)
-
-    if (
-        expected_environment is not None
-        and snapshot.metadata.environment != expected_environment
-    ):
-        raise ValueError(
-            f"snapshot environment {snapshot.metadata.environment!r} does not match "
-            f"{expected_environment!r}"
-        )
-    return snapshot
-
-
 def snapshot_sha256(path: str | Path) -> str:
-    """Return the checksum of the exact NPZ bytes."""
+    """Return the checksum of the saved initialization document."""
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def load_snapshot(
-    path: str | Path,
+def snapshot_from_initialization(document: ToraxInitialization) -> PhaseSnapshot:
+    """Convert validated YAML values to the numerical reset adapter payload."""
+    metadata = document.provenance.model_dump(
+        include=set(SnapshotMetadata.model_fields)
+    )
+    return PhaseSnapshot(
+        schema_version=1,
+        rho_norm=np.asarray(document.grid.rho_norm, dtype=np.float64),
+        rho_face_norm=np.asarray(document.grid.rho_face_norm, dtype=np.float64),
+        T_i=np.asarray(document.profiles.T_i_keV, dtype=np.float64),
+        T_e=np.asarray(document.profiles.T_e_keV, dtype=np.float64),
+        n_e=np.asarray(document.profiles.n_e_m3, dtype=np.float64),
+        psi=np.asarray(document.profiles.psi_Wb, dtype=np.float64),
+        metadata=SnapshotMetadata.model_validate(metadata),
+        **document.reset_state.model_dump(),
+    )
+
+
+def load_snapshot(path: str | Path) -> PhaseSnapshot:
+    """Load a TORAX YAML initialization for the numerical reset adapter."""
+    document = load_initialization(path, kind="torax")
+    assert isinstance(document, ToraxInitialization)
+    return snapshot_from_initialization(document)
+
+
+def initialization_from_snapshot(
+    snapshot: PhaseSnapshot,
     *,
-    expected_sha256: str | None = None,
-    expected_environment: str | None = None,
-) -> PhaseSnapshot:
-    """Load an NPZ and validate it once against the phase-snapshot schema."""
-    source = Path(path)
-    if expected_sha256 is not None:
-        actual_sha256 = snapshot_sha256(source)
-        if actual_sha256 != expected_sha256:
-            raise ValueError(
-                f"snapshot checksum differs: expected {expected_sha256}, "
-                f"got {actual_sha256}"
-            )
-    with np.load(source, allow_pickle=False) as archive:
-        arrays = {name: np.array(archive[name], copy=True) for name in archive.files}
-    return _snapshot_from_archive(arrays, expected_environment)
+    description: str | None = None,
+    provenance: Provenance | None = None,
+) -> ToraxInitialization:
+    """Build a serializable document from a captured nominal state."""
+    return ToraxInitialization(
+        description=description or f"{snapshot.metadata.environment}: resolved state",
+        provenance=provenance or Provenance(**snapshot.metadata.model_dump()),
+        grid=Grid(rho_norm=snapshot.rho_norm, rho_face_norm=snapshot.rho_face_norm),
+        profiles=Profiles(
+            T_i_keV=snapshot.T_i,
+            T_e_keV=snapshot.T_e,
+            n_e_m3=snapshot.n_e,
+            psi_Wb=snapshot.psi,
+        ),
+        reset_state=ResetState(
+            **{name: getattr(snapshot, name) for name in ResetState.model_fields}
+        ),
+    )
 
 
 def write_snapshot(snapshot: PhaseSnapshot, path: str | Path) -> str:
-    """Atomically write a compressed snapshot for the capture tool."""
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        name: np.asarray(getattr(snapshot, name)) for name in _archive_value_fields()
-    }
-    payload["schema_version"] = np.asarray(snapshot.schema_version, dtype=np.int32)
-    payload["confinement_mode"] = np.asarray(
-        snapshot.confinement_mode,
-        dtype=np.int32,
-    )
-    payload["metadata_json"] = np.asarray(
-        json.dumps(
-            snapshot.metadata.model_dump(mode="python"),
-            allow_nan=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-    )
-    _snapshot_from_archive(payload, snapshot.metadata.environment)
-
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w+b",
-            dir=destination.parent,
-            prefix=f".{destination.name}.",
-            delete=False,
-        ) as stream:
-            temporary_path = Path(stream.name)
-            np.savez_compressed(stream, **payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary_path.replace(destination)
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
-    return snapshot_sha256(destination)
+    """Write a captured state to YAML at four significant figures."""
+    return write_initialization(initialization_from_snapshot(snapshot), path)
 
 
 def snapshot_from_state(
@@ -437,6 +379,8 @@ __all__ = [
     "PhaseSnapshot",
     "SnapshotMetadata",
     "load_snapshot",
+    "snapshot_from_initialization",
+    "initialization_from_snapshot",
     "rebuild_state_from_snapshot",
     "snapshot_sha256",
     "snapshot_from_state",

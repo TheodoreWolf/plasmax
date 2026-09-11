@@ -1,0 +1,52 @@
+schema_version: 1
+kind: torax
+description: 'iter/hybrid/flattop: resolved nominal initialization'
+provenance:
+  environment: iter/hybrid/flattop
+  source_backend: bohm_gyrobohm
+  source_step: 1000
+  source_time_s: 100.0
+  seed: 0
+  source_config_sha256: da60fc28bda321074dd48f9659a5cf052bbc09b7993aa199e71a6ac421811e46
+  torax_version: 1.4.2
+  reference: iter_hybrid_settled_bgb
+  sources:
+  - title: TORAX ITER hybrid predictor-corrector example
+    url: https://github.com/google-deepmind/torax/blob/v1.4.2/torax/examples/iterhybrid_predictor_corrector.py
+    revision: v1.4.2
+    sha256: 0b2ee110defc5979b78be8ecf5807a04d329fc71ad310873e176fecfd9712f79
+    license: Apache-2.0
+    redistribution: checksum_only
+  - title: Settled Bohm-GyroBohm state
+    local_path: data/initializations/iter/hybrid/flattop_bgb_settled.npz
+    sha256: d84a6e3ad0f8bbfbb08123626fd01da6655ca2a413eb0006140e92a724b3add5
+  extraction:
+    method: simulation_capture
+    grid: 25 TORAX cells and 26 faces
+    axis_transform: {}
+    notes:
+    - Converted directly from the saved NPZ, without rerunning the settling trajectory.
+    - Stored physical values rounded to four significant figures.
+  artifacts: {}
+  notes:
+  - Nominal resolved state before reset noise; stored at four significant figures.
+grid:
+  rho_norm: [0.02, 0.06, 0.1, 0.14, 0.18, 0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5, 0.54,
+    0.58, 0.62, 0.66, 0.7, 0.74, 0.78, 0.82, 0.86, 0.9, 0.94, 0.98]
+  rho_face_norm: [0.0, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24, 0.28, 0.32, 0.36, 0.4, 0.44, 0.48,
+    0.52, 0.56, 0.6, 0.64, 0.68, 0.72, 0.76, 0.8, 0.84, 0.88, 0.92, 0.96, 1.0]
+profiles:
+  T_i_keV: [36.11, 35.97, 34.92, 32.54, 29.34, 25.91, 22.66, 19.73, 17.12, 14.88, 12.81, 10.99,
+    9.404, 8.009, 6.8, 5.757, 4.855, 4.071, 3.391, 2.802, 2.288, 1.871, 1.564, 0.8423, 0.3521]
+  T_e_keV: [27.69, 27.47, 26.76, 25.5, 23.91, 22.14, 20.32, 18.51, 16.72, 15.04, 13.3, 11.63,
+    10.1, 8.665, 7.359, 6.197, 5.172, 4.274, 3.496, 2.822, 2.236, 1.752, 1.376, 0.7608, 0.3378]
+  n_e_m3: [6.726e+19, 6.71e+19, 6.682e+19, 6.638e+19, 6.587e+19, 6.531e+19, 6.47e+19, 6.405e+19,
+    6.333e+19, 6.254e+19, 6.144e+19, 6.022e+19, 5.904e+19, 5.776e+19, 5.639e+19, 5.496e+19,
+    5.345e+19, 5.187e+19, 5.022e+19, 4.851e+19, 4.671e+19, 4.492e+19, 4.328e+19, 3.605e+19,
+    2.879e+19]
+  psi_Wb: [2.482, 2.811, 3.462, 4.455, 5.835, 7.593, 9.704, 12.17, 15.0, 18.18, 21.72, 25.51,
+    29.45, 33.42, 37.35, 41.16, 44.85, 48.39, 51.76, 54.95, 57.97, 60.78, 63.38, 65.75, 67.87]
+reset_state:
+  confinement_mode: 1
+  dW_thermal_i_dt_smoothed: 1.558e+06
+  dW_thermal_e_dt_smoothed: 6.231e+04

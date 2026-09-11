@@ -7,12 +7,15 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 from torax._src.torax_pydantic import model_config as torax_model_config
 
 from plasmax.environment import registry
+from plasmax.environment.initialization_data import (
+    KstarInitialization,
+    ToraxInitialization,
+    load_initialization,
+)
 from plasmax.environment.merge import (
-    _deep_merge,
     _merge_env_and_backend,
     load_env_layers,
     validate_env_backend,
@@ -37,79 +40,51 @@ def _resolve_assets(value: Any) -> Any:
     return value
 
 
-def _apply_imas_init(torax: Mapping[str, Any]) -> dict[str, Any]:
-    """Resolves a top-level ``_imas_init`` directive in a torax block."""
+def _load_initialization(
+    raw: Mapping[str, Any], env: str
+) -> tuple[Path, ToraxInitialization | KstarInitialization]:
+    path = raw.get("initialization")
+    if not isinstance(path, str) or not path:
+        raise ValueError(f"Environment {env!r} requires an initialization YAML path")
+    source = Path(path)
+    if not source.is_absolute():
+        source = registry.CONFIGS_DIR / source
+    source = source.resolve()
+    return source, load_initialization(
+        source, kind="kstar" if env == "kstar_worldmodel" else "torax"
+    )
+
+
+def apply_initialization(
+    torax: Mapping[str, Any],
+    document: ToraxInitialization,
+) -> dict[str, Any]:
+    """Apply atomic resolved profiles after all task/backend layers are composed."""
     result = copy.deepcopy(dict(torax))
-    directive = result.pop("_imas_init", None)
-    if directive is None:
-        return result
-    if not isinstance(directive, Mapping):
-        raise ValueError("torax._imas_init must be a mapping")
-    unknown = sorted(
-        set(directive)
-        - {
-            "path",
-            "profile_conditions",
-            "plasma_composition",
-            "explicit_convert",
-        }
-    )
-    if unknown:
-        raise ValueError(f"Unknown torax._imas_init fields: {unknown}")
-    path_value = directive.get("path")
-    if not isinstance(path_value, str) or not path_value:
-        raise ValueError("torax._imas_init.path must be a non-empty path")
-    path = Path(path_value)
-    if not path.is_file():
-        raise FileNotFoundError(f"IMAS initialization file does not exist: {path}")
-    for name in ("profile_conditions", "plasma_composition", "explicit_convert"):
-        if not isinstance(directive.get(name, False), bool):
-            raise ValueError(f"torax._imas_init.{name} must be a boolean")
-    if not any(
-        directive.get(name, False)
-        for name in ("profile_conditions", "plasma_composition")
-    ):
-        return result
-
-    # Imports are intentionally lazy: registry, pair, and public option errors
-    # are reported before opening a comparatively expensive IMAS artifact.
-    from torax._src.imas_tools.input import core_profiles, loader
-
-    explicit_convert = directive.get("explicit_convert", False)
-    ids = loader.load_imas_data(
-        uri=path.name,
-        ids_name="core_profiles",
-        directory=path.parent,
-        explicit_convert=explicit_convert,
-    )
-    t_initial = (result.get("numerics") or {}).get("t_initial")
-    if directive.get("profile_conditions", False):
-        imported = core_profiles.profile_conditions_from_IMAS(ids, t_initial)
-        # Some public IMAS releases omit core_profiles/global_quantities/ip
-        # while carrying the authoritative current on the equilibrium slice.
-        imported_ip = imported.get("Ip")
-        ip_values = imported_ip[1] if isinstance(imported_ip, tuple) else imported_ip
-        if ip_values is None or np.asarray(ip_values).size == 0:
-            equilibrium = loader.load_imas_data(
-                uri=path.name,
-                ids_name="equilibrium",
-                directory=path.parent,
-                explicit_convert=explicit_convert,
-            )
-            imported = dict(imported)
-            imported["Ip"] = float(
-                np.asarray(equilibrium.time_slice[0].global_quantities.ip)
-            )
-        explicit = result.get("profile_conditions") or {}
-        if not isinstance(explicit, Mapping):
-            raise ValueError("torax.profile_conditions must be a mapping")
-        result["profile_conditions"] = _deep_merge(imported, explicit)
-    if directive.get("plasma_composition", False):
-        imported = core_profiles.plasma_composition_from_IMAS(ids, t_initial)
-        explicit = result.get("plasma_composition") or {}
-        if not isinstance(explicit, Mapping):
-            raise ValueError("torax.plasma_composition must be a mapping")
-        result["plasma_composition"] = _deep_merge(imported, explicit)
+    conditions = dict(result.get("profile_conditions") or {})
+    owned = {
+        "T_i",
+        "T_e",
+        "n_e",
+        "psi",
+        "nbar",
+        "normalize_n_e_to_nbar",
+        "n_e_nbar_is_fGW",
+        "initial_psi_mode",
+        "initial_psi_from_j",
+    }
+    duplicate = owned.intersection(conditions)
+    if duplicate:
+        raise ValueError(
+            "initialization profiles must live in the initialization YAML: "
+            f"{sorted(duplicate)}"
+        )
+    conditions.update(document.profile_conditions())
+    result["profile_conditions"] = conditions
+    if document.composition is not None:
+        composition = dict(result.get("plasma_composition") or {})
+        composition.update(document.composition.torax_parameters())
+        result["plasma_composition"] = composition
     return result
 
 
@@ -127,7 +102,11 @@ def parse_env_and_backend(
     if env == "kstar_worldmodel":
         raw = _resolve_assets(load_env_layers(env))
         raw = {"environment_key": env, **_without_metadata(raw)}
-        return WorldModelConfig.model_validate(raw)
+        raw["initialization"], initial = _load_initialization(raw, env)
+        assert isinstance(initial, KstarInitialization)
+        config = WorldModelConfig.model_validate(raw)
+        config._initial_state = initial
+        return config
 
     assert backend is not None
     raw = _merge_env_and_backend(env, backend)
@@ -136,9 +115,15 @@ def parse_env_and_backend(
     torax = raw.get("torax")
     if not isinstance(torax, Mapping):
         raise ValueError(f"Environment {env!r} must define a TORAX mapping")
-    raw["torax"] = torax_model_config.ToraxConfig.from_dict(_apply_imas_init(torax))
+    raw["initialization"], initial = _load_initialization(raw, env)
+    assert isinstance(initial, ToraxInitialization)
+    raw["torax"] = torax_model_config.ToraxConfig.from_dict(
+        apply_initialization(torax, initial)
+    )
     raw["environment_key"] = env
-    return PlasmaxConfig.model_validate(raw)
+    config = PlasmaxConfig.model_validate(raw)
+    config._initial_state = initial
+    return config
 
 
-__all__ = ["parse_env_and_backend"]
+__all__ = ["parse_env_and_backend", "apply_initialization"]

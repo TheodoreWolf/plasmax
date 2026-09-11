@@ -7,15 +7,12 @@
 # plasmax.environment.merge._VALID_ENV_BACKEND_COMBOS.
 #
 # Device:    STEP prototype (compact, high-field, spherical tokamak).
-#            Ip = 21.228640 MA initial (sustained, not pinned — see below).
+#            Ip = 21.23 MA initial (sustained, not pinned — see below).
 # Initial state: T_e, T_i, n_e, psi, plasma composition and Z_eff are
-#            loaded from the OpenSTEP IMAS data release (Brown, Casson
-#            et al. 2025, DOI 10.14468/07jt-s540). The IMAS file is
-#            vendored at ``data/STEP_SPP_001_ECHD_ftop.nc``
-#            (~1.3 MB). This replaces ad-hoc parabolic profile guesses
-#            that produced an initial state inconsistent with the
-#            non-inductive steady state.
-# Geometry:  IMAS equilibrium from the same file (n_rho = 25 sim grid).
+#            stored at four significant figures in the initialization YAML,
+#            exported from OpenSTEP (Brown, Casson et al. 2025,
+#            DOI 10.14468/07jt-s540).
+# Geometry:  IMAS equilibrium from data/STEP_SPP_001_ECHD_ftop.nc (25 cells).
 # Current:   zero-loop-voltage LCFS BC (``use_v_loop_lcfs_boundary_condition``)
 #            — fully non-inductive, sustained by bootstrap (~0.9) + ECCD.
 #            Ip is the initial condition only.
@@ -30,6 +27,8 @@
 # Device-level config (IMAS geometry plumbing, actuators, observations,
 # disruption) is inherited from tokamaks/step.yaml.
 
+initialization: ${DATA_DIR}/initializations/step/spp_001_ec_hd/hot.yaml
+
 task:
   reward: P_diff
   # Intentionally uncalibrated; STEP termination currently has no penalty.
@@ -39,24 +38,12 @@ tokamak: step
 reset_reference: step_hot_openstep_v1_4_2
 
 torax:
-  # Pull T_e, T_i, n_e, psi, Ip, plasma composition, and Z_eff from the
-  # OpenSTEP IDS. Any leaf set explicitly under profile_conditions /
-  # plasma_composition below overrides on a per-key basis.
-  _imas_init:
-    path: ${DATA_DIR}/STEP_SPP_001_ECHD_ftop.nc
-    profile_conditions: true
-    plasma_composition: true
-  plasma_composition:
-    # The IMAS importer supplies measured n_impurity/n_e ratios for Xe, He and
-    # Ar, but its default n_e_ratios mode ignores the released Z_eff profile.
-    # Constrain the seeded Ar density with Z_eff while preserving the released
-    # Xe and He ratios. Ar is chosen because the solved fraction stays
-    # non-negative across the profile.
-    impurity:
-      impurity_mode: n_e_ratios_Z_eff
-      species:
-        Ar: null
+  # Explicit current and edge values from OpenSTEP, rounded to four figures.
   profile_conditions:
+    Ip: 2.123e+07
+    T_i_right_bc: 0.4
+    T_e_right_bc: 0.16
+    n_e_right_bc: 4.014e+19
     # STEP SPP-001 is a fully non-inductive flat-top: zero LCFS loop voltage,
     # Ip sustained by bootstrap (~0.9) + ECCD. Ip from IMAS is the initial
     # condition; the v_loop=0 BC governs subsequent evolution.
