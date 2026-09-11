@@ -6,9 +6,12 @@ import numpy as np
 import pytest
 from envelope import Continuous, Environment, Info, VmapWrapper
 
+from plasmax.environment.config import parse_env_and_backend
+from plasmax.models.world_model import load_bundle
 from plasmax.models.world_model_env import WorldModelEnv, target_tracking_reward
 from plasmax.wrappers import OracleWrappers, RealisticWrappers
 
+# Resets use the authoritative four-significant-figure YAML history.
 _GOLDEN_RESET = np.array(
     [
         0.5,
@@ -17,9 +20,9 @@ _GOLDEN_RESET = np.array(
         0.75,
         1.32,
         2.22,
-        1.347041,
-        4.840889,
-        1.079538,
+        1.346700,
+        4.841000,
+        1.080000,
         1.6,
         5.0,
         0.95,
@@ -37,9 +40,9 @@ _GOLDEN_STEP0 = np.array(
         0.7,
         1.312,
         2.235,
-        1.404508,
-        4.971919,
-        0.869126,
+        1.404393,
+        4.971858,
+        0.869158,
         1.6,
         5.0,
         0.95,
@@ -49,7 +52,7 @@ _GOLDEN_STEP0 = np.array(
     ],
     np.float32,
 )
-_GOLDEN_STEP0_REWARD = -0.08764740
+_GOLDEN_STEP0_REWARD = -0.08752443
 
 
 def _leaf_signature(tree):
@@ -181,6 +184,36 @@ class WorldModelEnvContractTest:
         np.testing.assert_array_equal(info1.obs, info2.obs)
         assert not jnp.allclose(state1.targets, state3.targets)
         assert not jnp.allclose(info1.obs, info3.obs)
+        expected = jax.random.uniform(
+            jax.random.key(7),
+            (3,),
+            minval=jnp.array([1.1, 3.8, 0.84], dtype=jnp.float64),
+            maxval=jnp.array([2.1, 6.2, 1.06], dtype=jnp.float64),
+            dtype=jnp.float64,
+        ).astype(jnp.float32)
+        np.testing.assert_array_equal(state1.targets, expected)
+
+    def test_reset_repeats_the_saved_history_row(self):
+        config = parse_env_and_backend("kstar_worldmodel")
+        document = config._initial_state
+        state, _ = self.env.init(jax.random.key(0))
+        np.testing.assert_array_equal(
+            state.x,
+            np.tile(np.array(document.history_row, np.float32), (10, 1)),
+        )
+        np.testing.assert_array_equal(
+            state.inputs,
+            np.array(
+                [document.inputs[name] for name in document.input_order], np.float32
+            ),
+        )
+
+    def test_reset_needs_only_saved_history_and_dynamics_weights(self):
+        # The steady-state NN is used only by the capture tool.
+        bundle = {name: value for name, value in load_bundle().items() if name != "nn"}
+        env = WorldModelEnv.from_bundle(bundle, random_target=False)
+        _, info = jax.jit(env.init)(jax.random.key(0))
+        np.testing.assert_allclose(info.obs, _GOLDEN_RESET, rtol=1e-4, atol=1e-4)
 
     def test_reward_is_max_at_target(self):
         target = jnp.array([1.6, 5.0, 0.95])

@@ -1,0 +1,65 @@
+schema_version: 1
+kind: torax
+description: 'iter/baseline/flattop: resolved nominal initialization'
+provenance:
+  environment: iter/baseline/flattop
+  source_backend: bohm_gyrobohm
+  source_step: 0
+  source_time_s: 0.0
+  seed: 0
+  source_config_sha256: c4a4ada671d0944a10deb15f02d0bf87257d3fae31ee1ccad7f9bad330843fcb
+  torax_version: 1.4.2
+  reference: iter_baseline_hot_450s
+  sources:
+  - title: ITPA TC-33 ITER 15 MA reference state at 450 s
+    url: https://zenodo.org/records/21391776/files/ITPA-TC33-450s.nc?download=1
+    doi: 10.5281/zenodo.21391776
+    revision: 450 s state; IMAS DD 3.42.0
+    sha256: ec73a0c64afa0352a5dc8173187a03682c27b8bf8f7b5cc3f6bfba533b1fbf71
+    license: redistribution terms not stated in the record
+    redistribution: checksum_only
+  - title: ITPA TC-33 ITER 15 MA comparison state at 415 s
+    url: https://zenodo.org/records/21391776/files/ITPA-TC33-415s.nc?download=1
+    doi: 10.5281/zenodo.21391776
+    revision: rejected comparison state; q_min approximately 0.73
+    sha256: f5e137d96ceee28085338324c5ba43be69fbe0b5a295ae069028308d2f7e121e
+    license: redistribution terms not stated in the record
+    redistribution: checksum_only
+  extraction:
+    method: imas_import
+    grid: 25 TORAX cell centres at rho_tor_norm=0.02:0.04:0.98
+    axis_transform: {}
+    notes:
+    - Profiles are linearly interpolated in rho_tor_norm; their cylindrical volume-weighted
+      integral error is below 1%.
+    - Psi is shifted by the released magnetic-axis value before interpolation.
+    - The equilibrium is explicitly converted from IMAS DD3 COCOS 17 to a deterministic COCOS-7
+      GEQDSK.
+    - The 450 s state is selected because q_min=0.9655; the 415 s state has q_min approximately
+      0.73.
+  artifacts:
+    data/references/iter_baseline_450s_profiles_25.csv: 2447bf4a5e773a4df9cccf4cd2128b9cff2626f7bfa3dca8f7c84fbe070fb7b2
+    data/references/iter_baseline_450s.eqdsk: 4b37fc63cdcabadc9557acd2eb81ee5d018c3b04722f8ea767ca06f13e8ea800
+  notes:
+  - Nominal resolved state before reset noise; stored at four significant figures.
+grid:
+  rho_norm: [0.02, 0.06, 0.1, 0.14, 0.18, 0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5, 0.54,
+    0.58, 0.62, 0.66, 0.7, 0.74, 0.78, 0.82, 0.86, 0.9, 0.94, 0.98]
+  rho_face_norm: [0.0, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24, 0.28, 0.32, 0.36, 0.4, 0.44, 0.48,
+    0.52, 0.56, 0.6, 0.64, 0.68, 0.72, 0.76, 0.8, 0.84, 0.88, 0.92, 0.96, 1.0]
+profiles:
+  T_i_keV: [23.65, 23.39, 22.35, 20.9, 19.54, 18.23, 16.98, 15.92, 14.96, 14.06, 13.25, 12.51,
+    11.83, 11.19, 10.56, 9.92, 9.254, 8.579, 7.909, 7.277, 6.674, 6.111, 5.574, 4.727, 2.272]
+  T_e_keV: [31.92, 31.62, 30.91, 29.67, 27.78, 25.35, 22.63, 20.26, 18.3, 16.6, 15.18, 13.96,
+    12.93, 12.03, 11.18, 10.33, 9.431, 8.533, 7.712, 6.962, 6.304, 5.76, 5.284, 4.556, 2.12]
+  n_e_m3: [1.167e+20, 1.167e+20, 1.165e+20, 1.162e+20, 1.158e+20, 1.155e+20, 1.158e+20, 1.17e+20,
+    1.169e+20, 1.163e+20, 1.148e+20, 1.139e+20, 1.133e+20, 1.12e+20, 1.104e+20, 1.079e+20,
+    1.057e+20, 1.035e+20, 1.009e+20, 9.756e+19, 9.33e+19, 8.828e+19, 8.267e+19, 7.474e+19,
+    6.312e+19]
+  psi_Wb: [0.05151, 0.4262, 1.171, 2.293, 3.789, 5.685, 7.989, 10.68, 13.73, 17.12, 20.81,
+    24.78, 28.94, 33.24, 37.61, 41.98, 46.29, 50.48, 54.52, 58.37, 62.02, 65.43, 68.59, 71.47,
+    74.12]
+reset_state:
+  confinement_mode: 0
+  dW_thermal_i_dt_smoothed: 0.0
+  dW_thermal_e_dt_smoothed: 0.0

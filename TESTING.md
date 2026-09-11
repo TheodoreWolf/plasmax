@@ -151,9 +151,22 @@ Tests cover:
 - bare construction plus explicit realistic/oracle composition;
 - wrapper default resolution and persistent physics updates/reset behavior.
 
-Golden merged-config comparisons must show that profile and TGLF YAML
-deduplication changes no physics values. The allowed differences are task
-metadata and renamed package paths.
+Initialization tests cover all task references from an unrelated working
+directory, typed YAML loading, numeric/scientific notation, stable serialization,
+and the four-significant-figure rounding bound. Compare to explicitly rounded
+source values, including STEP composition at both cell and face locations.
+Cold ramp-up profiles must contain no inherited hot points. Hybrid's settled
+flat-top and its hot ramp-down must remain distinct.
+
+Snapshot reconstruction checks preserve profiles, confinement mode, smoothed
+energy derivatives, and destination-owned time, geometry, and transport state.
+KSTAR checks its rounded reset/first-step values, unchanged model-forward parity,
+seeded target sampling, and JIT/vmap/scan contracts. Focused initialization
+integration checks run with:
+
+```bash
+uv run pytest tests/phase_initialization_test.py -m integration
+```
 
 ## Environment and wrapper regressions
 

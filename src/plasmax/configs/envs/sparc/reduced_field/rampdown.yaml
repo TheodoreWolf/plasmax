@@ -2,6 +2,8 @@
 # 5 s while staying inside stability limits (pair with the `rampdown` reward).
 phase: rampdown
 reset_reference: sparc_h8_hot_figure16
+initialization: ${DATA_DIR}/initializations/sparc/reduced_field/hot.yaml
+
 task:
   reward: rampdown
   terminal_penalty: -462

@@ -13,6 +13,7 @@ import pytest
 
 from plasmax.environment.config import parse_env_and_backend
 from plasmax.environment.factory import make
+from plasmax.environment.initialization_data import round_significant
 from plasmax.environment.merge import (
     _merge_env_and_backend,
     valid_env_backend_combos,
@@ -122,7 +123,7 @@ def test_reference_metadata_is_stripped_before_validation() -> None:
             assert "reset_reference" not in PlasmaxConfig.model_fields
 
 
-def test_nominal_profile_and_actuator_reset_is_identical_across_backends() -> None:
+def test_complete_saved_state_is_identical_across_backends() -> None:
     for env in PHYSICAL_ENVS:
         backends = sorted(valid_env_backend_combos()[env])
         expected = _payload(env, backends[0])
@@ -132,6 +133,9 @@ def test_nominal_profile_and_actuator_reset_is_identical_across_backends() -> No
 
 def test_flattop_and_rampdown_reuse_the_exact_hot_anchor() -> None:
     for scenario in MULTIPHASE_SCENARIOS:
+        if scenario == "iter/hybrid":
+            assert _payload(f"{scenario}/flattop") != _payload(f"{scenario}/rampdown")
+            continue
         flattop = f"{scenario}/flattop"
         rampdown = f"{scenario}/rampdown"
         assert reset_reference_id(flattop) == reset_reference_id(rampdown)
@@ -153,7 +157,9 @@ def test_exact_profile_artifacts_reproduce_yaml_arrays() -> None:
         ("psi", "psi_Wb"),
     ):
         np.testing.assert_allclose(
-            _profile_values(baseline[condition]), itpa[column], rtol=1e-7
+            _profile_values(baseline[condition]),
+            round_significant(itpa[column]),
+            rtol=1e-14,
         )
 
     raw = parse_sectioned_profile(REFERENCE_DATA_DIR / "sparc_prd_transp_20221013.txt")
@@ -166,7 +172,7 @@ def test_exact_profile_artifacts_reproduce_yaml_arrays() -> None:
     }
     for name, values in expected.items():
         np.testing.assert_allclose(
-            _profile_values(prd[name]), values, rtol=2e-6, atol=0.0
+            _profile_values(prd[name]), round_significant(values), rtol=2e-6, atol=0.0
         )
 
 
@@ -187,7 +193,9 @@ def test_digitized_profiles_and_q_reconstruction_are_deterministic() -> None:
         ("n_e", "n_e_m3"),
     ):
         np.testing.assert_allclose(
-            _profile_values(conditions[condition]), advanced[column], rtol=1e-7
+            _profile_values(conditions[condition]),
+            round_significant(advanced[column]),
+            rtol=1e-14,
         )
     psi = reconstruct_psi_from_q(
         advanced["rho"],
@@ -195,7 +203,7 @@ def test_digitized_profiles_and_q_reconstruction_are_deterministic() -> None:
         float(advanced_reference.targets["edge_poloidal_flux_Wb"]),
     )
     np.testing.assert_allclose(
-        _profile_values(conditions["psi"]), psi, rtol=2e-7, atol=1e-8
+        _profile_values(conditions["psi"]), round_significant(psi), rtol=2e-7, atol=1e-8
     )
 
     h8 = np.genfromtxt(
@@ -213,7 +221,9 @@ def test_digitized_profiles_and_q_reconstruction_are_deterministic() -> None:
         assert np.all(p10 <= median)
         assert np.all(median <= p90)
         np.testing.assert_allclose(
-            _profile_values(h8_conditions[prefix]), median, rtol=1e-7
+            _profile_values(h8_conditions[prefix]),
+            round_significant(median),
+            rtol=1e-14,
         )
 
 

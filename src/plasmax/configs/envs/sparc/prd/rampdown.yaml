@@ -2,6 +2,8 @@
 # staying inside stability limits (pair with the `rampdown` reward).
 phase: rampdown
 reset_reference: sparc_prd_hot_transp
+initialization: ${DATA_DIR}/initializations/sparc/prd/hot.yaml
+
 task:
   reward: rampdown
   terminal_penalty: -380

@@ -12,6 +12,8 @@
 #            wrappers, JIT trace, reward composition), CI smoke tests.
 #            Do not use for real training.
 
+initialization: ${DATA_DIR}/initializations/mock/circular/nominal.yaml
+
 task:
   reward: P_diff
   # Intentionally uncalibrated; this is a smoke-test fixture.
@@ -23,18 +25,9 @@ torax:
     Z_eff: 1.6
   profile_conditions:
     Ip: 10.5e+6
-    T_i:
-      0.0: {0.0: 6.0, 1.0: 0.2}
     T_i_right_bc: 0.2
-    T_e:
-      0.0: {0.0: 6.0, 1.0: 0.2}
     T_e_right_bc: 0.2
     n_e_right_bc: 0.25e+20
-    n_e_nbar_is_fGW: true
-    normalize_n_e_to_nbar: true
-    nbar: 0.8
-    n_e:
-      0: {0.0: 1.5, 1.0: 1.0}
   numerics:
     t_final: 0.5
     fixed_dt: 0.1

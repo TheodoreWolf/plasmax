@@ -14,7 +14,6 @@ from plasmax.environment import initialization as initialization_lib
 from plasmax.environment.config import parse_env_and_backend
 from plasmax.environment.merge import validate_env_backend
 from plasmax.environment.schema import (
-    PhaseInitializationConfig,
     PlasmaxConfig,
     WorldModelConfig,
 )
@@ -57,6 +56,7 @@ def _load_world_model_env(cfg: WorldModelConfig) -> Environment:
         load_bundle(spec.weights_path),
         random_target=spec.random_target,
         _plasmax_config=cfg,
+        _initialization=cfg._initial_state,
     )
 
 
@@ -73,21 +73,6 @@ def _resolve_task_settings(
     if resolved_penalty is None:
         raise ValueError("TORAX tasks require a numeric task.terminal_penalty")
     return resolved_reward, resolved_penalty
-
-
-def _load_phase_snapshot(
-    spec: PhaseInitializationConfig | None,
-    *,
-    expected_environment: str,
-) -> initialization_lib.PhaseSnapshot | None:
-    """Resolve and validate one phase-owned NPZ snapshot."""
-    if spec is None:
-        return None
-    return initialization_lib.load_snapshot(
-        spec.path,
-        expected_sha256=spec.sha256,
-        expected_environment=expected_environment,
-    )
 
 
 def _build_env(
@@ -110,10 +95,7 @@ def _build_env(
             rewards_lib.lh_transition,
             t_final=float(cfg.torax.numerics.t_final),
         )
-    phase_snapshot = _load_phase_snapshot(
-        cfg.initialization,
-        expected_environment=cfg.environment_key,
-    )
+    phase_snapshot = initialization_lib.snapshot_from_initialization(cfg._initial_state)
 
     profile_obs_specs = [item.to_spec() for item in cfg.observations.profiles]
     scalar_obs_specs = [item.to_spec() for item in cfg.observations.scalars]

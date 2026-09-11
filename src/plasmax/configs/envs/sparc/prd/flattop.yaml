@@ -2,6 +2,8 @@
 # stationary burning-plasma control problem (no current ramp).
 phase: flattop
 reset_reference: sparc_prd_hot_transp
+initialization: ${DATA_DIR}/initializations/sparc/prd/hot.yaml
+
 task:
   reward: P_diff
   # Intentionally uncalibrated; flat-top termination currently has no penalty.

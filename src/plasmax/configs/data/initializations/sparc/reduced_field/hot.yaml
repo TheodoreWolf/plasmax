@@ -1,0 +1,64 @@
+schema_version: 1
+kind: torax
+description: 'sparc/reduced_field/flattop: resolved nominal initialization'
+provenance:
+  environment: sparc/reduced_field/flattop
+  source_backend: bohm_gyrobohm
+  source_step: 0
+  source_time_s: 0.0
+  seed: 0
+  source_config_sha256: 2ac7b46f113d67fb072dd7bc73a22ba093040f6a4eec6b328941e0562f0e2536
+  torax_version: 1.4.2
+  reference: sparc_h8_hot_figure16
+  sources:
+  - title: SPARC 8 T H-mode operational space study
+    url: https://arxiv.org/pdf/2502.00187
+    doi: 10.48550/arXiv.2502.00187
+    revision: Figure 16
+    sha256: 1175d9d66894fda9024dce51368be1e435a2e6f8fdca9d6e4b7584798058f76d
+    license: arXiv redistribution terms not asserted here
+    redistribution: checksum_only
+  extraction:
+    method: figure_digitization
+    grid: pointwise 10th, 50th and 90th percentile curves at 25 TORAX cell centres
+    page: 25
+    crop: [290, 190, 1060, 765]
+    axis_transform:
+      Ti_rho_pixels: [310.0, 636.0]
+      Ti_keV_pixels: [449.0, 218.0]
+      Te_rho_pixels: [720.0, 1.045e+03]
+      Te_keV_pixels: [449.0, 222.0]
+      ne_rho_pixels: [519.0, 840.0]
+      ne_1e19_m-3_pixels: [750.0, 548.0]
+    digitization_tolerance_pixels: 2.0
+    notes:
+    - The pointwise median is the reset profile; the 10-90% curves are retained as its digitization
+      envelope.
+    - The generated overlay is the visual inspection record.
+    - Figure 16 contains kinetic profiles but no q curve; psi therefore comes from the chosen
+      5.7 MA FreeGS geometry, whose q95 is 3.20 and is consistent with the published Uckan
+      q-star=3 operating point.
+  artifacts:
+    data/references/sparc_h8_figure16_profiles_25.csv: 815ceffa2b88b29bf07b1cfee29c376d45fc7234aa678f713d2d61b7e2666ac0
+  notes:
+  - Nominal resolved state before reset noise; stored at four significant figures.
+grid:
+  rho_norm: [0.02, 0.06, 0.1, 0.14, 0.18, 0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5, 0.54,
+    0.58, 0.62, 0.66, 0.7, 0.74, 0.78, 0.82, 0.86, 0.9, 0.94, 0.98]
+  rho_face_norm: [0.0, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24, 0.28, 0.32, 0.36, 0.4, 0.44, 0.48,
+    0.52, 0.56, 0.6, 0.64, 0.68, 0.72, 0.76, 0.8, 0.84, 0.88, 0.92, 0.96, 1.0]
+profiles:
+  T_i_keV: [11.92, 11.88, 11.77, 11.35, 10.85, 10.19, 9.538, 8.942, 8.308, 7.654, 7.038, 6.5,
+    6.0, 5.615, 5.269, 5.0, 4.731, 4.462, 4.231, 4.038, 3.846, 3.654, 3.5, 3.308, 2.308]
+  T_e_keV: [13.93, 13.8, 13.27, 12.34, 11.45, 10.56, 9.808, 9.098, 8.388, 7.722, 7.101, 6.701,
+    6.346, 5.991, 5.68, 5.37, 5.059, 4.749, 4.527, 4.305, 4.083, 3.95, 3.772, 3.595, 2.53]
+  n_e_m3: [3.75e+20, 3.717e+20, 3.65e+20, 3.517e+20, 3.367e+20, 3.25e+20, 3.1e+20, 2.967e+20,
+    2.85e+20, 2.75e+20, 2.667e+20, 2.583e+20, 2.517e+20, 2.45e+20, 2.383e+20, 2.333e+20, 2.3e+20,
+    2.3e+20, 2.283e+20, 2.25e+20, 2.217e+20, 2.2e+20, 2.183e+20, 2.0e+20, 9.667e+19]
+  psi_Wb: [0.01849, 0.05547, 0.1108, 0.2135, 0.3523, 0.5265, 0.7356, 0.9789, 1.257, 1.567,
+    1.908, 2.278, 2.674, 3.095, 3.536, 3.994, 4.463, 4.939, 5.416, 5.889, 6.349, 6.79, 7.205,
+    7.584, 7.912]
+reset_state:
+  confinement_mode: 0
+  dW_thermal_i_dt_smoothed: 0.0
+  dW_thermal_e_dt_smoothed: 0.0

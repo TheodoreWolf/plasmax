@@ -1,24 +1,21 @@
 # ITER hybrid — flat-top phase.
 #
 # The episode begins already in the flat-top burn: Ip held at 10.5 MA and the
-# plasma starts hot (H-mode initial profiles), so the agent only ever sees the
-# stationary flat-top control problem. Initial conditions follow TORAX's
-# iterhybrid_predictor_corrector.py example (hot 15 keV core, nbar=0.8 fGW,
-# generic_current fraction 0.46).
+# plasma starts from the saved H-mode Bohm-GyroBohm state after 1000 steps
+# (100 s). Its resolved profiles and energy history are rounded to four
+# significant figures in settled.yaml. Ramp-down uses a separate hot reference.
 #
 # Geometry:  Static 10.5 MA EQDSK, rescaled to the live Ip. No ramp
-#            interpolation. The reset profiles retain the calibrated TORAX
-#            v1.4.2 reference. The task spans the full 100--540 s flat-top:
+#            interpolation. The task spans the full 100--540 s flat-top:
 #            t_final = 440 s -> 4400 steps.
 
 phase: flattop
-reset_reference: iter_hybrid_hot_v1_4_2
+reset_reference: iter_hybrid_settled_bgb
 # Backend-independent restart captured from the settled Bohm-GyroBohm state.
 # Geometry and each destination backend's transport/solver state are rebuilt at
-# load time. The checksum pins the exact packaged state selected by this phase.
-initialization:
-  path: ${DATA_DIR}/initializations/iter/hybrid/flattop_bgb_settled.npz
-  sha256: d84a6e3ad0f8bbfbb08123626fd01da6655ca2a413eb0006140e92a724b3add5
+# load time. The reference manifest fingerprints the selected rounded state.
+
+initialization: ${DATA_DIR}/initializations/iter/hybrid/settled.yaml
 
 task:
   reward: P_diff

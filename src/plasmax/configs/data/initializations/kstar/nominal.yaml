@@ -1,0 +1,100 @@
+schema_version: 1
+kind: kstar
+description: KSTAR NeoRL2 nominal learned initial state
+provenance:
+  environment: kstar_worldmodel
+  source_backend: kstar_lstm
+  source_step: 0
+  source_time_s: 0.0
+  seed: 0
+  source_config_sha256: dca4d2ceb08d7f28f9f2bbbdf800d7606572a5413a7cc5b98013d464770af584
+  sources:
+  - title: NeoRL2 KSTAR weights
+    url: https://github.com/polixir/NeoRL2
+    local_path: data/kstar_lstm/weights.npz
+    sha256: 7856edddefe9a48372d133779d941637b176259d7b15b338c247504c98b02b41
+  - title: NeoRL2 KSTAR engineering input names and units
+    url: https://github.com/polixir/NeoRL2/blob/main/neorl2/envs/fusion.py
+    revision: 21e2885da340234b003ad28218667ed08ee5b837
+  extraction:
+    method: model_inference
+    grid: 10 identical history rows; 21 columns per row
+    axis_transform: {}
+    notes:
+    - Materialized with the packaged steady-state neural network and float32 engineering features.
+    - Runtime target sampling uses the original float64 uniform draw and then casts to float32.
+  artifacts: {}
+  notes:
+  - The initial history repeats this resolved row ten times.
+  - Engineering names and units follow NeoRL2 input_params; GW_fraction, elongation, and triangularities
+    are dimensionless.
+inputs:
+  Ip_MA: 0.5
+  Bt_T: 1.8
+  GW_fraction: 0.275
+  Pnb1a_MW: 1.5
+  Pnb1b_MW: 1.5
+  Pnb1c_MW: 0.5
+  Pec2_MW: 0.0
+  Pec3_MW: 0.0
+  Zec2_cm: 0.0
+  Zec3_cm: 0.0
+  In_Mid_m: 1.32
+  Out_Mid_m: 2.22
+  elongation: 1.7
+  upper_triangularity: 0.3
+  lower_triangularity: 0.75
+input_order:
+- Ip_MA
+- Bt_T
+- GW_fraction
+- Pnb1a_MW
+- Pnb1b_MW
+- Pnb1c_MW
+- Pec2_MW
+- Pec3_MW
+- Zec2_cm
+- Zec3_cm
+- In_Mid_m
+- Out_Mid_m
+- elongation
+- upper_triangularity
+- lower_triangularity
+history_row: [1.708, 4.841, 1.734, 1.08, 0.5, 1.8, 1.5, 1.5, 0.5, 0.0, 0.0, 0.0, 0.0, 1.77,
+  0.45, 1.7, 0.3, 0.75, 1.0, 0.275, 2.021e+03]
+history_columns:
+- betan
+- q95
+- q0
+- li
+- Ip_MA
+- Bt_T
+- Pnb1a_MW
+- Pnb1b_MW
+- Pnb1c_MW
+- Pec2_MW
+- Pec3_MW
+- Zec2_cm
+- Zec3_cm
+- R_major_m
+- a_minor_m
+- elongation
+- upper_triangularity
+- lower_triangularity
+- in_mid_bit
+- GW_fraction
+- year
+history_length: 10
+targets:
+  betap:
+    default: 1.6
+    minimum: 1.1
+    maximum: 2.1
+  q95:
+    default: 5.0
+    minimum: 3.8
+    maximum: 6.2
+  li:
+    default: 0.95
+    minimum: 0.84
+    maximum: 1.06

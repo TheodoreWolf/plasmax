@@ -1,0 +1,63 @@
+schema_version: 1
+kind: torax
+description: 'sparc/prd/flattop: resolved nominal initialization'
+provenance:
+  environment: sparc/prd/flattop
+  source_backend: bohm_gyrobohm
+  source_step: 0
+  source_time_s: 0.0
+  seed: 0
+  source_config_sha256: 6f67a5af4d2b53562e6e0c0e88142d680d3912e98bf0b992196910a789777799
+  torax_version: 1.4.2
+  reference: sparc_prd_hot_transp
+  sources:
+  - title: SPARCPublic PRD TRANSP high-density profile
+    url: https://github.com/cfs-energy/SPARCPublic/blob/5b913b8216d05346b22e2e1e87c2ff100761613f/PrimaryReferenceDischarge/5%20-%20transp_20221013.txt
+    revision: 5b913b8216d05346b22e2e1e87c2ff100761613f
+    sha256: 1637755cada719c96b1a75eec1b697aee39805274114ab2180803268f2992db9
+    license: MIT
+    redistribution: vendored
+    local_path: data/references/sparc_prd_transp_20221013.txt
+  - title: SPARCPublic PRD FreeGS GEQDSK
+    url: https://github.com/cfs-energy/SPARCPublic/blob/5b913b8216d05346b22e2e1e87c2ff100761613f/PrimaryReferenceDischarge/2%20-%20SPARC_DN_PRD_freegs_20221013
+    revision: 5b913b8216d05346b22e2e1e87c2ff100761613f
+    sha256: 6299e73a1ba1f2b8a1bb6d5e0dfa35f424ec09eebe153c96ea7779420eee85c6
+    license: MIT
+    redistribution: vendored
+    local_path: data/references/sparc_prd_freegs_20221013.eqdsk
+  extraction:
+    method: sectioned_profile
+    grid: 101 released rho points linearly interpolated to 25 TORAX cell centres
+    axis_transform: {}
+    notes:
+    - Poloidal flux in Wb/radian is multiplied by 2pi for TORAX profile_conditions.
+    - The released GEQDSK is used without modification.
+    - TORAX uses last_surface_factor=0.9725, the largest value passing a 1e-4 deterministic
+      contour sweep; this excludes non-closed edge contours without modifying the released
+      GEQDSK.
+  artifacts:
+    data/references/sparc_prd_transp_20221013.txt: 1637755cada719c96b1a75eec1b697aee39805274114ab2180803268f2992db9
+    data/references/sparc_prd_freegs_20221013.eqdsk: 6299e73a1ba1f2b8a1bb6d5e0dfa35f424ec09eebe153c96ea7779420eee85c6
+  notes:
+  - Nominal resolved state before reset noise; stored at four significant figures.
+grid:
+  rho_norm: [0.02, 0.06, 0.1, 0.14, 0.18, 0.22, 0.26, 0.3, 0.34, 0.38, 0.42, 0.46, 0.5, 0.54,
+    0.58, 0.62, 0.66, 0.7, 0.74, 0.78, 0.82, 0.86, 0.9, 0.94, 0.98]
+  rho_face_norm: [0.0, 0.04, 0.08, 0.12, 0.16, 0.2, 0.24, 0.28, 0.32, 0.36, 0.4, 0.44, 0.48,
+    0.52, 0.56, 0.6, 0.64, 0.68, 0.72, 0.76, 0.8, 0.84, 0.88, 0.92, 0.96, 1.0]
+profiles:
+  T_i_keV: [19.91, 19.49, 18.73, 17.75, 16.65, 15.54, 14.48, 13.51, 12.63, 11.82, 11.07, 10.35,
+    9.656, 9.0, 8.38, 7.8, 7.259, 6.754, 6.281, 5.833, 5.404, 4.995, 4.612, 4.283, 0.9794]
+  T_e_keV: [22.68, 22.16, 21.24, 20.07, 18.78, 17.46, 16.17, 14.95, 13.82, 12.81, 11.89, 11.07,
+    10.32, 9.589, 8.878, 8.183, 7.518, 6.894, 6.322, 5.802, 5.336, 4.917, 4.567, 4.282, 0.7034]
+  n_e_m3: [4.165e+20, 4.16e+20, 4.143e+20, 4.111e+20, 4.06e+20, 3.989e+20, 3.905e+20, 3.818e+20,
+    3.734e+20, 3.657e+20, 3.589e+20, 3.525e+20, 3.465e+20, 3.407e+20, 3.349e+20, 3.29e+20,
+    3.229e+20, 3.168e+20, 3.109e+20, 3.056e+20, 3.008e+20, 2.964e+20, 2.915e+20, 2.864e+20,
+    1.078e+20]
+  psi_Wb: [0.01744, 0.09383, 0.2572, 0.5004, 0.8237, 1.225, 1.7, 2.245, 2.86, 3.545, 4.298,
+    5.11, 5.96, 6.827, 7.692, 8.539, 9.357, 10.14, 10.9, 11.61, 12.28, 12.91, 13.49, 14.02,
+    14.49]
+reset_state:
+  confinement_mode: 0
+  dW_thermal_i_dt_smoothed: 0.0
+  dW_thermal_e_dt_smoothed: 0.0

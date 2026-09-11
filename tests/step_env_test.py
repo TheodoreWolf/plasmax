@@ -5,9 +5,8 @@ in :mod:`tests.env_smoke_test`. This file owns the immutable OpenSTEP asset,
 reset physics, source projections, upstream-locked transport, actuator, and reward
 regressions for the STEP scenario.
 
-Initial profiles (T_e, T_i, n_e, psi) and equilibrium are loaded from the
-OpenSTEP IMAS data file packaged with the STEP scenario (vendored, ~1.3 MB).
-No Docker dependency.
+Initial profiles and composition are the rounded OpenSTEP values saved in YAML.
+Equilibrium is loaded from the packaged OpenSTEP IMAS data file (~1.3 MB).
 """
 
 import hashlib
@@ -17,8 +16,11 @@ import h5py
 import jax
 import jax.numpy as jnp
 import numpy as np
+from torax._src.config import build_runtime_params
 
+from plasmax.environment.config import parse_env_and_backend
 from plasmax.environment.factory import make
+from plasmax.environment.initialization_data import round_significant
 from plasmax.environment.merge import load_backend
 from plasmax.wrappers import OracleWrappers
 
@@ -99,18 +101,18 @@ class StepEnvOracleTest:
             "Z_eff": core_profiles.Z_eff,
         }
         for name, source_profile in targets.items():
-            expected = np.interp(rho, source_rho, source_profile)
+            expected = round_significant(np.interp(rho, source_rho, source_profile))
             np.testing.assert_allclose(
                 actual[name],
                 expected,
                 rtol=1.0e-12,
                 atol=1.0e-12,
-                err_msg=f"{name} reset no longer reproduces the OpenSTEP slice",
+                err_msg=f"{name} reset differs from the rounded OpenSTEP slice",
             )
 
         np.testing.assert_allclose(
             core_profiles.Z_eff_face[-1],
-            targets["Z_eff"][-1],
+            round_significant(targets["Z_eff"][-1]),
             rtol=1.0e-12,
             atol=1.0e-12,
         )
@@ -136,14 +138,15 @@ class StepEnvOracleTest:
             r0 = equilibrium["vacuum_toroidal_field.r0"][()]
             b0 = equilibrium["vacuum_toroidal_field.b0"][0]
 
-            profile_q = equilibrium["time_slice.profiles_1d.q"][0]
-            q_min = np.min(profile_q)
             profile_pressure = data["core_profiles/0/profiles_1d.pressure_thermal"][0]
             profile_volume = data["core_profiles/0/profiles_1d.grid.volume"][0]
             w_thermal = 1.5 * np.trapezoid(profile_pressure, profile_volume)
 
         np.testing.assert_allclose(
-            sim.core_profiles.Ip_profile_face[-1], ip, rtol=1.0e-12, atol=1.0e-6
+            sim.core_profiles.Ip_profile_face[-1],
+            round_significant(ip),
+            rtol=1.0e-12,
+            atol=1.0e-6,
         )
         np.testing.assert_allclose(
             geometry.volume_face[-1], volume, rtol=5.0e-5, atol=0.0
@@ -158,7 +161,9 @@ class StepEnvOracleTest:
         np.testing.assert_allclose(
             geometry.R_major * geometry.B_0, r0 * b0, rtol=1.0e-12, atol=0.0
         )
-        np.testing.assert_allclose(post.q_min, q_min, rtol=2.0e-3, atol=0.0)
+        # Differentiating four-figure psi magnifies quantization near the axis:
+        # q_min is 2.45984, versus 2.50155 in the full-precision source.
+        np.testing.assert_allclose(post.q_min, 2.459840336, rtol=1e-7, atol=0.0)
         np.testing.assert_allclose(post.li3, li3, rtol=5.0e-3, atol=0.0)
         # OpenSTEP beta_N comes from the equilibrium pressure, whereas TORAX
         # reconstructs thermal pressure from its reduced composition model.
@@ -166,8 +171,54 @@ class StepEnvOracleTest:
         # changing the imported T/n profiles to force this scalar to match.
         w_thermal_gap = 1.0 - float(post.W_thermal_total) / w_thermal
         beta_n_gap = 1.0 - float(post.beta_N) / beta_n
-        np.testing.assert_allclose(w_thermal_gap, 0.0392869, rtol=0.0, atol=1.0e-5)
-        np.testing.assert_allclose(beta_n_gap, 0.0987581, rtol=0.0, atol=1.0e-5)
+        np.testing.assert_allclose(w_thermal_gap, 0.0393027, rtol=0.0, atol=1.0e-5)
+        np.testing.assert_allclose(beta_n_gap, 0.0988306, rtol=0.0, atol=1.0e-5)
+
+    def test_imported_composition_preserves_cell_and_face_samples(self):
+        document = parse_env_and_backend(_ENV, _BACKEND)._initial_state
+        composition = document.composition
+        assert composition is not None
+        rho = np.asarray(composition.rho_norm)
+        grid = np.sort(
+            np.concatenate([document.grid.rho_norm, document.grid.rho_face_norm])
+        )
+        np.testing.assert_array_equal(rho, grid)
+        with h5py.File(_OPENSTEP_PATH) as data:
+            source = data["core_profiles/0"]
+            source_rho = source["profiles_1d.grid.rho_tor_norm"][0]
+            electron_density = source["profiles_1d.electrons.density"][0]
+            names = [_decode(name) for name in source["profiles_1d.ion.name"][0]]
+            for name in ("Xe", "He"):
+                density = source["profiles_1d.ion.density"][0, names.index(name)]
+                expected = round_significant(
+                    np.interp(rho, source_rho, density / electron_density)
+                )
+                np.testing.assert_array_equal(
+                    composition.impurity_species[name], expected
+                )
+            expected_zeff = round_significant(
+                np.interp(
+                    document.grid.rho_face_norm,
+                    source_rho,
+                    source["profiles_1d.zeff"][0],
+                )
+            )
+        step_fn = self._base_env._dynamics._step_fn
+        params, _ = build_runtime_params.get_consistent_runtime_params_and_geometry(
+            t=step_fn.runtime_params_provider.numerics.t_initial,
+            runtime_params_provider=step_fn.runtime_params_provider,
+            geometry_provider=step_fn.geometry_provider,
+            is_initialization=True,
+        )
+        # TORAX reconstructs core Z_eff_face from densities and charge states.
+        # The imported cell/face composition samples are its runtime inputs.
+        np.testing.assert_allclose(
+            params.plasma_composition.Z_eff_face,
+            expected_zeff,
+            rtol=1e-12,
+            atol=1e-12,
+        )
+        assert composition.impurity_species["Ar"] is None
 
     def test_integrated_sources_and_current_balance(self):
         post = self._reset_state.plasma.post

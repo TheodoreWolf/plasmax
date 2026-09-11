@@ -11,6 +11,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     StrictInt,
     field_validator,
     model_validator,
@@ -18,6 +19,10 @@ from pydantic import (
 from torax._src.torax_pydantic import model_config as torax_model_config
 
 from plasmax import spaces as spaces_lib
+from plasmax.environment.initialization_data import (
+    KstarInitialization,
+    ToraxInitialization,
+)
 
 
 class _FrozenModel(BaseModel):
@@ -34,25 +39,6 @@ class TaskConfig(_FrozenModel):
 
     reward: str
     terminal_penalty: float | None
-
-
-class PhaseInitializationConfig(_FrozenModel):
-    """Phase-owned reference to one immutable initialization snapshot."""
-
-    path: Path
-    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
-
-    @field_validator("path", mode="before")
-    @classmethod
-    def _check_path(cls, value: Any) -> Any:
-        if not isinstance(value, str | Path) or not str(value):
-            raise ValueError("initialization path must be a non-empty path")
-        return value
-
-    @field_validator("sha256")
-    @classmethod
-    def _check_sha256(cls, value: str) -> str:
-        return value.lower()
 
 
 class ActuatorConfig(_FrozenModel):
@@ -312,7 +298,8 @@ class PlasmaxConfig(_FrozenModel):
     environment_key: str
     torax: torax_model_config.ToraxConfig
     task: TaskConfig
-    initialization: PhaseInitializationConfig | None = None
+    initialization: Path
+    _initial_state: ToraxInitialization = PrivateAttr()
     actuators: tuple[ActuatorConfig, ...]
     observations: ObservationsConfig
     actions: ActionsConfig = Field(default_factory=ActionsConfig)
@@ -355,6 +342,8 @@ class WorldModelConfig(_FrozenModel):
     environment_key: Literal["kstar_worldmodel"]
     task: TaskConfig
     world_model: WorldModelSpec
+    initialization: Path
+    _initial_state: KstarInitialization = PrivateAttr()
 
     @model_validator(mode="after")
     def _native_task(self) -> Self:
@@ -375,7 +364,6 @@ __all__ = [
     "ObsProfileConfig",
     "ObsScalarConfig",
     "PhysicsRandomizationSpec",
-    "PhaseInitializationConfig",
     "PlasmaxConfig",
     "RealisticActionConfig",
     "RealisticObsConfig",

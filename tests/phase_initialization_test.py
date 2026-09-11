@@ -1,4 +1,4 @@
-"""Contracts for phase-owned NPZ initialization snapshots."""
+"""Contracts for resolved YAML initialization snapshots."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 import jax
 import numpy as np
 import pytest
+import yaml
 from helpers import make_test_config, make_test_env
 
 from plasmax import make
@@ -17,9 +18,14 @@ from plasmax.environment.initialization import (
     snapshot_from_state,
     write_snapshot,
 )
+from plasmax.environment.initialization_data import (
+    ToraxInitialization,
+    load_initialization,
+    round_significant,
+    write_initialization,
+)
 from plasmax.environment.registry import CONFIGS_DIR
 from plasmax.environment.schema import PlasmaxConfig
-from plasmax.spaces import ActuatorSpec
 from plasmax.wrappers import OracleWrappers
 
 _SNAPSHOT_PEDESTAL = {
@@ -64,206 +70,139 @@ def captured_snapshot() -> PhaseSnapshot:
     )
 
 
-def _read_archive(path: Path) -> dict[str, np.ndarray]:
-    with np.load(path, allow_pickle=False) as archive:
-        return {name: np.array(archive[name], copy=True) for name in archive.files}
-
-
-def _write_archive(path: Path, arrays: dict[str, np.ndarray]) -> None:
-    np.savez_compressed(path, **arrays)
-
-
-def _valid_archive(
-    tmp_path: Path,
-    snapshot: PhaseSnapshot,
-) -> tuple[Path, dict[str, np.ndarray]]:
-    path = tmp_path / "valid.npz"
-    write_snapshot(snapshot, path)
-    return path, _read_archive(path)
-
-
 def test_snapshot_write_load_round_trip(
-    tmp_path: Path,
-    captured_snapshot: PhaseSnapshot,
+    tmp_path: Path, captured_snapshot: PhaseSnapshot
 ) -> None:
-    path = tmp_path / "phase.npz"
-    checksum = write_snapshot(captured_snapshot, path)
-
-    restored = load_snapshot(
-        path,
-        expected_sha256=checksum,
-        expected_environment="test",
-    )
-
-    for name in PhaseSnapshot.model_fields:
-        expected = getattr(captured_snapshot, name)
-        actual = getattr(restored, name)
-        if isinstance(expected, np.ndarray):
-            np.testing.assert_array_equal(actual, expected)
-        else:
-            assert actual == expected
-
-
-def test_load_rejects_checksum_mismatch(
-    tmp_path: Path,
-    captured_snapshot: PhaseSnapshot,
-) -> None:
-    path = tmp_path / "phase.npz"
+    path = tmp_path / "state.yaml"
     write_snapshot(captured_snapshot, path)
+    restored = load_snapshot(path)
+    for name in _ENCODED_STATE_FIELDS:
+        np.testing.assert_array_equal(
+            getattr(restored, name),
+            round_significant(getattr(captured_snapshot, name)),
+        )
+    document = load_initialization(path)
+    assert document.provenance.source_step == captured_snapshot.metadata.source_step
+    second = tmp_path / "second.yaml"
+    write_initialization(document, second)
+    assert path.read_bytes() == second.read_bytes()
 
-    with pytest.raises(ValueError, match="snapshot checksum differs"):
-        load_snapshot(path, expected_sha256="f" * 64)
 
-
-def test_load_rejects_unsupported_schema(
-    tmp_path: Path,
-    captured_snapshot: PhaseSnapshot,
+def test_numeric_yaml_and_four_significant_figures(
+    tmp_path: Path, captured_snapshot: PhaseSnapshot
 ) -> None:
-    _, arrays = _valid_archive(tmp_path, captured_snapshot)
-    arrays["schema_version"] = np.asarray(2, dtype=np.int32)
-    path = tmp_path / "wrong_schema.npz"
-    _write_archive(path, arrays)
-
-    with pytest.raises(ValueError, match="schema_version"):
-        load_snapshot(path)
-
-
-def test_load_rejects_missing_key(
-    tmp_path: Path,
-    captured_snapshot: PhaseSnapshot,
-) -> None:
-    _, arrays = _valid_archive(tmp_path, captured_snapshot)
-    arrays.pop("psi")
-    path = tmp_path / "missing_key.npz"
-    _write_archive(path, arrays)
-
-    with pytest.raises(ValueError, match="snapshot fields differ"):
-        load_snapshot(path)
-
-
-def test_load_rejects_object_array(
-    tmp_path: Path,
-    captured_snapshot: PhaseSnapshot,
-) -> None:
-    _, arrays = _valid_archive(tmp_path, captured_snapshot)
-    arrays["T_i"] = np.asarray([object()], dtype=object)
-    path = tmp_path / "object_array.npz"
-    _write_archive(path, arrays)
-
-    with pytest.raises(ValueError, match="Object arrays cannot be loaded"):
-        load_snapshot(path)
-
-
-def test_load_rejects_non_object_metadata(
-    tmp_path: Path,
-    captured_snapshot: PhaseSnapshot,
-) -> None:
-    _, arrays = _valid_archive(tmp_path, captured_snapshot)
-    arrays["metadata_json"] = np.asarray("[]")
-    path = tmp_path / "metadata_list.npz"
-    _write_archive(path, arrays)
-
-    with pytest.raises(ValueError, match="metadata_json must encode an object"):
-        load_snapshot(path)
-
-
-def test_load_rejects_profile_shape_mismatch(
-    tmp_path: Path,
-    captured_snapshot: PhaseSnapshot,
-) -> None:
-    _, arrays = _valid_archive(tmp_path, captured_snapshot)
-    arrays["T_e"] = arrays["T_e"][:-1]
-    path = tmp_path / "wrong_shape.npz"
-    _write_archive(path, arrays)
-
-    with pytest.raises(ValueError, match="snapshot T_e has shape"):
-        load_snapshot(path)
-
-
-def test_load_applies_no_physical_admissibility_gate(
-    tmp_path: Path,
-    captured_snapshot: PhaseSnapshot,
-) -> None:
-    _, arrays = _valid_archive(tmp_path, captured_snapshot)
-    arrays["T_i"][0] = -1.0
-    path = tmp_path / "mechanically_valid.npz"
-    _write_archive(path, arrays)
-
-    snapshot = load_snapshot(path)
-
-    assert snapshot.T_i[0] == -1.0
-
-
-def test_load_rejects_wrong_environment(
-    tmp_path: Path,
-    captured_snapshot: PhaseSnapshot,
-) -> None:
-    path = tmp_path / "phase.npz"
+    values = np.array([0.0, -1.234567, 1.234567e20, 1.234567e-12, 9.99999])
+    rounded = round_significant(values)
+    np.testing.assert_array_equal(rounded, [0.0, -1.235, 1.235e20, 1.235e-12, 10.0])
+    np.testing.assert_allclose(rounded, values, rtol=5e-4, atol=0.0)
+    path = tmp_path / "state.yaml"
     write_snapshot(captured_snapshot, path)
+    raw = yaml.safe_load(path.read_text())
+    for values in raw["profiles"].values():
+        assert all(isinstance(value, int | float) for value in values)
+    assert raw["provenance"]["source_config_sha256"] == "0" * 64
 
-    with pytest.raises(ValueError, match="does not match"):
-        load_snapshot(path, expected_environment="iter/hybrid/flattop")
+
+def test_scientific_literals_zero_and_integer_metadata(tmp_path: Path) -> None:
+    from plasmax.environment.initialization import initialization_from_snapshot
+
+    snapshot = load_snapshot(
+        CONFIGS_DIR / "data/initializations/mock/circular/nominal.yaml"
+    )
+    numbers = np.array([1e20, -1e-20, 0.0, -0.0, 2021.0])
+    snapshot = snapshot.model_copy(
+        update={"T_i": np.resize(numbers, snapshot.T_i.shape)}
+    )
+    doc = initialization_from_snapshot(snapshot)
+    path = tmp_path / "numeric.yaml"
+    write_initialization(doc, path)
+    raw = yaml.safe_load(path.read_text())
+    np.testing.assert_array_equal(raw["profiles"]["T_i_keV"], snapshot.T_i)
+    assert isinstance(raw["provenance"]["source_step"], int)
+    assert "1.0e+20" in path.read_text()
+    assert "2.021e+03" in path.read_text()
+    assert "-0.0" not in path.read_text()
 
 
-def test_phase_reset_rebases_clock_horizon_and_action_then_jits_first_step(
-    captured_snapshot: PhaseSnapshot,
+def test_rounding_bound_over_magnitudes() -> None:
+    values = np.outer(
+        np.array([-9.999999, -1.0004999, 1.0004999, 4.56789, 9.999999]),
+        10.0 ** np.arange(-25, 26),
+    )
+    rounded = np.asarray(round_significant(values))
+    quantum = 10.0 ** (np.floor(np.log10(np.abs(values))) - 3)
+    assert np.all(np.abs(rounded - values) <= 0.500001 * quantum)
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        ({"schema_version": 2}, "schema_version"),
+        ({"kind": "unknown"}, "kind"),
+        ({"profiles": {"T_i_keV": [1.0]}}, "Field required"),
+        ({"unknown": 1}, "Extra inputs"),
+    ],
+)
+def test_rejects_malformed_yaml(
+    tmp_path: Path, captured_snapshot: PhaseSnapshot, change, message
 ) -> None:
-    phase_actions = [
-        ActuatorSpec("P_nbi", low=1.0e6, high=30.0e6, init=7.0e6),
-        ActuatorSpec(
-            "gas_puff_rate",
-            low=1.0e20,
-            high=5.0e21,
-            init=2.0e21,
-        ),
-    ]
-    env = make_test_env(
-        config=_snapshot_test_config(
-            numerics={
-                "t_initial": 1.25,
-                "t_final": 1.45,
-                "fixed_dt": 0.1,
-            }
-        ),
-        initialization=captured_snapshot,
-        actuator_specs=phase_actions,
-    )
-    state, _ = env.init(jax.random.key(1))
+    path = tmp_path / "state.yaml"
+    write_snapshot(captured_snapshot, path)
+    data = yaml.safe_load(path.read_text())
+    data.update(change)
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match=message):
+        load_initialization(path)
 
-    assert captured_snapshot.metadata.source_time_s == pytest.approx(0.1)
-    assert float(state.plasma.sim.t) == pytest.approx(1.25)
-    assert env.safe_max_steps == 2
-    np.testing.assert_array_equal(state.prev_action, [7.0e6, 2.0e21])
-    np.testing.assert_array_equal(
-        state.plasma.sim.core_profiles.T_i.value,
-        captured_snapshot.T_i,
-    )
-    energy = state.plasma.sim.core_profiles.internal_plasma_energy
-    assert energy is not None
-    assert float(energy.dW_thermal_i_dt_smoothed) == pytest.approx(
-        captured_snapshot.dW_thermal_i_dt_smoothed
-    )
-    assert float(energy.dW_thermal_e_dt_smoothed) == pytest.approx(
-        captured_snapshot.dW_thermal_e_dt_smoothed
-    )
-    assert (
-        int(state.plasma.sim.pedestal_transition_state.confinement_mode)
-        == captured_snapshot.confinement_mode
-    )
-    for name in (
-        "E_fusion",
-        "E_aux_total",
-        "E_ohmic_e",
-        "E_external_injected",
-        "E_external_total",
-    ):
-        assert float(getattr(state.plasma.post, name)) == 0.0
 
-    next_state, info = jax.jit(env.step)(state, state.prev_action)
-    jax.block_until_ready((next_state, info))
-    assert bool(info.control_step_complete)
-    assert not bool(info.terminated)
-    assert float(next_state.plasma.sim.t) == pytest.approx(1.35)
+def test_rejects_wrong_profile_shape_and_kind(
+    tmp_path: Path, captured_snapshot: PhaseSnapshot
+) -> None:
+    path = tmp_path / "state.yaml"
+    write_snapshot(captured_snapshot, path)
+    with pytest.raises(ValueError, match="expected kstar"):
+        load_initialization(path, kind="kstar")
+    data = yaml.safe_load(path.read_text())
+    data["profiles"]["T_i_keV"].pop()
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match="T_i_keV shape"):
+        load_initialization(path)
+    with pytest.raises(FileNotFoundError):
+        load_initialization(tmp_path / "missing.yaml")
+    with pytest.raises(ValueError, match="YAML"):
+        load_initialization(tmp_path / "state.npz")
+
+
+@pytest.mark.parametrize(
+    "field, value, message",
+    [
+        ("input_order", ["Ip"] * 15, "15 named inputs"),
+        ("history_row", [0.0] * 20, "21 columns"),
+        ("history_columns", ["Ip"] * 21, "21 columns"),
+        ("history_length", 9, "history_length"),
+        ("targets", {}, "betap, q95, li targets"),
+    ],
+)
+def test_rejects_malformed_kstar_state(
+    tmp_path: Path, field: str, value: object, message: str
+) -> None:
+    source = CONFIGS_DIR / "data/initializations/kstar/nominal.yaml"
+    payload = yaml.safe_load(source.read_text())
+    payload[field] = value
+    path = tmp_path / "invalid.yaml"
+    path.write_text(yaml.safe_dump(payload))
+    with pytest.raises(ValueError, match=message):
+        load_initialization(path, kind="kstar")
+
+
+def test_snapshot_schema_does_not_add_physical_gates(
+    tmp_path: Path, captured_snapshot: PhaseSnapshot
+) -> None:
+    values = captured_snapshot.T_i.copy()
+    values[0] = -1.0
+    path = tmp_path / "state.yaml"
+    write_snapshot(captured_snapshot.model_copy(update={"T_i": values}), path)
+    assert load_snapshot(path).T_i[0] == -1.0
 
 
 def test_rebuild_then_projection_preserves_only_encoded_state_payload(
@@ -324,7 +263,7 @@ def test_rebuild_rejects_grid_mismatch(
 def test_missing_snapshot_uses_native_reset(monkeypatch: pytest.MonkeyPatch) -> None:
     config = parse_env_and_backend("iter/hybrid/rampup", "cgm")
     assert isinstance(config, PlasmaxConfig)
-    assert config.initialization is None
+    assert config.initialization.suffix == ".yaml"
 
     def unexpected_rebuild(*_args, **_kwargs):
         raise AssertionError("native reset attempted a snapshot rebuild")
@@ -345,29 +284,104 @@ def test_phase_snapshot_is_resolved_on_final_config(
     monkeypatch.chdir(tmp_path)
     config = parse_env_and_backend("iter/hybrid/flattop", "cgm")
     assert isinstance(config, PlasmaxConfig)
-    metadata = config.initialization
-    assert metadata is not None
-    assert set(metadata.model_dump()) == {"path", "sha256"}
-    path = metadata.path
+    path = config.initialization
     assert (
         path
-        == (
-            CONFIGS_DIR
-            / "data"
-            / "initializations"
-            / "iter"
-            / "hybrid"
-            / "flattop_bgb_settled.npz"
-        ).resolve()
+        == (CONFIGS_DIR / "data/initializations/iter/hybrid/settled.yaml").resolve()
     )
-    snapshot = load_snapshot(
-        path,
-        expected_sha256=metadata.sha256,
-        expected_environment="iter/hybrid/flattop",
-    )
+    snapshot = load_snapshot(path)
     assert snapshot.metadata.source_backend == "bohm_gyrobohm"
     assert snapshot.metadata.source_step == 1000
     assert snapshot.metadata.source_time_s == pytest.approx(100.0)
+
+
+@pytest.mark.parametrize(
+    "scenario, axis",
+    [
+        ("iter/baseline", 6.0),
+        ("iter/hybrid", 6.0),
+        ("iter/advanced", 6.0),
+        ("sparc/prd", 1.0),
+        ("sparc/reduced_field", 1.0),
+    ],
+)
+def test_rampup_profiles_are_entirely_cold(scenario: str, axis: float) -> None:
+    config = parse_env_and_backend(f"{scenario}/rampup", "bohm_gyrobohm")
+    state = load_initialization(config.initialization, kind="torax")
+    assert isinstance(state, ToraxInitialization)
+    rho = np.asarray(state.grid.rho_norm)
+    expected = round_significant(axis + (0.1 - axis) * rho)
+    for profile in ("T_i", "T_e"):
+        np.testing.assert_allclose(
+            getattr(state.profiles, f"{profile}_keV"),
+            expected,
+            rtol=1e-14,
+            atol=1e-14,
+        )
+        np.testing.assert_allclose(
+            getattr(config.torax.profile_conditions, profile).get_value(0.0),
+            expected,
+            rtol=1e-14,
+            atol=1e-14,
+        )
+
+
+def test_all_tasks_explicitly_reference_yaml_initializations(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from plasmax.environment.registry import ENV_ALIASES
+
+    monkeypatch.chdir(tmp_path)
+    for env, task_path in ENV_ALIASES.items():
+        task = yaml.safe_load(task_path.read_text())
+        reference = task["initialization"].replace(
+            "${DATA_DIR}", str(CONFIGS_DIR / "data")
+        )
+        doc = load_initialization(
+            reference, kind="kstar" if env == "kstar_worldmodel" else "torax"
+        )
+        assert doc.schema_version == 1
+        assert not {"T_i", "T_e", "n_e", "psi", "nbar"}.intersection(
+            task.get("torax", {}).get("profile_conditions", {})
+        )
+        if env == "kstar_worldmodel":
+            backend = None
+        elif env.startswith("step/"):
+            backend = "bohm_gyrobohm_step"
+        elif env.startswith("mock/"):
+            backend = "mock"
+        else:
+            backend = "bohm_gyrobohm"
+        config = parse_env_and_backend(env, backend)
+        assert config.initialization == Path(reference)
+        assert config._initial_state == doc
+
+
+def test_loader_requires_reference_and_resolves_relative_assets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from plasmax.environment import config as config_lib
+    from plasmax.environment.merge import _merge_env_and_backend
+
+    raw = _merge_env_and_backend("mock/circular/smoke", "mock")
+    monkeypatch.setattr(config_lib, "_merge_env_and_backend", lambda *_: raw.copy())
+    monkeypatch.chdir(tmp_path)
+    raw["initialization"] = "data/initializations/mock/circular/nominal.yaml"
+    parsed = parse_env_and_backend("mock/circular/smoke", "mock")
+    assert parsed.initialization == CONFIGS_DIR / raw["initialization"]
+    del raw["initialization"]
+    with pytest.raises(ValueError, match="requires an initialization YAML"):
+        parse_env_and_backend("mock/circular/smoke", "mock")
+
+
+def test_packaged_initializations_are_canonical_four_figure_yaml(
+    tmp_path: Path,
+) -> None:
+    for source in (CONFIGS_DIR / "data/initializations").rglob("*.yaml"):
+        document = load_initialization(source)
+        destination = tmp_path / "roundtrip.yaml"
+        write_initialization(document, destination)
+        assert source.read_bytes() == destination.read_bytes(), source
 
 
 @pytest.mark.integration

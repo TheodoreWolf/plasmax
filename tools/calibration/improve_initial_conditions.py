@@ -12,7 +12,7 @@ Examples::
     uv run python tools/calibration/improve_initial_conditions.py
 
     # Checksum-download non-redistributable inputs into the ignored cache,
-    # regenerate the ITPA-derived CSV/EQDSK, and render digitization overlays.
+    # regenerate the ITPA initialization YAML/EQDSK and digitization overlays.
     uv run python tools/calibration/improve_initial_conditions.py \
         --download-missing --write-derived --render-overlays
 """
@@ -33,6 +33,13 @@ import numpy as np
 import tyro
 
 from plasmax.environment.config import parse_env_and_backend
+from plasmax.environment.initialization_data import (
+    Profiles,
+    ToraxInitialization,
+    load_initialization,
+    round_significant,
+    write_initialization,
+)
 from plasmax.environment.merge import valid_env_backend_combos
 from plasmax.environment.references import (
     load_reference_manifest,
@@ -512,26 +519,43 @@ def _itpa_profiles(path: Path) -> tuple[dict[str, np.ndarray], dict[str, float]]
     return imported, errors
 
 
-def write_itpa_csv(profiles: Mapping[str, np.ndarray], destination: Path) -> None:
-    """Write the compact 25-cell ITPA profile artifact deterministically."""
-
-    columns = ("rho", "T_i", "T_e", "n_e", "psi", "q")
-    labels = ("rho", "T_i_keV", "T_e_keV", "n_e_m-3", "psi_Wb", "q")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("w", newline="") as stream:
-        writer = csv.writer(stream, lineterminator="\n")
-        writer.writerow(labels)
-        for row in zip(*(profiles[name] for name in columns), strict=True):
-            writer.writerow(
-                (
-                    f"{row[0]:.2f}",
-                    f"{row[1]:.8g}",
-                    f"{row[2]:.8g}",
-                    f"{row[3]:.8g}",
-                    f"{row[4]:.8g}",
-                    f"{row[5]:.8g}",
-                )
-            )
+def write_itpa_initialization(
+    profiles: Mapping[str, np.ndarray], destination: Path
+) -> None:
+    """Export resolved ITPA profiles through the shared four-figure serializer."""
+    original = load_initialization(
+        CONFIGS_DIR / "data/initializations/iter/baseline/hot.yaml", kind="torax"
+    )
+    assert isinstance(original, ToraxInitialization)
+    np.testing.assert_allclose(
+        profiles["rho"], original.grid.rho_norm, rtol=0.0, atol=1e-12
+    )
+    digest = hashlib.sha256(
+        json.dumps(
+            {name: values.tolist() for name, values in profiles.items()},
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    document = original.model_copy(
+        update={
+            "profiles": Profiles(
+                T_i_keV=profiles["T_i"],
+                T_e_keV=profiles["T_e"],
+                n_e_m3=profiles["n_e"],
+                psi_Wb=profiles["psi"],
+            ),
+            "provenance": original.provenance.model_copy(
+                update={
+                    "source_config_sha256": digest,
+                    "notes": (
+                        "Exported by tools/calibration/improve_initial_conditions.py "
+                        "from the ITPA 450 s slice, before rounding.",
+                    ),
+                }
+            ),
+        }
+    )
+    write_initialization(document, destination)
 
 
 def write_itpa_eqdsk(source: Path, destination: Path) -> None:
@@ -800,7 +824,7 @@ def _verify_itpa_source_projections(
 
 
 def verify_packaged_references() -> dict[str, Any]:
-    """Verify manifest coverage, provenance hashes, and cMDP reset equality."""
+    """Verify manifest coverage, provenance hashes, and saved-state equality."""
 
     manifest = load_reference_manifest()
     environments = [
@@ -832,7 +856,6 @@ def verify_packaged_references() -> dict[str, Any]:
 
     for scenario in (
         "iter/baseline",
-        "iter/hybrid",
         "iter/advanced",
         "sparc/prd",
         "sparc/reduced_field",
@@ -869,7 +892,9 @@ def verify_packaged_references() -> dict[str, Any]:
     conditions = prd_payload["profile_conditions"]
     for name in ("T_i", "T_e", "n_e", "psi"):
         actual = _numeric_mapping_values(conditions[name])
-        np.testing.assert_allclose(actual, sparc_cells[name], rtol=2e-6, atol=0.0)
+        np.testing.assert_allclose(
+            actual, round_significant(sparc_cells[name]), rtol=2e-6, atol=0.0
+        )
 
     advanced = _read_csv(REFERENCE_DATA_DIR / "iter_advanced_slide25_profiles_25.csv")
     advanced_payload = reset_reference_payload("iter/advanced/flattop")
@@ -881,7 +906,7 @@ def verify_packaged_references() -> dict[str, Any]:
     ):
         np.testing.assert_allclose(
             _numeric_mapping_values(advanced_conditions[condition_name]),
-            advanced[column_name],
+            round_significant(advanced[column_name]),
             rtol=1e-7,
             atol=0.0,
         )
@@ -893,7 +918,7 @@ def verify_packaged_references() -> dict[str, Any]:
     )
     np.testing.assert_allclose(
         _numeric_mapping_values(advanced_conditions["psi"]),
-        reconstructed_psi,
+        round_significant(reconstructed_psi),
         rtol=2e-7,
         atol=1e-8,
     )
@@ -909,7 +934,7 @@ def verify_packaged_references() -> dict[str, Any]:
             raise ValueError(f"{prefix} median leaves its digitization envelope")
         np.testing.assert_allclose(
             _numeric_mapping_values(h8_conditions[prefix]),
-            h8[f"{prefix}_median_{unit}"],
+            round_significant(h8[f"{prefix}_median_{unit}"]),
             rtol=1e-7,
             atol=0.0,
         )
@@ -973,9 +998,9 @@ def main(
             "volume_weighted_interpolation_error": errors,
         }
         if write_derived:
-            write_itpa_csv(
+            write_itpa_initialization(
                 profiles,
-                REFERENCE_DATA_DIR / "iter_baseline_450s_profiles_25.csv",
+                CONFIGS_DIR / "data/initializations/iter/baseline/hot.yaml",
             )
             write_itpa_eqdsk(
                 itpa_path,

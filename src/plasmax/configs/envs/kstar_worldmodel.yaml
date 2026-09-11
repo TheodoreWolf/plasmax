@@ -12,6 +12,8 @@
 # Load with:
 #   make("kstar_worldmodel")
 
+initialization: ${DATA_DIR}/initializations/kstar/nominal.yaml
+
 task:
   reward: native
   terminal_penalty: null

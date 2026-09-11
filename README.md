@@ -134,6 +134,7 @@ nominal values. `PhysicsRandomizationWrapper` samples before every step,
 always using the configured nominals for relative ranges. Each stochastic
 wrapper owns its RNG; `init(key)` and `reset(state, key)` seed these streams.
 
+
 ## Environment boundary
 
 `init`, `step`, and `reset` return `(state, info)`. A transition exposes:

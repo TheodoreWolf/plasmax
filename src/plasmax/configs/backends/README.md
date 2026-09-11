@@ -160,10 +160,13 @@ Use the narrowest layer that owns the physics:
   machine. `tokamaks/step.yaml` owns the corresponding full common STEP stack.
 - **Scenario base (`envs/<tokamak>/<scenario>/base.yaml`):** discharge-specific
   Zeff, source powers and deposition, minority fractions, pedestal targets, and
-  other physics shared by ramp-up, flat-top, and ramp-down. Initial profiles
-  shared by flat-top and ramp-down also live here.
+  other physics shared by ramp-up, flat-top, and ramp-down.
 - **Phase YAML:** phase schedules, boundary conditions, geometry sequence,
-  horizon, ramp-up profile overrides, and genuine phase-specific overrides.
+  horizon, an `initialization` asset reference, and phase-specific overrides.
+- **Initialization YAML (`data/initializations/`):** complete resolved profiles,
+  confinement mode, smoothed energy history, and provenance. STEP also stores
+  composition at cell and face locations. These arrays are applied after merging
+  configuration layers. They never inherit radial points from scenario bases.
 
 For SPARC specifically, conventional models shared with ITER come from the
 conventional tokamak base; SPARC-only machine settings common to PRD and
@@ -211,5 +214,7 @@ and comparison against a published or upstream TORAX reference case.
 
 `envs/kstar_worldmodel.yaml` is a standalone learned-dynamics environment: a NN
 ensemble trained on KSTAR discharges that emulates the 0D plasma response. Its
-model name, packaged weights, horizon, and target sampling live together in the
-environment, and it is loaded as `make("kstar_worldmodel")` without a backend.
+model name, packaged weights, horizon, and random-target switch live in the
+task. Its initialization YAML stores engineering inputs, the resolved history
+row repeated ten times, and target defaults/bounds. It is loaded as
+`make("kstar_worldmodel")` without a backend.

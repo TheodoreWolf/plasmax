@@ -9,6 +9,8 @@
 phase: rampup
 reset_reference: iter_advanced_cold_3ma
 
+initialization: ${DATA_DIR}/initializations/iter/advanced/cold.yaml
+
 task:
   reward: lh_transition
   terminal_penalty: -100
@@ -16,16 +18,9 @@ task:
 torax:
   profile_conditions:
     Ip: {0: 3.0e+6, 100: 9.0e+6}  # [A]
-    T_i: {0.0: {0.0: 6.0, 1.0: 0.1}}
     T_i_right_bc: {0: 0.1, 100: 0.2}  # edge T_i BC [keV]
-    T_e: {0.0: {0.0: 6.0, 1.0: 0.1}}
     T_e_right_bc: {0: 0.1, 100: 0.2}
     n_e_right_bc: {0: 0.1, 100: 0.28}  # edge density [fGW]
-    n_e: {0.0: {0.0: 1.5, 1.0: 1.0}}
-    nbar: 0.3
-    initial_psi_mode: geometry
-    normalize_n_e_to_nbar: true
-    n_e_nbar_is_fGW: true
     n_e_right_bc_is_fGW: true
   numerics:
     t_final: 100.0               # ramp-up only [s] → 1000 steps
