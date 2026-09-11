@@ -18,8 +18,7 @@ from agents.policy_io import LoadedPolicy, environment_interface, load_policy
 from agents.ppo import PPOAdapter
 from agents.sac import SACAdapter
 from plasmax.spaces import ObsLayout
-from scripts import train_ppo, train_sac
-from training import runs, vmap_logging
+from training import runs, train_ppo, train_sac, vmap_logging
 from training.envelope_gymnax import EnvelopeGymnax
 
 

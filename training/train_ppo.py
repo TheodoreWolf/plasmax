@@ -21,15 +21,15 @@ a ``plasmax.environment.registry`` alias (e.g. ``iter/hybrid/flattop``,
 ``cgm``) — see ``registry.ENV_ALIASES`` / ``BACKEND_ALIASES``.
 
 Run inside Docker, e.g.:
-    uv run python scripts/train_ppo.py \\
+    uv run python training/train_ppo.py \\
         --env.env_setup iter/hybrid/flattop \\
         --env.backend   cgm
 
     # multi-seed:
-    uv run python scripts/train_ppo.py --num-seeds 3 ...
+    uv run python training/train_ppo.py --num-seeds 3 ...
 
     # zero-shot transfer eval after training:
-    uv run python scripts/train_ppo.py --env.transfer-backend qlknn ...
+    uv run python training/train_ppo.py --env.transfer-backend qlknn ...
 """
 
 # ruff: noqa: E402

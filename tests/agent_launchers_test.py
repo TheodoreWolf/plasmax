@@ -14,7 +14,8 @@ from helpers import CheapBoundaryEnv
 from agents.backprop import BackpropPolicyAgent
 from agents.policy_io import save_policy
 from experiments.studies import train_direct_baseline
-from scripts import evaluate_policy, train_backprop, train_mpc
+from scripts import evaluate_policy
+from training import train_backprop, train_mpc
 from training.evaluation import check_interfaces
 from training.runs import EnvConfig
 
