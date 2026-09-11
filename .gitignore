@@ -29,7 +29,10 @@ CLAUDE.md
 /tmp/
 
 # Local-only research infrastructure and notes.
-/experiments/cluster/
+/experiments/*
 /docs/
 /tools/manifests/*
 .flairignore
+*.slurm
+*.sh
+*.ipynb

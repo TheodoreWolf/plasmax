@@ -46,8 +46,8 @@ torax:
     mode: ADAPTIVE_TRANSPORT
     formation_model:
       model_name: martin_scaling
-    T_i_ped: 3.30769
-    T_e_ped: 3.59467
+    T_i_ped: 3.308
+    T_e_ped: 3.595
     n_e_ped: 2.0e+20
     rho_norm_ped_top: 0.94
   # The short crash is an internal event; the environment then completes the

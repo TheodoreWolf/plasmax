@@ -41,7 +41,7 @@ torax:
 
 # STEP is fully non-inductive ECCD-driven with pellet fuelling — no NBI/gas-puff.
 actuators:
-  - {name: P_eccd,      low: 50000000.0, high: 300000000.0, max_delta: 20000000.0}
+  - {name: P_eccd,      low: 5.0e+7,    high: 3.0e+8,      max_delta: 2.0e+7}
   - {name: rho_eccd,    low: 0.3,        high: 0.7,         max_delta: 0.05}
   - {name: pellet_rate, low: 1.0e+20,    high: 5.0e+22,     max_delta: 5.0e+20}
 

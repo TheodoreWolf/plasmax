@@ -1,5 +1,7 @@
 """Envelope contract and physics regressions for :class:`PlasmaxEnv`."""
 
+import dataclasses
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -13,6 +15,7 @@ from helpers import (
     make_test_env,
 )
 
+from plasmax.environment import core as core_lib
 from plasmax.environment.core import _derive_safe_max_steps
 from plasmax.environment.schema import DisruptionConfig, PhysicsRandomizationSpec
 from plasmax.spaces import ActuatorSpec
@@ -256,6 +259,48 @@ class DisruptionContractTest:
         assert int(info.termination_code) == 3
         np.testing.assert_array_equal(info.reward, -123.0)
 
+    def test_solver_numeric_failure_masks_nonfinite_reward_with_penalty(
+        self, monkeypatch
+    ):
+        disruption = DisruptionConfig(
+            q_min_threshold=-1e9,
+            greenwald_threshold=1e9,
+        )
+
+        def nonfinite_reward(last_action, state, action, next_state):
+            del last_action, state, action, next_state
+            return jnp.asarray(jnp.nan)
+
+        env = make_test_env(
+            disruption=disruption,
+            disruption_penalty=-123.0,
+            reward_fn=nonfinite_reward,
+        )
+        state, _ = env.init(jax.random.key(0))
+        original_step = core_lib.fixed_duration_step
+
+        def force_solver_failure(*args, **kwargs):
+            result = original_step(*args, **kwargs)
+            numeric = dataclasses.replace(
+                result.sim_state.solver_numeric_outputs,
+                solver_error_state=jnp.int32(1),
+            )
+            sim_state = dataclasses.replace(
+                result.sim_state,
+                solver_numeric_outputs=numeric,
+            )
+            return dataclasses.replace(result, sim_state=sim_state)
+
+        monkeypatch.setattr(core_lib, "fixed_duration_step", force_solver_failure)
+        _, info = env.step(state, _ACTION)
+
+        assert jnp.all(jnp.isfinite(info.obs))
+        assert bool(info.terminated)
+        assert not bool(info.truncated)
+        assert int(info.termination_code) == 3
+        np.testing.assert_array_equal(info.reward, -123.0)
+        assert bool(jnp.isfinite(info.reward))
+
 
 class EnvStateTest:
     def _make_env_state(self):
@@ -438,7 +483,7 @@ class PhysicsRandomizationTest:
     """Per-transition randomization consumes the wrapper-owned key."""
 
     _PATH = "numerics.resistivity_multiplier"
-    _RANGE = (0.5, 1.5)
+    _RANGE = (0.5, 0.9)
 
     @classmethod
     def setup_class(cls):
@@ -479,7 +524,7 @@ class PhysicsRandomizationTest:
             numerics={
                 "t_final": 0.2,
                 "fixed_dt": 0.1,
-                "resistivity_multiplier": 4.0,
+                "resistivity_multiplier": 0.8,
             }
         )
         env = PhysicsRandomizationWrapper(

@@ -27,41 +27,41 @@ torax:
       # ITPA NBI particle source, projected by total, dV-weighted centroid,
       # and RMS width. The Gaussian parameters below differ from those two
       # physical moments because TORAX normalizes against the shaped dV/drho.
-      S_total: 1.958196187096854e+20
-      deposition_location: 0.2129021131867942
-      particle_width: 0.3524989016656593
+      S_total: 1.958e+20
+      deposition_location: 0.2129
+      particle_width: 0.3525
     gas_puff:
       puff_decay_length: 0.3
       S_total: 0.0
     generic_heat:
       # ITPA NBI heat source, projected by power, dV-weighted moments, and
       # electron/ion partition. These Gaussian parameters reproduce a physical
-      # centroid of 0.504810 and RMS width of 0.216577 on the ITPA geometry.
-      gaussian_location: 0.2556776403728281
-      gaussian_width: 0.3334149540677585
-      P_total: 32204566.10558545
-      electron_heat_fraction: 0.6349488250037933
+      # centroid of 0.5048 and RMS width of 0.2166 on the ITPA geometry.
+      gaussian_location: 0.2557
+      gaussian_width: 0.3334
+      P_total: 3.22e+7
+      electron_heat_fraction: 0.6349
     generic_current:               # predominantly inductive — constant low CD
       fraction_of_total_current: 0.15
       gaussian_location: 0.4
       gaussian_width: 0.075
     ecrh:
       # ITPA EC source, projected by power and dV-weighted moments.
-      gaussian_location: 0.18092074381061005
-      gaussian_width: 0.07447085458047044
-      P_total: 16875121.09102656
+      gaussian_location: 0.1809
+      gaussian_width: 0.07447
+      P_total: 1.688e+7
       current_drive_efficiency: 0.3
-    pellet:
-      S_total: 3.2822178577250456e+22
-      pellet_deposition_location: 0.8413844189838808
-      pellet_width: 0.07053089225185659
+    # pellet:
+    #   S_total: 3.282e+22
+    #   pellet_deposition_location: 0.8414
+    #   pellet_width: 0.07053
     fusion: {}
     ei_exchange:
       Qei_multiplier: 1.0
   pedestal:
-    T_i_ped: 4.7268568
-    T_e_ped: 4.5562782
-    n_e_ped: 7.4735285e+19
+    T_i_ped: 4.727
+    T_e_ped: 4.556
+    n_e_ped: 7.474e+19
     n_e_ped_is_fGW: false
     rho_norm_ped_top: 0.94
   geometry:

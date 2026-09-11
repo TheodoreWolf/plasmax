@@ -22,7 +22,7 @@ torax:
     Ip: {0: 9.0e+6, 60: 1.0e+6}  # [A]
     T_i_right_bc: {0: 0.2, 60: 0.1}  # edge T_i BC [keV]
     T_e_right_bc: {0: 0.2, 60: 0.1}
-    n_e_right_bc: {0: 4.34633e+19, 60: 1.0e+19}
+    n_e_right_bc: {0: 4.346e+19, 60: 1.0e+19}
   numerics:
     t_final: 60.0                # ramp-down only [s] → 600 steps
   geometry:
@@ -36,14 +36,14 @@ torax:
       # value as Ip ramps down.
       fraction_of_total_current: {0: 1.0, 60: 0.15}
     generic_heat:
-      P_total: 34000000.0
+      P_total: 3.4e+7
     ecrh:
-      P_total: 34000000.0
+      P_total: 3.4e+7
       gaussian_location: 0.5
     gas_puff:
       S_total: 6e+21
 actuators:
-- {name: P_nbi, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 34000000.0}
-- {name: P_eccd, low: 0.0, high: 50000000.0, max_delta: 2000000.0, init: 34000000.0}
+- {name: P_nbi, low: 0.0, high: 5.0e+7, max_delta: 2.0e+6, init: 3.4e+7}
+- {name: P_eccd, low: 0.0, high: 5.0e+7, max_delta: 2.0e+6, init: 3.4e+7}
 - {name: rho_eccd, low: 0.0, high: 0.8, max_delta: 0.05, init: 0.5}
 - {name: gas_puff_rate, low: 0.0, high: 1e+22, max_delta: 2e+20, init: 6e+21}
