@@ -331,6 +331,7 @@ def make_buffered_seed_callback(
     num_steps: int,
     n_seeds: int = 4,
     kind: str = "physics",
+    lean: bool | None = None,
     eval_rng: jax.Array | None = None,
     deterministic: bool = False,
     extra_metrics=None,
@@ -350,12 +351,16 @@ def make_buffered_seed_callback(
         n_seeds: Eval rollouts per checkpoint *within* one training seed.
         kind: ``"physics"`` for TORAX envs or ``"minimal"`` for world-model /
             returns-only envs.
+        lean: Strip heavy, eval-unused SimState fields from the emitted eval
+            trajectory (TORAX envs only). Defaults to ``kind == "physics"``.
         eval_rng: Optional fixed evaluation key. When set, it overrides the
             evolving callback key, including across vmapped training seeds.
         deterministic: Use ``algo.make_deterministic_act(ts)`` instead of the
             stochastic policy action function.
         extra_metrics: Optional ``(train_state, train_metrics) -> dict`` hook.
     """
+    if lean is None:
+        lean = kind == "physics"
 
     def for_run(run_idx):
         def _callback(algo, ts, rng, train_metrics):
@@ -365,7 +370,7 @@ def make_buffered_seed_callback(
                 eval_rng if eval_rng is not None else rng,
                 num_steps,
                 n_seeds,
-                lean=(kind == "physics"),
+                lean=lean,
                 deterministic=deterministic,
             )
             if kind == "physics":
