@@ -18,7 +18,7 @@ from flax import serialization
 from rejax.networks import DiscretePolicy, GaussianPolicy, SquashedGaussianPolicy
 
 from agents.ppo import MultiDiscretePolicy, PPOAdapter, ResidualGaussianPolicy
-from agents.sac import SACAdapter
+from agents.sac import ResidualSquashedGaussianPolicy, SACAdapter
 
 __all__ = ["LoadedPolicy", "environment_interface", "load_policy", "save_policy"]
 
@@ -110,6 +110,7 @@ def _actor_spec(actor: nn.Module) -> dict[str, Any]:
         SquashedGaussianPolicy,
         MultiDiscretePolicy,
         ResidualGaussianPolicy,
+        ResidualSquashedGaussianPolicy,
     ):
         raise ValueError(f"unsupported policy model {type(actor).__name__}")
     activation = next(
@@ -181,6 +182,8 @@ def _restore_actor(spec: dict[str, Any]) -> nn.Module:
         return MultiDiscretePolicy(**fields)
     if kind == "ResidualGaussianPolicy":
         return ResidualGaussianPolicy(**fields)
+    if kind == "ResidualSquashedGaussianPolicy":
+        return ResidualSquashedGaussianPolicy(**fields)
     raise ValueError(f"unsupported policy model {kind!r}")
 
 
@@ -235,7 +238,9 @@ class LoadedPolicy:
                 return jnp.reshape(action, tuple(self.interface["action_shape"]))
 
             return act
-        if self.algorithm == "backprop_policy":
+        if self.algorithm == "backprop_policy" or (
+            self.algorithm == "es" and payload["parameterization"] == "policy"
+        ):
             from agents.backprop import ResidualPolicy, policy_action
 
             policy = ResidualPolicy(
@@ -245,7 +250,9 @@ class LoadedPolicy:
             return lambda obs, rng: policy_action(
                 policy, payload["params"], jnp.asarray(payload["action_setpoint"]), obs
             )
-        if self.algorithm == "backprop_open_loop":
+        if self.algorithm == "backprop_open_loop" or (
+            self.algorithm == "es" and payload["parameterization"] == "open_loop"
+        ):
             from agents.backprop import open_loop_action
 
             return lambda obs, rng: open_loop_action(
@@ -294,6 +301,7 @@ def save_policy(
 ) -> Path:
     """Atomically save one successful seed's inference state as MessagePack."""
     from agents.backprop import BackpropOpenLoopAgent, BackpropPolicyAgent
+    from agents.es import ESAgent
     from agents.mpc import MPCAgent
 
     if np.any(np.asarray(getattr(state, "failed", False))):
@@ -326,6 +334,25 @@ def save_policy(
             "source_times": agent.source_times,
             "time_index": agent.time_index,
         }
+    elif isinstance(agent, ESAgent):
+        algorithm = "es"
+        deterministic = True
+        controller = agent.controller
+        inference = {
+            "parameterization": agent.parameterization,
+            "params": serialization.to_state_dict(state.params),
+        }
+        if agent.parameterization == "policy":
+            inference.update(
+                action_dim=controller.policy.action_dim,
+                hidden_sizes=controller.policy.hidden_sizes,
+                action_setpoint=controller.action_setpoint,
+            )
+        else:
+            inference.update(
+                source_times=controller.source_times,
+                time_index=controller.time_index,
+            )
     elif isinstance(agent, MPCAgent):
         if agent.reward_scalar is None or agent.reward_slice is None:
             raise ValueError(
@@ -416,6 +443,7 @@ def load_policy(path: str | Path) -> LoadedPolicy:
         "sac",
         "backprop_policy",
         "backprop_open_loop",
+        "es",
         "mpc",
     ):
         raise ValueError(f"unsupported policy algorithm {payload.get('algorithm')!r}")
