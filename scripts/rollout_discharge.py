@@ -1,33 +1,30 @@
-"""Roll out a discharge scenario under a constant-actuator policy and plot it.
+"""Collect constant-actuator discharge trajectories and numeric diagnostics.
 
-Rolls a plasmax phase environment forward under constant physical actuators,
-then plots the current and scalar traces alongside profile snapshots at several
-times.
+    uv run python scripts/rollout_discharge.py --env iter/hybrid/flattop \
+        --out plotting/data/discharge_rollout.npz
 
-Usage::
-
-    uv run python scripts/rollout_discharge.py
-    uv run python scripts/rollout_discharge.py \
-        --env iter/hybrid/flattop \
-        --backend cgm \
-        --num-steps 4400 --out plots/discharge_rollout.png
+The NPZ contains complete profile arrays, cell/face grids, scalar traces, and
+validity masks for offline rendering. Initial states and JSON diagnostics are
+saved beside it. Single and multiple episodes preserve the paired key protocol.
+Use the local ``plotting/scripts/plot_discharge_rollout.py`` to redraw saved data.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+from typing import Any
 
 import jax
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib import cm
-from matplotlib.colors import Normalize
 
+from agents.policy_io import environment_interface
 from plasmax import rollout as collect_lib
 from plasmax.environment import factory as sc
-from plasmax.wrappers import RealisticWrappers, unwrap_to_env_state
+from plasmax.wrappers import OracleWrappers, RealisticWrappers, unwrap_to_env_state
+from training.evaluation import trajectory_arrays
 
 
 def _constant_policy(action_norm: jax.Array):
@@ -57,17 +54,178 @@ def _hold_action_and_grids(env, key, phys_action):
     return action_norm, np.asarray(geom.rho_norm), np.asarray(geom.rho_face_norm)
 
 
+def _json_finite(value: Any) -> Any:
+    """Represent nonfinite diagnostics as null in portable JSON reports."""
+    if isinstance(value, dict):
+        return {key: _json_finite(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_finite(item) for item in value]
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
+
+
+def _save_discharge_trajectories(
+    path: Path,
+    trajectory: Any,
+    env: Any,
+    rho: np.ndarray,
+    rho_face: np.ndarray,
+    *,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Save every numeric input required to redraw profiles without simulation."""
+    arrays = trajectory_arrays(trajectory, env)
+    core = unwrap_to_env_state(trajectory.env_state).plasma.core
+    arrays.update(rho_norm=rho, rho_face_norm=rho_face)
+    for name in ("T_e", "T_i", "n_e"):
+        arrays[name] = np.asarray(getattr(core, name).value)
+    arrays["q_face"] = np.asarray(core.q_face)
+    np.savez_compressed(
+        path,
+        **arrays,
+        interface_json=np.asarray(json.dumps(environment_interface(env))),
+        metadata_json=np.asarray(json.dumps({"format_version": 1, **(metadata or {})})),
+    )
+
+
+def _collect(
+    args: argparse.Namespace,
+) -> tuple[Any, np.ndarray, np.ndarray, dict[str, Any]]:
+    wrappers = OracleWrappers if args.variant == "oracle" else RealisticWrappers
+    env = wrappers(
+        sc.make(args.env, args.backend, reward=args.reward), max_steps=args.num_steps
+    )
+    _ = env.action_space, env.observation_space
+    key = jax.random.key(args.seed)
+    episode_keys = (
+        jax.random.split(key, args.num_episodes) if args.num_episodes > 1 else key[None]
+    )
+    init_keys = jax.vmap(lambda rng: jax.random.split(rng)[0])(episode_keys)
+    action_norm, rho, rho_face = _hold_action_and_grids(env, init_keys[0], args.action)
+    initial_states, initial_info = jax.jit(jax.vmap(env.init))(init_keys)
+    print(
+        f"Rolling out {args.num_episodes} episodes of {args.num_steps} steps "
+        f"with {args.variant} wrappers, seed bank {args.seed} (compile + scan)...",
+        flush=True,
+    )
+    act = _constant_policy(action_norm)
+    if args.num_episodes > 1:
+        trajectory = collect_lib.collect_episodes(
+            act, env, key, args.num_steps, args.num_episodes
+        )
+    else:
+        trajectory = jax.tree.map(
+            lambda array: array[None],
+            collect_lib.collect_episode(act, env, key, args.num_steps),
+        )
+    jax.block_until_ready(trajectory)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    _save_discharge_trajectories(
+        out.with_suffix(".npz"),
+        trajectory,
+        env,
+        rho,
+        rho_face,
+        metadata={
+            "configuration": vars(args),
+            "episode_keys": np.asarray(jax.random.key_data(episode_keys)).tolist(),
+            "units": {"time_s": "s", "T_e": "keV", "T_i": "keV", "n_e": "m^-3"},
+        },
+    )
+    initial = unwrap_to_env_state(initial_states)
+    final = unwrap_to_env_state(trajectory.env_state)
+    initial_arrays = {
+        "episode_keys": np.asarray(jax.random.key_data(episode_keys)),
+        "init_keys": np.asarray(jax.random.key_data(init_keys)),
+        "obs": np.asarray(initial_info.obs),
+        "q_min": np.asarray(initial.plasma.q_min),
+        "fgw_n_e_line_avg": np.asarray(initial.plasma.fgw_n_e_line_avg),
+    }
+    for name in ("T_e", "T_i", "n_e"):
+        initial_arrays[name] = np.asarray(getattr(initial.plasma.core, name).value)
+    for name, value in initial.phys_params.items():
+        initial_arrays[f"physics/{name}"] = np.asarray(value)
+        initial_arrays[f"first_step_physics/{name}"] = np.asarray(
+            final.phys_params[name][:, 0]
+        )
+    np.savez_compressed(out.with_name(f"{out.stem}-initial.npz"), **initial_arrays)
+    valid = np.asarray(trajectory.valid)
+    terminated = np.asarray(trajectory.terminated) & valid
+    codes = np.asarray(trajectory.info.termination_code)
+    lengths = valid.sum(axis=1)
+    report = {
+        "configuration": vars(args),
+        "state_noise": dict(env.plasmax_config.state_noise),
+        "physics_randomization_active": args.variant == "realistic"
+        and bool(env.plasmax_config.physics_randomization),
+        "first_step_failure_count": int(terminated[:, 0].sum()),
+        "completed_horizon_count": int(
+            np.sum((lengths == args.num_steps) & ~terminated.any(axis=1))
+        ),
+        "episodes": [
+            {
+                "index": index,
+                "episode_key": initial_arrays["episode_keys"][index].tolist(),
+                "init_key": initial_arrays["init_keys"][index].tolist(),
+                "valid_steps": int(lengths[index]),
+                "first_step_terminated": bool(terminated[index, 0]),
+                "first_step_termination_code": int(codes[index, 0]),
+                "first_termination_step": (
+                    int(np.flatnonzero(terminated[index])[0]) + 1
+                    if terminated[index].any()
+                    else None
+                ),
+                "termination_code": (
+                    int(codes[index, np.flatnonzero(terminated[index])[0]])
+                    if terminated[index].any()
+                    else -1
+                ),
+                "initial_profiles_finite": all(
+                    np.isfinite(initial_arrays[name][index]).all().item()
+                    for name in ("T_e", "T_i", "n_e")
+                ),
+                "initial_obs_finite": bool(
+                    np.isfinite(initial_arrays["obs"][index]).all()
+                ),
+                "first_applied_action": np.asarray(
+                    final.prev_action[index, 0]
+                ).tolist(),
+                "return": float(np.asarray(trajectory.reward)[index].sum()),
+            }
+            for index in range(args.num_episodes)
+        ],
+    }
+    out.with_suffix(".json").write_text(
+        json.dumps(_json_finite(report), indent=2, allow_nan=False) + "\n"
+    )
+    print(
+        f"First-step failures: {report['first_step_failure_count']}/"
+        f"{args.num_episodes}; completed horizon: "
+        f"{report['completed_horizon_count']}/{args.num_episodes}",
+        flush=True,
+    )
+    return trajectory, rho, rho_face, report
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--env", default="iter/hybrid/flattop")
     p.add_argument("--backend", default="cgm")
     p.add_argument("--num-steps", type=int, default=4400)
+    p.add_argument("--variant", choices=("oracle", "realistic"), default="realistic")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--num-episodes", type=int, default=1)
+    p.add_argument("--wandb-project", default=None)
+    p.add_argument("--wandb-entity", default="flair")
+    p.add_argument("--wandb-group", default="discharge-rollouts")
     p.add_argument(
         "--reward",
         default=None,
         help="Reward override; omitted values inherit task YAML metadata.",
     )
-    p.add_argument("--out", default="plots/discharge_rollout.png")
+    p.add_argument("--out", default="outputs/discharge_rollout.npz")
     p.add_argument(
         "--action",
         type=float,
@@ -76,114 +234,33 @@ def main() -> None:
         metavar=("P_nbi", "P_eccd", "rho_eccd", "gas_puff"),
         help="Constant physical actuator vector held for the whole rollout.",
     )
-    p.add_argument(
-        "--snapshots",
-        type=float,
-        nargs="+",
-        default=[0.0, 50.0, 100.0, 200.0, 300.0, 440.0],
-        help="Times [s] at which to draw profile snapshots.",
-    )
     args = p.parse_args()
+    if args.num_steps <= 0 or args.num_episodes <= 0:
+        p.error("num-steps and num-episodes must be positive")
+    run = None
+    if args.wandb_project is not None:
+        import wandb
 
-    env = RealisticWrappers(
-        sc.make(args.env, args.backend, reward=args.reward), max_steps=args.num_steps
-    )
-    key = jax.random.key(0)
-
-    action_norm, rho, rho_face = _hold_action_and_grids(env, key, args.action)
-    print(f"Rolling out {args.num_steps} steps (compile + scan)...")
-    traj = collect_lib.collect_episode(
-        _constant_policy(action_norm), env, key, args.num_steps
-    )
-
-    # Retain the ending transition and trim only fixed-scan padding.
-    end = int(np.asarray(traj.valid).sum())
-    traj = jax.tree_util.tree_map(lambda x: x[:end], traj)
-    if end < args.num_steps:
-        print(
-            f"Episode ended at step {end} (disruption or t_final); "
-            f"plotting first {end} steps."
+        run = wandb.init(
+            project=args.wandb_project,
+            entity=args.wandb_entity,
+            group=args.wandb_group,
+            mode="online",
+            job_type="discharge_rollout",
+            config=vars(args),
         )
-
-    es = unwrap_to_env_state(traj.env_state)
-    ss, po = es.plasma.sim, es.plasma
-
-    t = np.asarray(ss.t)  # (num_steps,), post-step times 0.1 .. t_final
-    Ip = np.asarray(ss.core_profiles.Ip_profile_face[:, -1]) / 1e6  # edge = total [MA]
-    P_fus = np.asarray(po.P_fusion) / 1e6  # [MW]
-    q_min = np.asarray(po.q_min)
-    fgw = np.asarray(po.fgw_n_e_line_avg)
-    beta_N = np.asarray(po.beta_N)
-
-    T_e = np.asarray(ss.core_profiles.T_e.value)  # (num_steps, n_rho)
-    T_i = np.asarray(ss.core_profiles.T_i.value)
-    n_e = np.asarray(ss.core_profiles.n_e.value)
-    q = np.asarray(ss.core_profiles.q_face)  # (num_steps, n_rho+1)
-
-    snap_idx = [int(np.argmin(np.abs(t - s))) for s in args.snapshots]
-    norm = Normalize(vmin=t[0], vmax=t[-1])
-    cmap = cm.viridis
-
-    fig, axes = plt.subplots(2, 3, figsize=(16, 9))
-    pn, pe, re, gp = args.action
-    fig.suptitle(
-        f"Discharge-phase rollout — {Path(args.env).stem} / "
-        f"{Path(args.backend).stem}\n"
-        f"constant actuators: P_nbi={pn / 1e6:.0f} MW, P_eccd={pe / 1e6:.0f} MW, "
-        f"rho_eccd={re:.2f}, gas_puff={gp:.1e} /s",
-        fontsize=12,
-    )
-
-    # ---- Row 0: scalar time traces -----------------------------------------
-    ax = axes[0, 0]
-    ax.plot(t, Ip, color="tab:blue")
-    ax.set(xlabel="t [s]", ylabel="Ip [MA]", title="Plasma current")
-    ax.grid(alpha=0.3)
-
-    ax = axes[0, 1]
-    ax.plot(t, P_fus, color="tab:red")
-    ax.set(xlabel="t [s]", ylabel="P_fusion [MW]", title="Fusion power")
-    ax.grid(alpha=0.3)
-
-    ax = axes[0, 2]
-    ax.plot(t, q_min, color="tab:green", label="q_min")
-    ax.plot(t, beta_N, color="tab:purple", label="β_N")
-    ax.plot(t, fgw, color="tab:orange", label="n/n_GW")
-    ax.set(xlabel="t [s]", title="Stability scalars")
-    ax.legend(loc="best", fontsize=8)
-    ax.grid(alpha=0.3)
-
-    # ---- Row 1: profile snapshots ------------------------------------------
-    def _plot_snaps(ax, xgrid, data, ylabel, title):
-        for i in snap_idx:
-            ax.plot(xgrid, data[i], color=cmap(norm(t[i])))
-        ax.set(xlabel="ρ_norm", ylabel=ylabel, title=title)
-        ax.grid(alpha=0.3)
-
-    _plot_snaps(axes[1, 0], rho, T_e, "T_e [keV]", "Electron temperature")
-    axes[1, 0].set_prop_cycle(None)
-    for i in snap_idx:  # overlay T_i dashed
-        axes[1, 0].plot(rho, T_i[i], color=cmap(norm(t[i])), ls="--", alpha=0.7)
-    axes[1, 0].plot([], [], color="k", label="T_e (solid)")
-    axes[1, 0].plot([], [], color="k", ls="--", label="T_i (dashed)")
-    axes[1, 0].legend(loc="upper right", fontsize=8)
-
-    _plot_snaps(axes[1, 1], rho, n_e / 1e19, "n_e [10¹⁹ m⁻³]", "Electron density")
-    _plot_snaps(axes[1, 2], rho_face, q, "q", "Safety factor")
-
-    sm = cm.ScalarMappable(norm=norm, cmap=cmap)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=axes[1, :].tolist(), location="right", shrink=0.9)
-    cbar.set_label("t [s]")
-
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=130, bbox_inches="tight")
-    print(f"Saved {out}")
-    print(
-        f"Final: t={t[-1]:.1f}s  Ip={Ip[-1]:.2f}MA  P_fus={P_fus[-1]:.1f}MW  "
-        f"q_min={q_min[-1]:.2f}  n/n_GW={fgw[-1]:.3f}"
-    )
+    try:
+        _, _, _, report = _collect(args)
+        if run is not None:
+            run.log(
+                {
+                    "first_step_failure_count": report["first_step_failure_count"],
+                    "completed_horizon_count": report["completed_horizon_count"],
+                }
+            )
+    finally:
+        if run is not None:
+            run.finish()
 
 
 if __name__ == "__main__":

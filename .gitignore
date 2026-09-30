@@ -36,3 +36,4 @@ CLAUDE.md
 *.slurm
 *.sh
 *.ipynb
+/plotting/

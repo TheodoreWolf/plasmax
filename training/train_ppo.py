@@ -54,12 +54,6 @@ import tyro
 import wandb
 
 from agents.ppo import PPOAdapter
-from experiments.plotting.wandb_logging import (
-    make_buffered_seed_callback,
-    make_minimal_training_callback,
-    make_training_callback,
-    make_world_model_training_callback,
-)
 from experiments.studies.baseline_study import seed_keys
 from plasmax.environment.factory import make
 from plasmax.environment.registry import resolve_backend
@@ -71,6 +65,12 @@ from training.evaluation import (
 )
 from training.runs import evaluate_transfer, save_run_policies, validate_seeds
 from training.vmap_logging import SeedBufferLogger
+from training.wandb_logging import (
+    make_buffered_seed_callback,
+    make_minimal_training_callback,
+    make_training_callback,
+    make_world_model_training_callback,
+)
 
 # ---------------------------------------------------------------------------
 # Hyperparameters

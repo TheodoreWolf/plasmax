@@ -7,16 +7,17 @@ import jax.numpy as jnp
 import numpy as np
 from envelope import TruncationWrapper
 
-from experiments.plotting.wandb_logging import (
+from tests.helpers import CheapBoundaryEnv
+from training.envelope_gymnax import EnvelopeGymnax
+from training.wandb_logging import (
     _base_metrics,
     _collect_returns_and_lengths,
     _last_valid,
     _masked_band,
     _masked_mean,
     _termination_metrics,
+    evaluation_scalar_metrics,
 )
-from tests.helpers import CheapBoundaryEnv
-from training.envelope_gymnax import EnvelopeGymnax
 
 
 def test_collection_uses_wrapped_envelope_env_and_accepts_rejax_key():
@@ -71,6 +72,99 @@ def test_mask_helpers_ignore_invalid_padding_and_select_last_valid():
     np.testing.assert_allclose(std[:2], [4.5, 0.0], rtol=1e-7, atol=0.0)
     assert np.isnan(np.asarray(mean[2]))
     assert np.isnan(np.asarray(std[2]))
+
+
+def test_mask_helpers_preserve_nan_from_valid_physics_state():
+    values = jnp.asarray(
+        [
+            [1.0, jnp.nan, 999.0],
+            [10.0, 20.0, 999.0],
+        ]
+    )
+    valid = jnp.asarray(
+        [
+            [True, True, False],
+            [True, True, False],
+        ]
+    )
+
+    last = _last_valid(values, valid)
+    assert np.isnan(np.asarray(last[0]))
+    np.testing.assert_array_equal(last[1], 20.0)
+    assert np.isnan(np.asarray(_masked_mean(values, valid)))
+
+    mean, std = _masked_band(values, valid)
+    np.testing.assert_allclose(mean[0], 5.5, rtol=1e-7, atol=0.0)
+    assert np.isnan(np.asarray(mean[1]))
+    assert np.isnan(np.asarray(std[1]))
+
+
+def test_shared_physics_scalars_use_final_valid_states_under_jit_and_vmap():
+    valid = jnp.asarray([[True, True, False], [True, False, False]])
+    beta = jnp.asarray(
+        [
+            [[1.0, 2.0, 999.0], [10.0, 999.0, 999.0]],
+            [[3.0, 4.0, 999.0], [20.0, 999.0, 999.0]],
+        ]
+    )
+
+    def collect_metrics(beta_values: jax.Array) -> dict[str, jax.Array]:
+        plasma = SimpleNamespace(
+            **{
+                name: beta_values
+                for name in (
+                    "Q_fusion",
+                    "W_thermal_total",
+                    "P_fusion",
+                    "tau_E",
+                    "H98",
+                    "beta_N",
+                    "q_min",
+                    "q95",
+                    "f_non_inductive",
+                    "fgw_n_e_line_avg",
+                    "fgw_n_e_volume_avg",
+                    "P_SOL_total",
+                )
+            },
+            P_LH=jnp.ones_like(beta_values),
+        )
+        traj = SimpleNamespace(
+            env_state=SimpleNamespace(plasma=plasma),
+            reward=jnp.ones_like(beta_values),
+            valid=valid,
+            terminated=jnp.zeros_like(valid),
+            truncated=jnp.asarray([[False, True, False], [True, False, False]]),
+            info=None,
+        )
+        return evaluation_scalar_metrics(
+            traj, jnp.asarray([2.0, 1.0]), jnp.asarray([2.0, 1.0])
+        )
+
+    metrics = jax.jit(jax.vmap(collect_metrics))(beta)
+    np.testing.assert_allclose(metrics["obs/beta_N"], [6.0, 12.0], rtol=1e-7)
+    np.testing.assert_allclose(
+        metrics["ref/W_thermal_MJ"], [13.0e-6 / 3, 27.0e-6 / 3], rtol=1e-7
+    )
+    np.testing.assert_array_equal(metrics["termination/completion_rate"], [1.0, 1.0])
+
+
+def test_shared_scalars_leave_non_plasma_environments_without_normalized_beta():
+    valid = jnp.ones((1, 2), dtype=jnp.bool_)
+    traj = SimpleNamespace(
+        env_state=SimpleNamespace(obs=jnp.ones((1, 2, 3))),
+        reward=jnp.asarray([[1.0, 2.0]]),
+        valid=valid,
+        terminated=jnp.zeros_like(valid),
+        truncated=jnp.asarray([[False, True]]),
+        info=None,
+    )
+
+    metrics = evaluation_scalar_metrics(traj, jnp.asarray([3.0]), jnp.asarray([2.0]))
+
+    assert not any(name.startswith(("obs/", "ref/")) for name in metrics)
+    np.testing.assert_array_equal(metrics["evaluation/return_mean"], 3.0)
+    np.testing.assert_array_equal(metrics["termination/completion_rate"], 1.0)
 
 
 def test_nonfinite_reward_rate_counts_valid_steps_under_jit_and_vmap():
