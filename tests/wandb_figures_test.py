@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 import pytest
 
-from experiments.plotting.viz import (
+from training.wandb_figures import (
     PROFILE_LABELS,
     make_profile_rho_figure,
 )
