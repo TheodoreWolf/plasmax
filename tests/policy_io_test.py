@@ -13,10 +13,11 @@ from flax import serialization
 from helpers import CheapBoundaryEnv
 
 from agents.backprop import BackpropOpenLoopAgent, BackpropPolicyAgent
+from agents.es import ESAgent
 from agents.mpc import MPCAgent
 from agents.policy_io import load_policy, save_policy
 from agents.ppo import PPOAdapter, ResidualGaussianPolicy
-from agents.sac import SACAdapter
+from agents.sac import ResidualSquashedGaussianPolicy, SACAdapter
 from plasmax import make, rewards
 from plasmax.spaces import ObsLayout
 from plasmax.wrappers import ObsHistoryWrapper, QuantizeActionWrapper, RealisticWrappers
@@ -96,7 +97,25 @@ def _rejax_agent(algorithm: str, action_kind: str):
             fill_buffer=0,
             hidden_layer_sizes=(4,),
         )
+        if action_kind == "residual":
+            agent = agent.replace(
+                actor=ResidualSquashedGaussianPolicy(
+                    action_dim=1,
+                    action_range=(-2.0, 3.0),
+                    action_setpoint=(0.7,),
+                    hidden_layer_sizes=(4,),
+                    activation=nn.relu,
+                    log_std_range=(-10, 2),
+                )
+            )
     state = agent.init_state(jax.random.PRNGKey(0))
+    if action_kind == "residual":
+        # Exercise a learned residual so observation normalization affects it.
+        params = jax.tree.map(
+            lambda value: value + jnp.asarray(0.05, dtype=value.dtype),
+            state.actor_ts.params,
+        )
+        state = state.replace(actor_ts=state.actor_ts.replace(params=params))
     return agent, state.replace(
         obs_rms_state=state.obs_rms_state.replace(
             mean=jnp.asarray([0.5, -0.7]),
@@ -113,6 +132,7 @@ def _rejax_agent(algorithm: str, action_kind: str):
         ("ppo", "discrete"),
         ("ppo", "multidiscrete"),
         ("sac", "continuous"),
+        ("sac", "residual"),
         ("sac", "discrete"),
     ],
 )
@@ -149,6 +169,12 @@ def test_rejax_roundtrip_matches_actual_actor_and_normalization(
     assert restored(obs, key).shape == agent.action_space.shape
     assert loaded.metadata["seed"] == 7
     assert loaded.inference["model"]["hidden_layer_sizes"] == [4]
+    if action_kind == "residual":
+        np.testing.assert_array_equal(
+            loaded.inference["model"]["action_setpoint"], [0.7]
+        )
+        if algorithm == "sac":
+            assert loaded.inference["model"]["log_std_range"] == [-10, 2]
     assert algorithm in loaded.summary()
     payload = serialization.msgpack_restore(path.read_bytes())
     assert set(payload["inference"]) == {"model", "params", "observation_rms"}
@@ -211,7 +237,10 @@ def test_effective_task_settings_are_distinct_from_configured_defaults(tmp_path)
 
 
 @pytest.mark.parametrize("kind", ["policy", "open_loop"])
-def test_backprop_roundtrip_preserves_parameters_and_source_clock(tmp_path, kind):
+@pytest.mark.parametrize("algorithm", ["backprop", "es"])
+def test_native_controller_roundtrip_preserves_parameters_and_source_clock(
+    tmp_path, kind, algorithm
+):
     env = TruncationWrapper(
         env=ObsHistoryWrapper(
             env=NamedObservationEnv(obs_dim=2, action_low=(-1.0,), action_high=(1.0,)),
@@ -226,7 +255,19 @@ def test_backprop_roundtrip_preserves_parameters_and_source_clock(tmp_path, kind
         gradient_horizon=2,
         action_setpoint=jnp.asarray([0.25]),
     )
-    if kind == "policy":
+    if algorithm == "es":
+        kwargs.pop("gradient_horizon")
+        kwargs["total_timesteps"] = 16
+        agent = ESAgent.create(
+            env,
+            parameterization=kind,
+            population_size=4,
+            hidden_sizes=(4,),
+            num_knots=2,
+            source_times=jnp.asarray([0.0, 0.2, 0.7, 1.0]),
+            **kwargs,
+        )
+    elif kind == "policy":
         agent = BackpropPolicyAgent.create(env, hidden_sizes=(4,), **kwargs)
     else:
         agent = BackpropOpenLoopAgent.create(
@@ -238,8 +279,24 @@ def test_backprop_roundtrip_preserves_parameters_and_source_clock(tmp_path, kind
     state = agent.init_state(jax.random.key(4))
     if kind == "open_loop":
         state = state.replace(params=jnp.asarray([[-0.8], [0.9]]))
-    path = save_policy(agent, state, tmp_path / f"{kind}.msgpack")
+    path = save_policy(
+        agent,
+        state,
+        tmp_path / f"{algorithm}-{kind}.msgpack",
+        deterministic=False if algorithm == "es" else None,
+    )
     loaded = load_policy(path)
+    assert loaded.algorithm == ("es" if algorithm == "es" else f"backprop_{kind}")
+    assert loaded.deterministic
+    if algorithm == "es":
+        assert loaded.inference["parameterization"] == kind
+        assert "es_state" not in loaded.inference
+    for expected, actual in zip(
+        jax.tree.leaves(state.params),
+        jax.tree.leaves(loaded.inference["params"]),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(actual, expected)
     act = jax.jit(loaded.make_act())
     obs = jnp.zeros(env.observation_space.shape)
     clock = env.obs_layout().slice_of("elapsed_time").start

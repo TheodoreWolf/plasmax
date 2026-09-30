@@ -6,12 +6,50 @@ from collections.abc import Callable
 from dataclasses import fields
 from typing import Any
 
+import distrax
+import jax
 import jax.numpy as jnp
+from flax import linen as nn
 from flax import struct
 from rejax.algos.sac import SAC
+from rejax.networks import MLP, SquashedGaussianPolicy
 
 from agents.normalization import EnvelopeNormalizationMixin
+from agents.ppo import _reset_action_setpoint
 from agents.sac_numerics import check_numerics
+
+
+class ResidualSquashedGaussianPolicy(SquashedGaussianPolicy):
+    """SAC Gaussian with a zero-initialized latent residual at a reset setpoint.
+
+    Setpoints use environment action units. Bound setpoints move inward by
+    0.05% of the action span so their inverse tanh and gradients remain finite,
+    matching the existing pathwise agents' setpoint convention. Sampling,
+    log-probabilities, and the learned standard deviation retain upstream SAC
+    behavior.
+    """
+
+    action_setpoint: tuple[float, ...]
+
+    def setup(self) -> None:
+        self.features = MLP(self.hidden_layer_sizes, self.activation)
+        self.action_mean = nn.Dense(
+            self.action_dim,
+            kernel_init=nn.initializers.zeros_init(),
+            bias_init=nn.initializers.zeros_init(),
+        )
+        self.action_log_std = nn.Dense(self.action_dim)
+        self.bij = distrax.Tanh()
+
+    def _action_dist(self, obs: jax.Array) -> distrax.Distribution:
+        residual_dist = super()._action_dist(obs)
+        setpoint = jnp.asarray(self.action_setpoint, dtype=residual_dist.mean().dtype)
+        normalized = (setpoint - self.action_loc) / self.action_scale
+        latent_setpoint = jnp.arctanh(jnp.clip(normalized, -0.999, 0.999))
+        return distrax.MultivariateNormalDiag(
+            loc=latent_setpoint + residual_dist.mean(),
+            scale_diag=residual_dist.stddev(),
+        )
 
 
 class SACAdapter(EnvelopeNormalizationMixin, SAC):
@@ -67,6 +105,29 @@ class SACAdapter(EnvelopeNormalizationMixin, SAC):
         instance = super().create(**config)
         return instance if callback is None else instance.with_eval_callback(callback)
 
+    @classmethod
+    def create_agent(
+        cls, config: dict[str, Any], env: Any, env_params: Any
+    ) -> dict[str, nn.Module]:
+        agent_kwargs = dict(config.get("agent_kwargs", {}))
+        residual_policy = agent_kwargs.pop("residual_policy", False)
+        config["agent_kwargs"] = agent_kwargs
+        agents = super().create_agent(config, env, env_params)
+        if not residual_policy:
+            return agents
+        actor = agents["actor"]
+        if not isinstance(actor, SquashedGaussianPolicy):
+            raise ValueError("residual_policy requires a continuous action space")
+        agents["actor"] = ResidualSquashedGaussianPolicy(
+            action_dim=actor.action_dim,
+            action_range=actor.action_range,
+            hidden_layer_sizes=actor.hidden_layer_sizes,
+            activation=actor.activation,
+            log_std_range=actor.log_std_range,
+            action_setpoint=_reset_action_setpoint(env, env_params),
+        )
+        return agents
+
     @property
     def config(self) -> dict:
         """Return a trace-safe shallow config for Envelope environments."""
@@ -109,4 +170,4 @@ class SACAdapter(EnvelopeNormalizationMixin, SAC):
         return lambda obs, rng: jnp.reshape(sample(obs, rng), self.action_space.shape)
 
 
-__all__ = ["SACAdapter"]
+__all__ = ["ResidualSquashedGaussianPolicy", "SACAdapter"]

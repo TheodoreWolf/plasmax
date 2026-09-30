@@ -11,12 +11,12 @@ from plasmax.wrappers import RealisticWrappers
 
 pytest.importorskip("rejax")
 
-from helpers import CheapBoundaryEnv
+from helpers import CheapBoundaryEnv, CheapBoundaryState
 from rejax.algos.ppo import PPO
 
 from agents.ppo import MultiDiscretePolicy, PPOAdapter, ResidualGaussianPolicy
 from plasmax.environment.factory import make
-from plasmax.wrappers import QuantizeActionWrapper
+from plasmax.wrappers import ActionRescaleWrapper, QuantizeActionWrapper
 from training.envelope_gymnax import EnvelopeGymnax
 
 
@@ -77,6 +77,56 @@ def test_residual_gaussian_policy_starts_at_action_setpoint():
         jnp.asarray([[0.25, -1.0]], dtype=jnp.float32),
     )
     assert jnp.all(jnp.isfinite(distribution.stddev()))
+
+
+class ResetActionState(CheapBoundaryState):
+    prev_action: jax.Array
+
+
+class ResetActionEnv(CheapBoundaryEnv):
+    def init(self, key):
+        del key
+        state = ResetActionState(
+            obs=jnp.zeros((self.obs_dim,), jnp.float32),
+            steps=jnp.asarray(0, jnp.int32),
+            prev_action=jnp.asarray([12.0], jnp.float32),
+        )
+        return state, self._info(state)
+
+
+@pytest.mark.parametrize("rescale", [False, True])
+def test_residual_adapter_uses_reset_action_in_policy_coordinates(rescale):
+    env = ResetActionEnv(obs_dim=2, action_low=(10.0,), action_high=(30.0,))
+    if rescale:
+        env = ActionRescaleWrapper(env)
+    env = TruncationWrapper(env, max_steps=2)
+    algo = _make_algo(
+        env,
+        num_envs=1,
+        agent_kwargs={"residual_policy": True, "hidden_layer_sizes": (4,)},
+    )
+    state = algo.init_state(jax.random.PRNGKey(0))
+    action = jax.jit(algo.make_act(state, deterministic=True))(
+        jnp.zeros(2, jnp.float32), jax.random.PRNGKey(1)
+    )
+    expected = [-0.8 if rescale else 12.0]
+    np.testing.assert_allclose(algo.actor.action_setpoint, expected, atol=1e-6)
+    np.testing.assert_allclose(action, expected, atol=1e-6)
+
+
+def test_residual_adapter_initializes_on_kstar_native_action_space():
+    env = RealisticWrappers(make("kstar_worldmodel"), max_steps=2)
+    algo = _make_algo(
+        env,
+        num_envs=1,
+        agent_kwargs={"residual_policy": True, "hidden_layer_sizes": (4,)},
+    )
+    state = algo.init_state(jax.random.PRNGKey(0))
+    action = jax.jit(algo.make_act(state, deterministic=True))(
+        state.last_obs[0], jax.random.PRNGKey(1)
+    )
+    np.testing.assert_array_equal(algo.actor.action_setpoint, np.zeros(6))
+    np.testing.assert_array_equal(action, np.zeros(6))
 
 
 @pytest.mark.parametrize("quantized", [False, True], ids=("continuous", "quantized"))

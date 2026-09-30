@@ -72,6 +72,7 @@ class SACConfig:
     max_grad_norm: float = 10.0
     normalize_observations: bool = False
     normalize_rewards: bool = False
+    residual_policy: bool = False
     diagnose_numerics: bool = False
 
 
@@ -142,7 +143,10 @@ def _build_algo(cfg: Config, env: EnvelopeGymnax) -> SACAdapter:
         fill_buffer=cfg.sac.fill_buffer,
         batch_size=cfg.sac.batch_size,
         hidden_layer_sizes=cfg.sac.hidden_sizes,
-        agent_kwargs={"activation": cfg.sac.activation},
+        agent_kwargs={
+            "activation": cfg.sac.activation,
+            "residual_policy": cfg.sac.residual_policy,
+        },
         polyak=cfg.sac.polyak,
         target_update_freq=cfg.sac.target_update_freq,
         max_grad_norm=cfg.sac.max_grad_norm,

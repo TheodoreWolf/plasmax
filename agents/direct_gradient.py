@@ -21,7 +21,7 @@ class KnotStep(NamedTuple):
 
 
 class FiniteGradientStats(NamedTuple):
-    """Diagnostics from finite-only aggregation over rollout gradients."""
+    """Raw rollout-gradient counts and the supplied aggregate's validity."""
 
     nonfinite_elements: jax.Array
     total_elements: jax.Array
@@ -29,6 +29,10 @@ class FiniteGradientStats(NamedTuple):
     total_rollouts: jax.Array
     all_missing_elements: jax.Array
     aggregate_finite: jax.Array
+    zero_elements: jax.Array
+    zero_rollouts: jax.Array
+    all_nonfinite_rollouts: jax.Array
+    aggregate_zero: jax.Array
 
 
 @dataclasses.dataclass(frozen=True)
@@ -68,7 +72,21 @@ def finite_mean_gradients(
         return finite_sum / divisor
 
     mean_grads = jax.tree.map(finite_mean, per_rollout_grads, finite_masks)
-    mask_leaves = jax.tree.leaves(finite_masks)
+    return mean_grads, gradient_statistics(per_rollout_grads, mean_grads)
+
+
+def gradient_statistics(
+    per_rollout_grads: Any, aggregate_grads: Any
+) -> FiniteGradientStats:
+    """Count raw finite/zero values without changing either gradient tree.
+
+    Zero rollout gradients require every coordinate to be exactly zero, so an
+    all-invalid rollout is never counted as zero. ``aggregate_zero`` describes
+    the actual optimizer input, including finite-only replacement in policies.
+    """
+    leaves = jax.tree.leaves(per_rollout_grads)
+    num_rollouts = leaves[0].shape[0]
+    mask_leaves = [jnp.isfinite(leaf) for leaf in leaves]
     nonfinite_elements = sum(
         (jnp.sum(~finite, dtype=jnp.int32) for finite in mask_leaves),
         start=jnp.asarray(0, dtype=jnp.int32),
@@ -78,20 +96,24 @@ def finite_mean_gradients(
         dtype=jnp.int32,
     )
     rollout_has_nonfinite = jnp.zeros((num_rollouts,), dtype=jnp.bool_)
+    rollout_has_finite = jnp.zeros((num_rollouts,), dtype=jnp.bool_)
+    rollout_is_zero = jnp.ones((num_rollouts,), dtype=jnp.bool_)
     all_missing_elements = jnp.asarray(0, dtype=jnp.int32)
-    for finite in mask_leaves:
+    zero_elements = jnp.asarray(0, dtype=jnp.int32)
+    for values, finite in zip(leaves, mask_leaves, strict=True):
         rollout_has_nonfinite |= ~jnp.all(
             finite.reshape((num_rollouts, -1)),
             axis=1,
         )
+        rollout_has_finite |= jnp.any(finite.reshape((num_rollouts, -1)), axis=1)
+        zero = values == 0
+        rollout_is_zero &= jnp.all(zero.reshape((num_rollouts, -1)), axis=1)
+        zero_elements += jnp.sum(zero, dtype=jnp.int32)
         all_missing_elements += jnp.sum(
             ~jnp.any(finite, axis=0),
             dtype=jnp.int32,
         )
-    aggregate_finite = jnp.all(
-        jnp.stack([jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(mean_grads)])
-    )
-    return mean_grads, FiniteGradientStats(
+    return FiniteGradientStats(
         nonfinite_elements=nonfinite_elements,
         total_elements=total_elements,
         rollouts_with_nonfinite=jnp.sum(
@@ -100,7 +122,13 @@ def finite_mean_gradients(
         ),
         total_rollouts=jnp.asarray(num_rollouts, dtype=jnp.int32),
         all_missing_elements=all_missing_elements,
-        aggregate_finite=aggregate_finite,
+        aggregate_finite=tree_is_finite(aggregate_grads),
+        zero_elements=zero_elements,
+        zero_rollouts=jnp.sum(rollout_is_zero, dtype=jnp.int32),
+        all_nonfinite_rollouts=jnp.sum(~rollout_has_finite, dtype=jnp.int32),
+        aggregate_zero=jnp.all(
+            jnp.stack([jnp.all(leaf == 0) for leaf in jax.tree.leaves(aggregate_grads)])
+        ),
     )
 
 

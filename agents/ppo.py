@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import fields
+from typing import Any
 
 import distrax
 import jax
@@ -17,6 +18,17 @@ from rejax.networks import MLP, VNetwork
 from agents.normalization import EnvelopeNormalizationMixin
 from plasmax.wrappers import unwrap_to_env_state
 from training.envelope_gymnax import GymnaxMultiDiscrete
+
+
+def _reset_action_setpoint(env: Any, env_params: Any) -> tuple[float, ...]:
+    """Read the reset actuator anchor in the policy's action coordinates."""
+    _, reset_state = env.reset(jax.random.PRNGKey(0), env_params)
+    action_setpoint = unwrap_to_env_state(reset_state).prev_action
+    native_env = env.envelope_env
+    from_physical = getattr(native_env, "from_physical", None)
+    if from_physical is not None:
+        action_setpoint = from_physical(action_setpoint)
+    return tuple(float(value) for value in np.asarray(action_setpoint).reshape(-1))
 
 
 def _categorical_log_prob_entropy(
@@ -201,13 +213,10 @@ class PPOAdapter(EnvelopeNormalizationMixin, PPO):
                 "critic": VNetwork(**agent_kwargs),
             }
 
-        _, reset_state = env.reset(jax.random.PRNGKey(0), env_params)
-        env_state = unwrap_to_env_state(reset_state)
-        action_setpoint = env.envelope_env.from_physical(env_state.prev_action)
         actor = ResidualGaussianPolicy(
             action_dim=int(np.prod(action_space.shape)),
             action_range=(action_space.low, action_space.high),
-            action_setpoint=tuple(float(x) for x in np.asarray(action_setpoint)),
+            action_setpoint=_reset_action_setpoint(env, env_params),
             initial_log_std=initial_log_std,
             **agent_kwargs,
         )

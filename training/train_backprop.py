@@ -23,6 +23,8 @@ class BackpropConfig:
     total_timesteps: int = 10_000_000
     eval_freq: int = 1_000_000
     num_rollouts: int = 64
+    # Limit concurrent differentiated rollouts; all rollouts still form one update.
+    rollout_batch_size: int | None = None
     gradient_horizon: int = 32
     learning_rate: float | None = None
     hidden_sizes: tuple[int, ...] = (64, 64)
