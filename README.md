@@ -194,7 +194,7 @@ training/           clone-only training launchers, adapters, and shared utilitie
 scripts/            generic evaluation and rollout launchers
 tools/              artifact and equilibrium generation
 benchmarks/         backend agreement and throughput benchmarks
-experiments/        research studies and plotting
+experiments/        research studies
 tests/              library and release tests
 ```
 

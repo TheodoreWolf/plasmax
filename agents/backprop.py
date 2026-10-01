@@ -173,12 +173,6 @@ def _setup(agent: Any) -> None:
         raise ValueError("backprop requires continuous actions")
     if agent.eval_freq <= 0 or agent.eval_n_envs <= 0:
         raise ValueError("eval_freq and eval_n_envs must be positive")
-    if agent.rollout_batch_size is not None and (
-        isinstance(agent.rollout_batch_size, bool)
-        or not isinstance(agent.rollout_batch_size, int)
-        or agent.rollout_batch_size <= 0
-    ):
-        raise ValueError("rollout_batch_size must be a positive integer or None")
     episode_steps = agent.episode_steps
     if episode_steps is None:
         episode_steps = agent.env.max_steps
@@ -197,15 +191,6 @@ def _setup(agent: Any) -> None:
         agent, "optimizer", make_optimizer(agent.learning_rate, agent.grad_clip)
     )
     _ = agent.env.observation_space
-
-
-def _map_rollouts(
-    function: Callable[[Any], Any], carries: Any, batch_size: int | None
-) -> Any:
-    """Bound gradient working memory while preserving rollout order and outputs."""
-    if batch_size is None:
-        return jax.vmap(function)(carries)
-    return jax.lax.map(function, carries, batch_size=batch_size)
 
 
 def _state_counters() -> dict[str, jax.Array]:
@@ -434,7 +419,6 @@ class BackpropPolicyAgent:
     total_timesteps: int = 10_000_000
     eval_freq: int = 1_000_000
     num_rollouts: int = 64
-    rollout_batch_size: int | None = None
     gradient_horizon: int = 32
     learning_rate: float = 1e-4
     grad_clip: float = 1.0
@@ -500,12 +484,9 @@ class BackpropPolicyAgent:
             reward, (next_carry, trajectory) = self.chunk.run(params, carry)
             return -reward, (next_carry, jnp.sum(trajectory.alive))
 
-        value_and_grad = jax.value_and_grad(loss, has_aux=True)
-        (losses, (carries, alive)), per_rollout_grads = _map_rollouts(
-            lambda carry: value_and_grad(state.params, carry),
-            carries,
-            self.rollout_batch_size,
-        )
+        (losses, (carries, alive)), per_rollout_grads = jax.vmap(
+            jax.value_and_grad(loss, has_aux=True), in_axes=(None, 0)
+        )(state.params, carries)
         grads, stats = finite_mean_gradients(per_rollout_grads)
         params, opt_state, diagnostics = apply_policy_optimizer_update(
             self.optimizer, grads, state.opt_state, state.params, self.grad_clip
@@ -584,7 +565,6 @@ class BackpropOpenLoopAgent:
     total_timesteps: int = 10_000_000
     eval_freq: int = 1_000_000
     num_rollouts: int = 64
-    rollout_batch_size: int | None = None
     gradient_horizon: int = 32
     learning_rate: float = 5e-2
     grad_clip: float = 1.0
@@ -695,12 +675,9 @@ class BackpropOpenLoopAgent:
             reward, (next_carry, trajectory) = self.chunk.run(params, carry, start)
             return -reward, (next_carry, jnp.sum(trajectory.alive))
 
-        value_and_grad = jax.value_and_grad(loss, has_aux=True)
-        (losses, (carries, alive)), per_rollout_grads = _map_rollouts(
-            lambda carry: value_and_grad(state.params, carry, start_step),
-            carries,
-            self.rollout_batch_size,
-        )
+        (losses, (carries, alive)), per_rollout_grads = jax.vmap(
+            jax.value_and_grad(loss, has_aux=True), in_axes=(None, 0, None)
+        )(state.params, carries, start_step)
         grads = jax.tree.map(lambda value: jnp.mean(value, axis=0), per_rollout_grads)
         stats = gradient_statistics(per_rollout_grads, grads)
         params, opt_state, rollback_params, rollback_opt_state, scale, finite = (

@@ -13,6 +13,7 @@ import numpy as np
 from agents.policy_io import LoadedPolicy, environment_interface
 from plasmax.rollout import TrajectoryStep, collect_episodes
 from plasmax.wrappers import find_max_steps, unwrap_to_env_state
+from training.wandb_logging import evaluation_scalar_metrics
 
 __all__ = [
     "check_interfaces",
@@ -107,6 +108,7 @@ def evaluate_policy(
         "eval/truncation_rate": jnp.any(
             trajectory.valid & trajectory.truncated, axis=-1
         ).mean(),
+        **evaluation_scalar_metrics(trajectory, returns, lengths),
     }, trajectory
 
 
