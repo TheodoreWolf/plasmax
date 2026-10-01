@@ -308,17 +308,6 @@ def apply_policy_optimizer_update(
     )
 
 
-def setpoint_theta_row(env: Any, key: jax.Array) -> jax.Array:
-    """Unconstrained reset setpoint, inset to preserve actuator sensitivities."""
-    from plasmax.wrappers import unwrap_to_env_state
-
-    state, _ = env.init(key)
-    state = unwrap_to_env_state(state)
-    low, high = env.unwrapped.action_space.low, env.unwrapped.action_space.high
-    normalized = 2.0 * (state.prev_action - low) / (high - low) - 1.0
-    return jnp.arctanh(jnp.clip(normalized, -0.999, 0.999))
-
-
 def knot_actions(theta: jax.Array, num_steps: int) -> jax.Array:
     positions = jnp.arange(num_steps, dtype=theta.dtype)
     knots = jnp.linspace(0.0, num_steps - 1, theta.shape[0], dtype=theta.dtype)
@@ -329,16 +318,16 @@ def knot_actions(theta: jax.Array, num_steps: int) -> jax.Array:
 
 
 def make_parameterization(
-    env: Any, key: jax.Array, num_steps: int, n_knots: int
+    env: Any, num_steps: int, n_knots: int
 ) -> tuple[Callable, jax.Array, str]:
-    """Setpoint-initialized piecewise-linear unconstrained actuator knots."""
+    """Zero-initialized piecewise-linear unconstrained absolute-action knots."""
     if num_steps <= 0:
         raise ValueError("num_steps must be positive")
     count = min(n_knots, num_steps) if n_knots > 0 else num_steps
-    row = setpoint_theta_row(env, key)
-    theta = jnp.broadcast_to(row, (count, row.shape[0]))
+    action_dim = env.action_space.shape[0]
+    theta = jnp.zeros((count, action_dim), jnp.float32)
     return (
         lambda values: knot_actions(values, num_steps),
         theta,
-        f"{count} time-knots x {row.shape[0]} actuators",
+        f"{count} time-knots x {action_dim} actuators",
     )

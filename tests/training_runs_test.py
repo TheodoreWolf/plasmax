@@ -155,7 +155,6 @@ def test_native_host_runs_compile_log_and_save_each_seed(
             hidden_sizes=(4,),
             num_knots=2,
             source_times=jnp.asarray([0.0, 1.0]),
-            action_setpoint=jnp.asarray([0.25]),
         )
     elif kind == "mpc":
         agent = MPCAgent.create(
@@ -176,7 +175,6 @@ def test_native_host_runs_compile_log_and_save_each_seed(
             gradient_horizon=2,
             num_rollouts=1,
             eval_n_envs=1,
-            action_setpoint=jnp.asarray([0.25]),
         )
         if kind == "policy":
             agent = BackpropPolicyAgent.create(env, hidden_sizes=(4,), **kwargs)

@@ -79,7 +79,6 @@ def main(config: Config) -> None:
         **options,
         eval_n_envs=config.env.eval_n_envs,
         eval_seed=config.env.eval_seed,
-        init_seed=config.seed,
     )
     name = config.run_name or run_slug(
         config.algorithm,

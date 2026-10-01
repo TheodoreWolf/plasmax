@@ -15,21 +15,20 @@ from evosax.algorithms import CMA_ES, Open_ES
 from flax import struct
 
 from agents.backprop import (
-    ResidualPolicy,
+    DeterministicPolicy,
     open_loop_action,
     policy_action,
     source_time_grid,
 )
-from agents.direct_gradient import make_optimizer, setpoint_theta_row, tree_is_finite
+from agents.direct_gradient import make_optimizer, tree_is_finite
 from plasmax import collect_episode
 from training.envelope_gymnax import to_typed_key
 
 
 @dataclasses.dataclass(frozen=True)
 class _PolicyParameterization:
-    policy: ResidualPolicy
+    policy: DeterministicPolicy
     observation_shape: tuple[int, ...]
-    action_setpoint: jax.Array
 
     def init_params(self, key: jax.Array) -> Any:
         return self.policy.init(key, jnp.zeros(self.observation_shape, jnp.float32))[
@@ -37,7 +36,7 @@ class _PolicyParameterization:
         ]
 
     def action(self, params: Any, observation: jax.Array) -> jax.Array:
-        return policy_action(self.policy, params, self.action_setpoint, observation)
+        return policy_action(self.policy, params, observation)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -89,7 +88,6 @@ class ESAgent:
     eval_n_envs: int = 16
     eval_seed: int = 10_000
     episode_steps: int | None = None
-    action_setpoint: jax.Array | None = None
     source_times: jax.Array | None = None
     init_seed: int = 0
     eval_callback: Callable | None = None
@@ -129,19 +127,10 @@ class ESAgent:
                 "total_timesteps must cover at least one complete generation"
             )
 
-        if self.action_setpoint is None:
-            key = jax.random.fold_in(jax.random.key(self.init_seed), 0x5E7)
-            row = setpoint_theta_row(self.env, key).astype(jnp.float32)
-            setpoint = jnp.tanh(row)
-        else:
-            setpoint = jnp.asarray(self.action_setpoint, jnp.float32)
-            row = jnp.arctanh(jnp.clip(setpoint, -0.999, 0.999))
-        object.__setattr__(self, "action_setpoint", setpoint)
         if self.parameterization == "policy":
             controller = _PolicyParameterization(
-                ResidualPolicy(self.env.action_space.shape[0], self.hidden_sizes),
+                DeterministicPolicy(self.env.action_space.shape[0], self.hidden_sizes),
                 self.env.observation_space.shape,
-                setpoint,
             )
         else:
             if self.num_knots <= 0:
@@ -167,8 +156,12 @@ class ESAgent:
                     "per source step"
                 )
             controller = _KnotParameterization(
-                jnp.broadcast_to(
-                    row, (min(self.num_knots, self.episode_steps), row.size)
+                jnp.zeros(
+                    (
+                        min(self.num_knots, self.episode_steps),
+                        self.env.action_space.shape[0],
+                    ),
+                    jnp.float32,
                 ),
                 jnp.asarray(times),
                 clock.start,

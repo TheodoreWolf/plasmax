@@ -28,36 +28,35 @@ from agents.direct_gradient import (
     knot_actions,
     make_knot_chunk,
     make_optimizer,
-    setpoint_theta_row,
     tree_is_finite,
 )
 from plasmax.environment.schema import WorldModelConfig
 from training.envelope_gymnax import to_typed_key
 
 
-class ResidualPolicy(nn.Module):
-    """The baseline MLP's residual around the normalized reset setpoint."""
+class DeterministicPolicy(nn.Module):
+    """An MLP predicting absolute action logits with a neutral initial mean."""
 
     action_dim: int
     hidden_sizes: tuple[int, ...]
 
     @nn.compact
     def __call__(self, obs: jax.Array) -> jax.Array:
-        x = obs
+        x = jnp.asarray(obs, jnp.float32)
         for width in self.hidden_sizes:
             x = nn.swish(nn.Dense(width)(x))
         return nn.Dense(
             self.action_dim,
             kernel_init=nn.initializers.zeros_init(),
             bias_init=nn.initializers.zeros_init(),
-            name="action_residual",
+            name="action_mean",
         )(x)
 
 
 def policy_action(
-    policy: ResidualPolicy, params: Any, action_setpoint: jax.Array, obs: jax.Array
+    policy: DeterministicPolicy, params: Any, obs: jax.Array
 ) -> jax.Array:
-    return jnp.clip(action_setpoint + policy.apply({"params": params}, obs), -1.0, 1.0)
+    return jnp.tanh(policy.apply({"params": params}, obs))
 
 
 def open_loop_action(
@@ -96,8 +95,7 @@ class PolicyChunk:
 
 def make_policy_chunk(
     env: Any,
-    policy: ResidualPolicy,
-    action_setpoint: jax.Array,
+    policy: DeterministicPolicy,
     chunk_steps: int,
     *,
     remat: bool,
@@ -110,7 +108,7 @@ def make_policy_chunk(
         obs, env_state, alive = carry
 
         def active(_: None) -> tuple[PolicyCarry, PolicyStep]:
-            action = policy_action(policy, params, action_setpoint, obs)
+            action = policy_action(policy, params, obs)
             state, info = env.step(env_state, action)
             done = info.terminated | info.truncated
             return PolicyCarry(info.obs, state, ~done), PolicyStep(
@@ -120,7 +118,7 @@ def make_policy_chunk(
         def inactive(_: None) -> tuple[PolicyCarry, PolicyStep]:
             return carry, PolicyStep(
                 jnp.zeros((), jnp.float32),
-                jnp.zeros_like(action_setpoint),
+                jnp.zeros(env.action_space.shape, jnp.float32),
                 jnp.asarray(False),
                 jnp.asarray(False),
             )
@@ -445,29 +443,17 @@ class BackpropPolicyAgent:
     eval_n_envs: int = 16
     eval_seed: int = 10_000
     episode_steps: int | None = None
-    action_setpoint: jax.Array | None = None
-    init_seed: int = 0
     eval_callback: Callable | None = None
-    policy: ResidualPolicy = dataclasses.field(init=False, repr=False)
+    policy: DeterministicPolicy = dataclasses.field(init=False, repr=False)
     optimizer: Any = dataclasses.field(init=False, repr=False)
     chunk: PolicyChunk = dataclasses.field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         _setup(self)
-        if self.action_setpoint is None:
-            key = jax.random.fold_in(jax.random.key(self.init_seed), 0x5E7)
-            object.__setattr__(
-                self, "action_setpoint", jnp.tanh(setpoint_theta_row(self.env, key))
-            )
-        object.__setattr__(
-            self,
-            "action_setpoint",
-            jnp.asarray(self.action_setpoint),
-        )
         object.__setattr__(
             self,
             "policy",
-            ResidualPolicy(self.env.action_space.shape[0], self.hidden_sizes),
+            DeterministicPolicy(self.env.action_space.shape[0], self.hidden_sizes),
         )
         object.__setattr__(
             self,
@@ -475,7 +461,6 @@ class BackpropPolicyAgent:
             make_policy_chunk(
                 self.env,
                 self.policy,
-                self.action_setpoint,
                 self.gradient_horizon,
                 remat=self.remat,
             ),
@@ -569,9 +554,7 @@ class BackpropPolicyAgent:
         self, state: PolicyTrainState, deterministic: bool | None = None
     ) -> Callable:
         del deterministic
-        return lambda obs, rng: policy_action(
-            self.policy, state.params, self.action_setpoint, obs
-        )
+        return lambda obs, rng: policy_action(self.policy, state.params, obs)
 
 
 def source_time_grid(env: Any, num_steps: int) -> jax.Array:
@@ -612,9 +595,7 @@ class BackpropOpenLoopAgent:
     eval_n_envs: int = 16
     eval_seed: int = 10_000
     episode_steps: int | None = None
-    action_setpoint: jax.Array | None = None
     source_times: jax.Array | None = None
-    init_seed: int = 0
     eval_callback: Callable | None = None
     time_index: int = dataclasses.field(init=False)
     theta0: jax.Array = dataclasses.field(init=False, repr=False)
@@ -657,19 +638,15 @@ class BackpropOpenLoopAgent:
                 "source_times must contain one increasing finite time per source step"
             )
         object.__setattr__(self, "source_times", jnp.asarray(times))
-        key = jax.random.fold_in(jax.random.key(self.init_seed), 0x5E7)
-        row = (
-            setpoint_theta_row(self.env, key)
-            if self.action_setpoint is None
-            else jnp.arctanh(
-                jnp.clip(jnp.asarray(self.action_setpoint, jnp.float32), -0.999, 0.999)
-            )
-        )
         object.__setattr__(
             self,
             "theta0",
-            jnp.broadcast_to(
-                row, (min(self.num_knots, self.episode_steps), row.shape[0])
+            jnp.zeros(
+                (
+                    min(self.num_knots, self.episode_steps),
+                    self.env.action_space.shape[0],
+                ),
+                jnp.float32,
             ),
         )
         object.__setattr__(

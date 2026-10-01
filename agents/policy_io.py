@@ -17,8 +17,8 @@ from flax import linen as nn
 from flax import serialization
 from rejax.networks import DiscretePolicy, GaussianPolicy, SquashedGaussianPolicy
 
-from agents.ppo import MultiDiscretePolicy, PPOAdapter, ResidualGaussianPolicy
-from agents.sac import ResidualSquashedGaussianPolicy, SACAdapter
+from agents.ppo import MultiDiscretePolicy, PPOAdapter
+from agents.sac import SACAdapter
 
 __all__ = ["LoadedPolicy", "environment_interface", "load_policy", "save_policy"]
 
@@ -109,8 +109,6 @@ def _actor_spec(actor: nn.Module) -> dict[str, Any]:
         GaussianPolicy,
         SquashedGaussianPolicy,
         MultiDiscretePolicy,
-        ResidualGaussianPolicy,
-        ResidualSquashedGaussianPolicy,
     ):
         raise ValueError(f"unsupported policy model {type(actor).__name__}")
     activation = next(
@@ -142,8 +140,6 @@ def _actor_spec(actor: nn.Module) -> dict[str, Any]:
         "action_dim",
         "action_range",
         "nvec",
-        "action_setpoint",
-        "initial_log_std",
         "log_std_range",
     ):
         if hasattr(actor, name):
@@ -169,7 +165,7 @@ def _restore_actor(spec: dict[str, Any]) -> nn.Module:
         raise ValueError(f"unsupported policy activation {activation!r}")
     fields["activation"] = getattr(nn, activation)
     fields["hidden_layer_sizes"] = tuple(fields["hidden_layer_sizes"])
-    for name in ("action_range", "log_std_range", "nvec", "action_setpoint"):
+    for name in ("action_range", "log_std_range", "nvec"):
         if name in fields:
             fields[name] = tuple(fields[name])
     if kind == "DiscretePolicy":
@@ -180,10 +176,6 @@ def _restore_actor(spec: dict[str, Any]) -> nn.Module:
         return SquashedGaussianPolicy(**fields)
     if kind == "MultiDiscretePolicy":
         return MultiDiscretePolicy(**fields)
-    if kind == "ResidualGaussianPolicy":
-        return ResidualGaussianPolicy(**fields)
-    if kind == "ResidualSquashedGaussianPolicy":
-        return ResidualSquashedGaussianPolicy(**fields)
     raise ValueError(f"unsupported policy model {kind!r}")
 
 
@@ -233,7 +225,7 @@ class LoadedPolicy:
                         action = (
                             actor.action_loc + jnp.tanh(action) * actor.action_scale
                         )
-                    elif isinstance(actor, (GaussianPolicy, ResidualGaussianPolicy)):
+                    elif isinstance(actor, GaussianPolicy):
                         action = jnp.clip(action, *actor.action_range)
                 return jnp.reshape(action, tuple(self.interface["action_shape"]))
 
@@ -241,15 +233,13 @@ class LoadedPolicy:
         if self.algorithm == "backprop_policy" or (
             self.algorithm == "es" and payload["parameterization"] == "policy"
         ):
-            from agents.backprop import ResidualPolicy, policy_action
+            from agents.backprop import DeterministicPolicy, policy_action
 
-            policy = ResidualPolicy(
+            policy = DeterministicPolicy(
                 action_dim=payload["action_dim"],
                 hidden_sizes=tuple(payload["hidden_sizes"]),
             )
-            return lambda obs, rng: policy_action(
-                policy, payload["params"], jnp.asarray(payload["action_setpoint"]), obs
-            )
+            return lambda obs, rng: policy_action(policy, payload["params"], obs)
         if self.algorithm == "backprop_open_loop" or (
             self.algorithm == "es" and payload["parameterization"] == "open_loop"
         ):
@@ -325,7 +315,6 @@ def save_policy(
             "params": serialization.to_state_dict(state.params),
             "action_dim": agent.policy.action_dim,
             "hidden_sizes": agent.policy.hidden_sizes,
-            "action_setpoint": agent.action_setpoint,
         }
     elif isinstance(agent, BackpropOpenLoopAgent):
         algorithm = "backprop_open_loop"
@@ -346,7 +335,6 @@ def save_policy(
             inference.update(
                 action_dim=controller.policy.action_dim,
                 hidden_sizes=controller.policy.hidden_sizes,
-                action_setpoint=controller.action_setpoint,
             )
         else:
             inference.update(
@@ -407,7 +395,7 @@ def save_policy(
     )
     payload = _plain(
         {
-            "format_version": 1,
+            "format_version": 2,
             **{
                 field.name: getattr(snapshot, field.name)
                 for field in dataclasses.fields(snapshot)
@@ -434,10 +422,13 @@ def save_policy(
 
 
 def load_policy(path: str | Path) -> LoadedPolicy:
-    """Read the new policy format without initializing a model or environment."""
+    """Read version-2 policies without initializing a model or environment."""
     payload = serialization.msgpack_restore(Path(path).read_bytes())
-    if not isinstance(payload, dict) or payload.get("format_version") != 1:
-        raise ValueError("unsupported policy artifact format")
+    if not isinstance(payload, dict) or payload.get("format_version") != 2:
+        raise ValueError(
+            "unsupported policy artifact format: expected version 2; "
+            "load version-1 policies with the code revision that created them"
+        )
     if payload.get("algorithm") not in (
         "ppo",
         "sac",

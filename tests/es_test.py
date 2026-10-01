@@ -117,7 +117,6 @@ def _agent(
         hidden_sizes=(3,),
         num_knots=2,
         sigma=0.1,
-        action_setpoint=jnp.zeros(1, jnp.float32),
         source_times=jnp.arange(4, dtype=jnp.float32),
     )
     options.update(kwargs)
@@ -130,6 +129,43 @@ def _assert_trees_close(actual: Any, expected: Any) -> None:
         jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True
     ):
         np.testing.assert_allclose(left, right, rtol=2e-5, atol=1e-6, equal_nan=True)
+
+
+@pytest.mark.parametrize("parameterization", ["policy", "open_loop"])
+def test_controller_initialization_is_independent_of_reset_defaults(
+    parameterization: str,
+) -> None:
+    class ResetState(NamedTuple):
+        prev_action: jax.Array
+
+    class ResetDefaultsEnv(_Environment):
+        def __init__(self, initial_action: float) -> None:
+            super().__init__()
+            self.initial_action = initial_action
+            self.reset_calls = 0
+
+        @property
+        def unwrapped(self) -> "ResetDefaultsEnv":
+            return self
+
+        def init(self, key: jax.Array) -> tuple[ResetState, _Info]:
+            self.reset_calls += 1
+            _, info = super().init(key)
+            return ResetState(jnp.asarray([self.initial_action], jnp.float32)), info
+
+    envs = [ResetDefaultsEnv(value) for value in (-1.0, 0.8)]
+    agents = [_agent(parameterization=parameterization, env=env) for env in envs]
+    key = jax.random.key(3)
+    states = [agent.init_state(key) for agent in agents]
+    _assert_trees_close(states[0].params, states[1].params)
+    assert [env.reset_calls for env in envs] == [0, 0]
+    for agent, state in zip(agents, states, strict=True):
+        act = agent.make_act(state)
+        for obs in (jnp.zeros(2, jnp.float32), jnp.asarray([0.5, 1.5], jnp.float32)):
+            np.testing.assert_array_equal(act(obs, key), jnp.zeros(1, jnp.float32))
+    if parameterization == "open_loop":
+        np.testing.assert_array_equal(states[0].params, np.zeros((2, 1), np.float32))
+        assert states[0].params.dtype == jnp.float32
 
 
 @pytest.mark.parametrize(

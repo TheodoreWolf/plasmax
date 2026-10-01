@@ -146,11 +146,6 @@ class PPOConfig:
     normalize_observations: bool = False
     hidden_sizes: tuple[int, ...] = (64, 64)
     activation: str = "swish"
-    # Center the Gaussian mean on the environment's reset action setpoint and
-    # initialize the final residual layer to zero.
-    residual_policy: bool = False
-    # Initial log standard deviation for the residual Gaussian actor.
-    initial_log_std: float = 0.0
 
 
 @dataclasses.dataclass
@@ -227,8 +222,6 @@ def _run_name(cfg: Config) -> str:
         name += "-time_aware"
     if cfg.env.quantize_bins is not None:
         name += f"-q{cfg.env.quantize_bins}"
-    if cfg.ppo.residual_policy:
-        name += "-residual"
     if cfg.env.deterministic_eval:
         name += "-det_eval"
     if cfg.num_seeds > 1:
@@ -280,8 +273,6 @@ def _build_algo(cfg: Config, env):
         agent_kwargs={
             "hidden_layer_sizes": cfg.ppo.hidden_sizes,
             "activation": cfg.ppo.activation,
-            "residual_policy": cfg.ppo.residual_policy,
-            "initial_log_std": cfg.ppo.initial_log_std,
         },
     )
 

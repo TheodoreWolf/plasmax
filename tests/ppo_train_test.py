@@ -4,7 +4,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from envelope import Environment, TruncationWrapper
+import tyro
+from envelope import Environment, TruncationWrapper, static_field
 from flax import linen as nn
 
 from plasmax.wrappers import RealisticWrappers
@@ -13,8 +14,9 @@ pytest.importorskip("rejax")
 
 from helpers import CheapBoundaryEnv, CheapBoundaryState
 from rejax.algos.ppo import PPO
+from rejax.networks import GaussianPolicy
 
-from agents.ppo import MultiDiscretePolicy, PPOAdapter, ResidualGaussianPolicy
+from agents.ppo import MultiDiscretePolicy, PPOAdapter
 from plasmax.environment.factory import make
 from plasmax.wrappers import ActionRescaleWrapper, QuantizeActionWrapper
 from training.envelope_gymnax import EnvelopeGymnax
@@ -55,28 +57,15 @@ def test_adapter_uses_upstream_ppo_optimization():
     assert "update" not in PPOAdapter.__dict__
 
 
-def test_residual_gaussian_policy_starts_at_action_setpoint():
-    policy = ResidualGaussianPolicy(
-        action_dim=2,
-        action_range=(
-            jnp.full((2,), -1.0, dtype=jnp.float32),
-            jnp.full((2,), 1.0, dtype=jnp.float32),
-        ),
-        action_setpoint=(0.25, -1.0),
-        hidden_layer_sizes=(8,),
-        activation=nn.swish,
-        initial_log_std=-1.0,
-    )
-    obs = jnp.zeros((1, 3), dtype=jnp.float32)
-    variables = policy.init(jax.random.PRNGKey(7), obs, jax.random.PRNGKey(8))
+@pytest.mark.parametrize(
+    "args", [["--ppo.residual-policy"], ["--ppo.initial-log-std", "-1"]]
+)
+def test_launcher_rejects_removed_policy_options(args: list[str]) -> None:
+    from training import train_ppo
 
-    distribution = policy.apply(variables, obs, method="_action_dist")
-
-    np.testing.assert_array_equal(
-        distribution.mode(),
-        jnp.asarray([[0.25, -1.0]], dtype=jnp.float32),
-    )
-    assert jnp.all(jnp.isfinite(distribution.stddev()))
+    with pytest.raises(SystemExit) as error:
+        tyro.cli(train_ppo.Config, args=args)
+    assert error.value.code != 0
 
 
 class ResetActionState(CheapBoundaryState):
@@ -84,49 +73,62 @@ class ResetActionState(CheapBoundaryState):
 
 
 class ResetActionEnv(CheapBoundaryEnv):
+    initial_action: tuple[float, ...] = static_field(default=(0.3,))
+
     def init(self, key):
         del key
         state = ResetActionState(
             obs=jnp.zeros((self.obs_dim,), jnp.float32),
             steps=jnp.asarray(0, jnp.int32),
-            prev_action=jnp.asarray([12.0], jnp.float32),
+            prev_action=jnp.asarray(self.initial_action, jnp.float32),
         )
         return state, self._info(state)
 
 
 @pytest.mark.parametrize("rescale", [False, True])
-def test_residual_adapter_uses_reset_action_in_policy_coordinates(rescale):
-    env = ResetActionEnv(obs_dim=2, action_low=(10.0,), action_high=(30.0,))
-    if rescale:
-        env = ActionRescaleWrapper(env)
-    env = TruncationWrapper(env, max_steps=2)
-    algo = _make_algo(
-        env,
-        num_envs=1,
-        agent_kwargs={"residual_policy": True, "hidden_layer_sizes": (4,)},
-    )
-    state = algo.init_state(jax.random.PRNGKey(0))
-    action = jax.jit(algo.make_act(state, deterministic=True))(
-        jnp.zeros(2, jnp.float32), jax.random.PRNGKey(1)
-    )
-    expected = [-0.8 if rescale else 12.0]
-    np.testing.assert_allclose(algo.actor.action_setpoint, expected, atol=1e-6)
-    np.testing.assert_allclose(action, expected, atol=1e-6)
+@pytest.mark.parametrize("deterministic", [False, True])
+def test_actions_do_not_depend_on_reset_actuator_defaults(
+    rescale: bool, deterministic: bool
+) -> None:
+    actions = []
+    observation = jnp.asarray([0.2, -0.4], jnp.float32)
+    for default in (-1.5, 2.5):
+        env = ResetActionEnv(
+            obs_dim=2,
+            action_low=(-2.0,),
+            action_high=(3.0,),
+            initial_action=(default,),
+        )
+        if rescale:
+            env = ActionRescaleWrapper(env)
+        algo = _make_algo(
+            TruncationWrapper(env, max_steps=2),
+            num_envs=1,
+            agent_kwargs={"hidden_layer_sizes": (4,)},
+        )
+        assert type(algo.actor) is GaussianPolicy
+        state = algo.init_state(jax.random.PRNGKey(0))
+        act = jax.jit(algo.make_act(state, deterministic=deterministic))
+        actions.append(act(observation, jax.random.PRNGKey(1)))
+    np.testing.assert_array_equal(actions[0], actions[1])
 
 
-def test_residual_adapter_initializes_on_kstar_native_action_space():
+def test_upstream_actor_initializes_on_kstar_native_action_space() -> None:
     env = RealisticWrappers(make("kstar_worldmodel"), max_steps=2)
     algo = _make_algo(
         env,
         num_envs=1,
-        agent_kwargs={"residual_policy": True, "hidden_layer_sizes": (4,)},
+        agent_kwargs={"hidden_layer_sizes": (4,)},
     )
     state = algo.init_state(jax.random.PRNGKey(0))
     action = jax.jit(algo.make_act(state, deterministic=True))(
         state.last_obs[0], jax.random.PRNGKey(1)
     )
-    np.testing.assert_array_equal(algo.actor.action_setpoint, np.zeros(6))
-    np.testing.assert_array_equal(action, np.zeros(6))
+    assert type(algo.actor) is GaussianPolicy
+    assert action.shape == (6,)
+    assert jnp.all(jnp.isfinite(action))
+    assert jnp.all(action >= env.action_space.low)
+    assert jnp.all(action <= env.action_space.high)
 
 
 @pytest.mark.parametrize("quantized", [False, True], ids=("continuous", "quantized"))
