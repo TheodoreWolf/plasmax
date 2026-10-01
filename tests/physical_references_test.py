@@ -233,15 +233,20 @@ def test_reference_reset_is_jittable_and_vmappable() -> None:
     states, info = jax.jit(jax.vmap(env.init))(keys)
     physical = unwrap_to_env_state(states)
     assert np.asarray(info.obs).shape == (2, *env.observation_space.shape)
-    for values in (
-        physical.plasma.T_i,
-        physical.plasma.T_e,
-        physical.plasma.n_e,
-        physical.plasma.psi,
-        physical.prev_action,
-    ):
-        array = np.asarray(values)
-        np.testing.assert_array_equal(array[0], array[1])
+    for index, key in enumerate(keys):
+        expected_state, expected_info = env.init(key)
+        expected = unwrap_to_env_state(expected_state)
+        np.testing.assert_allclose(
+            info.obs[index], expected_info.obs, rtol=1e-12, atol=1e-12
+        )
+        for name in ("T_i", "T_e", "n_e", "psi"):
+            np.testing.assert_allclose(
+                getattr(physical.plasma, name)[index],
+                getattr(expected.plasma, name),
+                rtol=1e-12,
+                atol=1e-12,
+            )
+        np.testing.assert_array_equal(physical.prev_action[index], expected.prev_action)
 
 
 def test_realistic_and_oracle_use_the_same_physical_reset_perturbation() -> None:
