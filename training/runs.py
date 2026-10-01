@@ -18,6 +18,7 @@ from plasmax import make
 from plasmax.wrappers import OracleWrappers, RealisticWrappers
 from training.evaluation import (
     check_interfaces,
+    evaluate_policy,
     evaluate_returns,
     transfer_metrics,
     write_transfer_summary,
@@ -238,20 +239,18 @@ def run_native(agent: Any, config: Any, run_name: str) -> None:
         ) -> dict:
             del rng
             act = current.make_act(state, deterministic=config.env.deterministic_eval)
-            lengths, returns = evaluate_returns(
+            evaluation, _ = evaluate_policy(
                 act,
                 current.env,
                 jax.random.key(config.env.eval_seed),
                 num_episodes=config.env.eval_n_envs,
             )
             metrics = {
-                "evaluation/return_mean": returns.mean(),
-                "evaluation/return_std": returns.std(),
-                "evaluation/return_min": returns.min(),
-                "evaluation/return_max": returns.max(),
-                "evaluation/episode_length_mean": lengths.mean(),
-                **(diagnostics or {}),
+                name: value
+                for name, value in evaluation.items()
+                if name not in ("returns", "lengths") and not name.startswith("eval/")
             }
+            metrics.update(diagnostics or {})
             jax.debug.callback(logger.log, state.global_step, index, metrics)
             return metrics
 

@@ -142,7 +142,9 @@ def _build_algo(cfg: Config, env: EnvelopeGymnax) -> SACAdapter:
         fill_buffer=cfg.sac.fill_buffer,
         batch_size=cfg.sac.batch_size,
         hidden_layer_sizes=cfg.sac.hidden_sizes,
-        agent_kwargs={"activation": cfg.sac.activation},
+        agent_kwargs={
+            "activation": cfg.sac.activation,
+        },
         polyak=cfg.sac.polyak,
         target_update_freq=cfg.sac.target_update_freq,
         max_grad_norm=cfg.sac.max_grad_norm,

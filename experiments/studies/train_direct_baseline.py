@@ -79,7 +79,6 @@ def main(cfg: Config) -> None:
         remat=cfg.direct.remat,
         eval_n_envs=cfg.env.eval_n_envs,
         eval_seed=cfg.env.eval_seed,
-        init_seed=cfg.seed,
     )
     if is_policy:
         agent = BackpropPolicyAgent.create(

@@ -15,11 +15,13 @@ from agents.backprop import (
     BackpropPolicyAgent,
     make_policy_chunk,
     open_loop_action,
+    policy_action,
 )
 from agents.direct_gradient import (
     apply_policy_optimizer_update,
     finite_mean_gradients,
     make_knot_chunk,
+    make_parameterization,
 )
 from plasmax.spaces import ObsLayout
 
@@ -93,7 +95,6 @@ def _agent(kind="policy", **kwargs):
         num_rollouts=2,
         gradient_horizon=2,
         eval_n_envs=2,
-        action_setpoint=jnp.zeros(1, jnp.float32),
         remat=False,
     )
     args.update(kwargs)
@@ -107,6 +108,100 @@ def _agent(kind="policy", **kwargs):
 def _assert_trees_close(actual, expected):
     for a, b in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):
         np.testing.assert_allclose(a, b, rtol=2e-5, atol=1e-6, equal_nan=True)
+
+
+@pytest.mark.parametrize("kind", ["policy", "open_loop"])
+def test_controller_initialization_is_independent_of_reset_defaults(kind: str) -> None:
+    class ResetState(NamedTuple):
+        prev_action: jax.Array
+
+    class ResetDefaultsEnv(_Environment):
+        def __init__(self, initial_action: float) -> None:
+            super().__init__()
+            self.initial_action = initial_action
+            self.reset_calls = 0
+
+        @property
+        def unwrapped(self) -> "ResetDefaultsEnv":
+            return self
+
+        def init(self, rng: jax.Array) -> tuple[ResetState, _Info]:
+            self.reset_calls += 1
+            _, info = super().init(rng)
+            return ResetState(jnp.asarray([self.initial_action], jnp.float32)), info
+
+    envs = [ResetDefaultsEnv(value) for value in (-1.0, 0.8)]
+    agents = [_agent(kind, env=env) for env in envs]
+    key = jax.random.key(3)
+    states = [agent.init_state(key) for agent in agents]
+    _assert_trees_close(states[0].params, states[1].params)
+    assert [env.reset_calls for env in envs] == [0, 0]
+    for agent, state in zip(agents, states, strict=True):
+        act = agent.make_act(state)
+        for obs in (jnp.zeros(2, jnp.float32), jnp.asarray([0.5, 1.5], jnp.float32)):
+            np.testing.assert_array_equal(act(obs, key), jnp.zeros(1, jnp.float32))
+    if kind == "open_loop":
+        np.testing.assert_array_equal(states[0].params, np.zeros((2, 1), np.float32))
+        assert states[0].params.dtype == jnp.float32
+
+
+def test_compiled_policy_chunk_keeps_float32_action_boundary_for_float64_obs() -> None:
+    class Float64Observations(_Environment):
+        def info(self, state: _State, reward: jax.Array) -> _Info:
+            info = super().info(state, reward)
+            return info.update(obs=info.obs.astype(jnp.float64))
+
+    with jax.enable_x64():
+        env = Float64Observations(terminal_at=1)
+        env.action_space = Continuous(
+            low=jnp.asarray([-1.0], jnp.float64),
+            high=jnp.asarray([1.0], jnp.float64),
+        )
+        agent = _agent(env=env)
+        key = jax.random.key(2)
+        state = agent.init_state(key)
+        carry = agent.chunk.initialize(key)
+        reward, (next_carry, trajectory) = jax.jit(agent.chunk.run)(state.params, carry)
+    assert next_carry.obs.dtype == jnp.float64
+    assert reward.dtype == jnp.float32
+    assert trajectory.action.dtype == jnp.float32
+    np.testing.assert_array_equal(trajectory.alive, [True, False])
+    np.testing.assert_array_equal(trajectory.action, np.zeros((2, 1), np.float32))
+
+
+def test_absolute_policy_has_unit_initial_sensitivity_and_bounded_actions() -> None:
+    agent = _agent()
+    state = agent.init_state(jax.random.key(3))
+    obs = jnp.asarray([0.5, 1.5], jnp.float32)
+
+    def action(bias: jax.Array) -> jax.Array:
+        params = {
+            **state.params,
+            "action_mean": {**state.params["action_mean"], "bias": bias},
+        }
+        return policy_action(agent.policy, params, obs)
+
+    derivative = jax.jacrev(action)(jnp.zeros(1, jnp.float32))
+    np.testing.assert_allclose(derivative, [[1.0]], rtol=1e-6, atol=0)
+    for bias in (-1e6, 1e6):
+        value = action(jnp.asarray([bias], jnp.float32))
+        assert np.all(np.isfinite(value))
+        assert np.all(value >= -1.0) and np.all(value <= 1.0)
+
+
+def test_benchmark_knots_start_at_zero_without_environment_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_reset(self: _Environment, rng: jax.Array) -> None:
+        raise AssertionError("knot initialization must not reset the environment")
+
+    monkeypatch.setattr(_Environment, "init", unexpected_reset)
+    to_actions, params, _ = make_parameterization(_Environment(), 4, n_knots=2)
+    np.testing.assert_array_equal(params, np.zeros((2, 1), np.float32))
+    assert params.dtype == jnp.float32
+    np.testing.assert_array_equal(to_actions(params), np.zeros((4, 1), np.float32))
+    derivative = jax.grad(lambda theta: to_actions(theta).sum())(params)
+    np.testing.assert_allclose(derivative, [[2.0], [2.0]], rtol=1e-6, atol=0)
 
 
 @pytest.mark.parametrize("kind", ["policy", "open_loop"])
@@ -152,9 +247,7 @@ def test_policy_update_matches_existing_single_rollout_gradient_then_adam():
     initial = agent.init_state(key)
     pass_key = jax.random.fold_in(key, 0)
     keys = jax.vmap(lambda i: jax.random.fold_in(pass_key, i))(jnp.arange(2))
-    chunk = make_policy_chunk(
-        agent.env, agent.policy, agent.action_setpoint, 2, remat=False
-    )
+    chunk = make_policy_chunk(agent.env, agent.policy, 2, remat=False)
     carries = jax.vmap(chunk.initialize)(keys)
     per_rollout = jax.vmap(
         jax.grad(lambda params, carry: -chunk.run(params, carry)[0]), in_axes=(None, 0)
@@ -184,13 +277,15 @@ def test_policy_chunk_keeps_state_to_action_feedback_gradient():
             state = state._replace(x=state.x + action[0], step=state.step + 1)
             return state, self.info(state, state.x)
 
-    chunk = make_policy_chunk(
-        Accumulator(), LinearPolicy(), jnp.zeros(1, jnp.float32), 2, remat=False
-    )
+    chunk = make_policy_chunk(Accumulator(), LinearPolicy(), 2, remat=False)
     carry = chunk.initialize(jax.random.key(0))
     grad = jax.grad(lambda p: chunk.run(p, carry)[0])(jnp.asarray([0.5], jnp.float32))
-    # x1=.25(1+p), x2=.25(1+p)^2 => derivative=.25+.5(1+p).
-    np.testing.assert_allclose(grad, [1.0], rtol=1e-6, atol=0)
+    # x1=x0+tanh(p*x0), x2=x1+tanh(p*x1); differentiate both rewards.
+    x0, p = 0.25, 0.5
+    x1 = x0 + np.tanh(p * x0)
+    dx1 = x0 * (1 - np.tanh(p * x0) ** 2)
+    expected = 2 * dx1 + (1 - np.tanh(p * x1) ** 2) * (x1 + p * dx1)
+    np.testing.assert_allclose(grad, [expected], rtol=1e-6, atol=0)
 
 
 @pytest.mark.parametrize("kind", ["policy", "open_loop"])

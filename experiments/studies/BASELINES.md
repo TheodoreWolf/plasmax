@@ -55,9 +55,12 @@ off by default: Rejax 0.1.2's RMS count widens to float64 after TORAX enables
 x64, which violates the JAX scan-carry contract. The repository does not patch
 or copy Rejax internals.
 
-The direct policy uses a deterministic 64x64 residual MLP and 64 parallel
-trajectories. It differentiates windows near 32 steps (the largest divisor of
-the episode length no greater than 32), carries simulator state between windows,
+The direct policy uses a deterministic 64x64 MLP with absolute normalized
+actions, a zero-initialized output head, and `tanh` action bounding. It starts
+at the action-range midpoint independently of the environment's reset actuator
+defaults and uses 64 parallel trajectories. It differentiates windows near 32
+steps (the largest divisor of the episode length no greater than 32), carries
+simulator state between windows,
 and cuts gradients at window boundaries. Adam uses learning rate 1e-6 and
 betas `(0.7, 0.95)`; ten-seed SPARC pilots found non-finite follow-up gradients
 at both SHAC's 0.002 setting and 5e-4, while 1e-6 remained finite at every
@@ -65,8 +68,10 @@ checkpoint. Non-finite updates are skipped rather than silently zeroing
 individual gradient entries. This is a direct truncated-BPTT baseline, not SHAC: it does
 not add SHAC's learned terminal critic.
 
-Direct knot schedules use the same 64 parallel trajectories and truncated-BPTT
-windows as the direct policy, with physical simulator state carried between
+Direct knot schedules initialize unconstrained knots to zero, giving midpoint
+actions without reading reset actuator defaults. They use the same 64 parallel
+trajectories and truncated-BPTT windows as the direct policy, with physical
+simulator state carried between
 windows and gradients cut at each boundary. Adam uses learning rate 0.05. All
 direct methods retain the best fixed-evaluation checkpoint because
 differentiable control can cross a hard disruption or actuator-saturation cliff

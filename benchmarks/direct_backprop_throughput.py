@@ -104,10 +104,8 @@ def _make_backward_pass(
     remat: bool,
 ) -> BackwardPass:
     """Create one compiled forward-plus-backward call for a static grid cell."""
-    parameter_key = jax.random.fold_in(jax.random.key(seed), 0x5E7)
     to_actions, theta, _ = make_parameterization(
         env,
-        parameter_key,
         num_steps,
         n_knots=num_steps,
     )

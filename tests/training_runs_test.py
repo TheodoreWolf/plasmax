@@ -11,9 +11,10 @@ import numpy as np
 import pytest
 from envelope import TruncationWrapper
 from flax import struct
-from helpers import CheapBoundaryEnv
+from helpers import CheapBoundaryEnv, CheapBoundaryState
 
 from agents.backprop import BackpropOpenLoopAgent, BackpropPolicyAgent
+from agents.es import ESAgent
 from agents.mpc import MPCAgent
 from agents.policy_io import LoadedPolicy, environment_interface, load_policy
 from agents.ppo import PPOAdapter
@@ -31,6 +32,40 @@ class NamedEnv(CheapBoundaryEnv):
             (),
             ("P_fusion", "elapsed_time"),
         )
+
+
+class PhysicsBoundaryState(CheapBoundaryState):
+    """Synthetic plasma scalars for testing logging without TORAX compilation."""
+
+    @property
+    def plasma(self) -> SimpleNamespace:
+        value = self.steps.astype(jnp.float32)
+        return SimpleNamespace(
+            **{
+                name: value
+                for name in (
+                    "Q_fusion",
+                    "W_thermal_total",
+                    "P_fusion",
+                    "tau_E",
+                    "H98",
+                    "beta_N",
+                    "q_min",
+                    "q95",
+                    "f_non_inductive",
+                    "fgw_n_e_line_avg",
+                    "fgw_n_e_volume_avg",
+                    "P_SOL_total",
+                )
+            },
+            P_LH=jnp.ones_like(value),
+        )
+
+
+class PhysicsNamedEnv(NamedEnv):
+    def init(self, key: jax.Array) -> tuple[PhysicsBoundaryState, Any]:
+        state, info = super().init(key)
+        return PhysicsBoundaryState(obs=state.obs, steps=state.steps), info
 
 
 def _env():
@@ -95,13 +130,33 @@ def tracking(monkeypatch):
     return records
 
 
-@pytest.mark.parametrize("kind", ["policy", "open_loop", "mpc"])
+@pytest.mark.parametrize(
+    "kind", ["policy", "open_loop", "mpc", "es_policy", "es_open_loop"]
+)
 @pytest.mark.parametrize("num_seeds", [1, 2])
 def test_native_host_runs_compile_log_and_save_each_seed(
     tmp_path, tracking, kind, num_seeds, monkeypatch
 ):
-    env = _env()
-    if kind == "mpc":
+    env = TruncationWrapper(
+        env=PhysicsNamedEnv(obs_dim=2, action_low=(-1.0,), action_high=(1.0,)),
+        max_steps=2,
+    )
+    is_es = kind.startswith("es_")
+    expected_steps = 16 if is_es else 4
+    if is_es:
+        agent = ESAgent.create(
+            env,
+            parameterization=kind.removeprefix("es_"),
+            total_timesteps=19,
+            eval_freq=5,
+            population_size=4,
+            num_rollouts=1,
+            eval_n_envs=1,
+            hidden_sizes=(4,),
+            num_knots=2,
+            source_times=jnp.asarray([0.0, 1.0]),
+        )
+    elif kind == "mpc":
         agent = MPCAgent.create(
             env,
             total_timesteps=4,
@@ -120,7 +175,6 @@ def test_native_host_runs_compile_log_and_save_each_seed(
             gradient_horizon=2,
             num_rollouts=1,
             eval_n_envs=1,
-            action_setpoint=jnp.asarray([0.25]),
         )
         if kind == "policy":
             agent = BackpropPolicyAgent.create(env, hidden_sizes=(4,), **kwargs)
@@ -146,7 +200,7 @@ def test_native_host_runs_compile_log_and_save_each_seed(
     config = RunConfig(
         checkpoint_dir=str(tmp_path),
         env=runs.EnvConfig(eval_n_envs=1),
-        algorithm=kind,
+        algorithm="es" if is_es else kind,
         num_seeds=num_seeds,
     )
     runs.run_native(agent, config, "cheap")
@@ -161,16 +215,30 @@ def test_native_host_runs_compile_log_and_save_each_seed(
     assert logger.kwargs["mode"] == "online"
     assert {index for _, index, _ in logger.logs} == set(range(num_seeds))
     assert logger.kwargs["seed_ids"] == tuple(range(3, 3 + num_seeds))
-    assert logger.summary["run/actual_train_steps"] == 4
+    assert logger.summary["run/actual_train_steps"] == expected_steps
+    for _, _, metrics in logger.logs:
+        np.testing.assert_array_equal(metrics["obs/beta_N"], 2.0)
+        np.testing.assert_array_equal(metrics["termination/completion_rate"], 1.0)
+        assert "returns" not in metrics
+        assert "lengths" not in metrics
+        assert all(not name.startswith("eval/") for name in metrics)
+    if is_es:
+        assert {step for step, _, _ in logger.logs} == {0, 8, 16}
+        initial_keys = tuple(logger.logs[0][2])
+        assert all(tuple(metrics) == initial_keys for _, _, metrics in logger.logs)
     paths = sorted(tmp_path.glob("*.msgpack"))
     assert len(paths) == num_seeds
     for seed, path in zip(range(3, 3 + num_seeds), paths, strict=True):
         assert path.name == f"cheap-seed{seed}.msgpack"
         policy = load_policy(path)
         assert policy.metadata["seed"] == seed
-        assert policy.metadata["actual_timesteps"] == 4
+        assert policy.metadata["actual_timesteps"] == expected_steps
         assert policy.metadata["config"]["env"]["eval_n_envs"] == 1
         assert len(policy.results["global_step"]) >= 2
+        if is_es:
+            assert policy.algorithm == "es"
+            assert policy.inference["parameterization"] == kind.removeprefix("es_")
+            np.testing.assert_array_equal(policy.results["global_step"], [0, 8, 16])
     assert len(logger.artifacts[0].files) == num_seeds
 
 

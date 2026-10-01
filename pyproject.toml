@@ -33,6 +33,7 @@ dependencies = [
 [dependency-groups]
 research = [
     "rejax",
+    "evosax>=0.2.0",
     "gymnax",
     "flax",
     "optax",
@@ -44,6 +45,7 @@ research = [
     "pillow",
     "pypdfium2",
     "ruamel.yaml",
+    "scikit-learn>=1.5",
 ]
 dev = [
     { include-group = "research" },

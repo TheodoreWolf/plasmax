@@ -14,7 +14,7 @@ uv run pytest
 # Unit and fast regression tests only.
 uv run pytest -m "not integration" tests/
 
-# Clone-only publication, plotting, transfer, and study tests.
+# Clone-only transfer and study tests.
 uv run pytest experiments/tests/
 
 # Slow specialised integration checks, including the TGLFNN canary.
@@ -49,8 +49,11 @@ The dedicated environment trajectory workflow owns the complete
 environment/backend/variant matrix. It divides that benchmark into seven
 parallel groups; pytest does not repeat this matrix.
 
-Publication, plotting, transfer, and study-matrix tests live beside their code
-under `experiments/tests/`; they are repository tests, not package contents.
+Transfer and study-matrix tests live beside their code under `experiments/tests/`;
+they are repository tests, not package contents. Live W&B metric and chart tests
+are tracked under `tests/`. Standalone plotting tests live in ignored
+`plotting/tests/` and run only when that local workspace is available; historical
+tests under its `_archive/` subdirectory are excluded from collection.
 
 ## Environment trajectory benchmark
 
@@ -142,7 +145,8 @@ Every leaf task YAML must specify `task.reward`.
 Tests cover:
 
 - the phase-appropriate reward for every leaf task;
-- KSTAR's unchanged native reward;
+- KSTAR's native reward values and finite gradients at the target, with the
+  squared-error floor applied before the square root;
 - loader inheritance when reward is omitted;
 - string and callable reward overrides;
 - stable built-in squareplus for ordinary transitions and its logarithm for
@@ -168,9 +172,10 @@ flat-top and its hot ramp-down must remain distinct.
 
 Snapshot reconstruction checks preserve profiles, confinement mode, smoothed
 energy derivatives, and destination-owned time, geometry, and transport state.
-KSTAR checks its rounded reset/first-step values, unchanged model-forward parity,
-seeded target sampling, and JIT/vmap/scan contracts. Focused initialization
-integration checks run with:
+KSTAR checks its rounded reset and continuous-action first-step values, unchanged
+model-forward parity, NeoRL2 rollout parity at matching physical actuators,
+seeded target sampling, and JIT/vmap/scan and action-gradient contracts. Focused
+initialization integration checks run with:
 
 ```bash
 uv run pytest tests/phase_initialization_test.py -m integration

@@ -13,9 +13,10 @@ from flax import serialization
 from helpers import CheapBoundaryEnv
 
 from agents.backprop import BackpropOpenLoopAgent, BackpropPolicyAgent
+from agents.es import ESAgent
 from agents.mpc import MPCAgent
 from agents.policy_io import load_policy, save_policy
-from agents.ppo import PPOAdapter, ResidualGaussianPolicy
+from agents.ppo import PPOAdapter
 from agents.sac import SACAdapter
 from plasmax import make, rewards
 from plasmax.spaces import ObsLayout
@@ -77,17 +78,6 @@ def _rejax_agent(algorithm: str, action_kind: str):
             num_minibatches=1,
             agent_kwargs={"hidden_layer_sizes": (4,), "activation": "tanh"},
         )
-        if action_kind == "residual":
-            agent = agent.replace(
-                actor=ResidualGaussianPolicy(
-                    action_dim=1,
-                    action_range=(-2.0, 3.0),
-                    action_setpoint=(0.7,),
-                    hidden_layer_sizes=(4,),
-                    activation=nn.tanh,
-                    initial_log_std=-0.7,
-                )
-            )
     else:
         agent = SACAdapter.create(
             **common,
@@ -109,7 +99,6 @@ def _rejax_agent(algorithm: str, action_kind: str):
     "algorithm,action_kind",
     [
         ("ppo", "continuous"),
-        ("ppo", "residual"),
         ("ppo", "discrete"),
         ("ppo", "multidiscrete"),
         ("sac", "continuous"),
@@ -151,6 +140,7 @@ def test_rejax_roundtrip_matches_actual_actor_and_normalization(
     assert loaded.inference["model"]["hidden_layer_sizes"] == [4]
     assert algorithm in loaded.summary()
     payload = serialization.msgpack_restore(path.read_bytes())
+    assert payload["format_version"] == 2
     assert set(payload["inference"]) == {"model", "params", "observation_rms"}
     if not deterministic:
         np.testing.assert_allclose(
@@ -184,6 +174,20 @@ def test_rejects_failed_state_and_unknown_format(tmp_path):
         load_policy(invalid)
 
 
+@pytest.mark.parametrize(
+    "algorithm", ["ppo", "sac", "backprop_policy", "backprop_open_loop", "es", "mpc"]
+)
+def test_rejects_version_one_artifacts_for_every_algorithm(
+    tmp_path: Path, algorithm: str
+) -> None:
+    path = tmp_path / "version-one.msgpack"
+    path.write_bytes(
+        serialization.msgpack_serialize({"format_version": 1, "algorithm": algorithm})
+    )
+    with pytest.raises(ValueError, match="expected version 2.*code revision"):
+        load_policy(path)
+
+
 def test_effective_task_settings_are_distinct_from_configured_defaults(tmp_path):
     env = TruncationWrapper(
         env=ConfiguredEnv(
@@ -199,7 +203,6 @@ def test_effective_task_settings_are_distinct_from_configured_defaults(tmp_path)
         num_rollouts=1,
         gradient_horizon=2,
         hidden_sizes=(4,),
-        action_setpoint=jnp.asarray([0.25]),
     )
     path = save_policy(
         agent, agent.init_state(jax.random.key(0)), tmp_path / "overrides.msgpack"
@@ -211,7 +214,10 @@ def test_effective_task_settings_are_distinct_from_configured_defaults(tmp_path)
 
 
 @pytest.mark.parametrize("kind", ["policy", "open_loop"])
-def test_backprop_roundtrip_preserves_parameters_and_source_clock(tmp_path, kind):
+@pytest.mark.parametrize("algorithm", ["backprop", "es"])
+def test_native_controller_roundtrip_preserves_parameters_and_source_clock(
+    tmp_path, monkeypatch, kind, algorithm
+):
     env = TruncationWrapper(
         env=ObsHistoryWrapper(
             env=NamedObservationEnv(obs_dim=2, action_low=(-1.0,), action_high=(1.0,)),
@@ -224,9 +230,20 @@ def test_backprop_roundtrip_preserves_parameters_and_source_clock(tmp_path, kind
         eval_freq=4,
         num_rollouts=1,
         gradient_horizon=2,
-        action_setpoint=jnp.asarray([0.25]),
     )
-    if kind == "policy":
+    if algorithm == "es":
+        kwargs.pop("gradient_horizon")
+        kwargs["total_timesteps"] = 16
+        agent = ESAgent.create(
+            env,
+            parameterization=kind,
+            population_size=4,
+            hidden_sizes=(4,),
+            num_knots=2,
+            source_times=jnp.asarray([0.0, 0.2, 0.7, 1.0]),
+            **kwargs,
+        )
+    elif kind == "policy":
         agent = BackpropPolicyAgent.create(env, hidden_sizes=(4,), **kwargs)
     else:
         agent = BackpropOpenLoopAgent.create(
@@ -238,8 +255,43 @@ def test_backprop_roundtrip_preserves_parameters_and_source_clock(tmp_path, kind
     state = agent.init_state(jax.random.key(4))
     if kind == "open_loop":
         state = state.replace(params=jnp.asarray([[-0.8], [0.9]]))
-    path = save_policy(agent, state, tmp_path / f"{kind}.msgpack")
+    else:
+        state = state.replace(
+            params={
+                **state.params,
+                "action_mean": {
+                    **state.params["action_mean"],
+                    "bias": jnp.asarray([1.5], jnp.float32),
+                },
+            }
+        )
+    path = save_policy(
+        agent,
+        state,
+        tmp_path / f"{algorithm}-{kind}.msgpack",
+        deterministic=False if algorithm == "es" else None,
+    )
+    expected_act = agent.make_act(state)
+
+    def forbid_init(*args, **kwargs):
+        raise AssertionError("loading must not initialize a model or environment")
+
+    monkeypatch.setattr(nn.Module, "init", forbid_init)
+    monkeypatch.setattr(CheapBoundaryEnv, "init", forbid_init)
     loaded = load_policy(path)
+    assert serialization.msgpack_restore(path.read_bytes())["format_version"] == 2
+    assert "action_setpoint" not in loaded.inference
+    assert loaded.algorithm == ("es" if algorithm == "es" else f"backprop_{kind}")
+    assert loaded.deterministic
+    if algorithm == "es":
+        assert loaded.inference["parameterization"] == kind
+        assert "es_state" not in loaded.inference
+    for expected, actual in zip(
+        jax.tree.leaves(state.params),
+        jax.tree.leaves(loaded.inference["params"]),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(actual, expected)
     act = jax.jit(loaded.make_act())
     obs = jnp.zeros(env.observation_space.shape)
     clock = env.obs_layout().slice_of("elapsed_time").start
@@ -248,9 +300,13 @@ def test_backprop_roundtrip_preserves_parameters_and_source_clock(tmp_path, kind
         observation = obs.at[clock].set(time)
         np.testing.assert_allclose(
             act(observation, jax.random.key(1)),
-            agent.make_act(state)(observation, jax.random.key(2)),
+            expected_act(observation, jax.random.key(2)),
             rtol=1e-6,
             atol=1e-6,
+        )
+    if kind == "policy":
+        np.testing.assert_allclose(
+            act(obs, jax.random.key(0)), [np.tanh(1.5)], rtol=1e-6, atol=1e-6
         )
     if kind == "open_loop":
         np.testing.assert_allclose(

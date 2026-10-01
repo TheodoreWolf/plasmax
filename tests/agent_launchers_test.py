@@ -66,7 +66,6 @@ def test_backprop_launcher_passes_supported_constructor_options_and_clock_metada
     created = calls.created[0]
     _, effective, name = calls.runs[0]
     assert created.options["learning_rate"] == rate
-    assert created.options["init_seed"] == 37
     assert created.options["total_timesteps"] == 80
     assert created.options["eval_freq"] == 12
     assert created.options["num_rollouts"] == 4
@@ -122,7 +121,6 @@ def test_direct_study_keeps_labels_and_budget_while_using_new_agents(
     agent, effective, name = calls.runs[0]
     assert agent.options["num_rollouts"] == 64
     assert agent.options["total_timesteps"] == 640
-    assert agent.options["init_seed"] == 12
     assert effective.algorithm == algorithm
     assert effective.study == "selected"
     assert algorithm in name
@@ -204,7 +202,6 @@ def _policy_paths(tmp_path):
         num_rollouts=1,
         gradient_horizon=2,
         hidden_sizes=(2,),
-        action_setpoint=jnp.zeros(1),
     )
     state = agent.init_state(jax.random.key(1))
     paths = tuple(
