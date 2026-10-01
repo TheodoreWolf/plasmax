@@ -8,7 +8,14 @@ from envelope import Continuous, Environment, Info, VmapWrapper
 
 from plasmax.environment.config import parse_env_and_backend
 from plasmax.models.world_model import load_bundle
-from plasmax.models.world_model_env import WorldModelEnv, target_tracking_reward
+from plasmax.models.world_model_env import (
+    CTRL_IDX,
+    INPUT_MAXS,
+    INPUT_MINS,
+    WorldModelEnv,
+    WorldModelEnvState,
+    target_tracking_reward,
+)
 from plasmax.wrappers import OracleWrappers, RealisticWrappers
 
 # Resets use the authoritative four-significant-figure YAML history.
@@ -32,17 +39,18 @@ _GOLDEN_RESET = np.array(
     ],
     np.float32,
 )
+# Continuous actuator mapping applied to the same packaged reset history.
 _GOLDEN_STEP0 = np.array(
     [
         0.55,
         1.8,
         0.3,
         0.7,
-        1.312,
+        1.3125,
         2.235,
-        1.404393,
-        4.971858,
-        0.869158,
+        1.404872,
+        4.965048,
+        0.867773,
         1.6,
         5.0,
         0.95,
@@ -52,7 +60,7 @@ _GOLDEN_STEP0 = np.array(
     ],
     np.float32,
 )
-_GOLDEN_STEP0_REWARD = -0.08752443
+_GOLDEN_STEP0_REWARD = -0.09960221
 
 
 def _leaf_signature(tree):
@@ -222,6 +230,19 @@ class WorldModelEnvContractTest:
         assert jnp.isfinite(on)
         assert float(on) > float(off)
 
+    @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+    @pytest.mark.parametrize("offset", [0.0, 1e-7])
+    def test_reward_gradient_is_zero_within_target_floor(
+        self, dtype: type[np.floating], offset: float
+    ) -> None:
+        target = jnp.array([1.6, 5.0, 0.95], dtype=dtype)
+        prediction = target.at[0].add(offset)
+        value, gradient = jax.jit(jax.value_and_grad(target_tracking_reward))(
+            prediction, target
+        )
+        np.testing.assert_allclose(value, -np.log(1e-6), rtol=1e-7, atol=0.0)
+        np.testing.assert_array_equal(gradient, np.zeros(3))
+
 
 class WorldModelTransformContractTest:
     def setup_method(self):
@@ -286,6 +307,37 @@ class WorldModelTransformContractTest:
         _assert_same_pytree_values(manual_states, wrapped_states)
         _assert_same_pytree_values(manual_info, wrapped_info)
         assert not jnp.allclose(manual_states.targets[0], manual_states.targets[1])
+
+    def test_rollout_action_gradients_match_finite_differences(self) -> None:
+        state, _ = self.env.init(jax.random.key(0))
+        actions = jnp.asarray(
+            [[0.1, -0.2, 0.15, -0.1, 0.2, -0.15], [-0.1, 0.15, -0.2, 0.2, -0.15, 0.1]],
+            dtype=jnp.float32,
+        )
+
+        def rollout_return(rollout_actions: jax.Array) -> jax.Array:
+            def transition(
+                carry: WorldModelEnvState, action: jax.Array
+            ) -> tuple[WorldModelEnvState, jax.Array]:
+                next_state, info = self.env.step(carry, action)
+                return next_state, info.reward
+
+            _, rewards = jax.lax.scan(transition, state, rollout_actions)
+            return jnp.sum(rewards)
+
+        gradient = jax.jit(jax.grad(rollout_return))(actions)
+        assert np.all(np.isfinite(gradient))
+        assert np.all(np.any(np.abs(gradient) > 1e-5, axis=0))
+
+        forward = jax.jit(rollout_return)
+        epsilon = 2e-3
+        differences = np.empty(actions.shape, dtype=np.float32)
+        for index in np.ndindex(actions.shape):
+            offset = jnp.zeros_like(actions).at[index].set(epsilon)
+            differences[index] = (
+                forward(actions + offset) - forward(actions - offset)
+            ) / (2 * epsilon)
+        np.testing.assert_allclose(gradient, differences, rtol=1e-2, atol=1e-3)
 
 
 class KstarLoaderTest:
@@ -415,7 +467,7 @@ def _neorl2_fusion_env():
 
 @pytest.mark.integration
 class WorldModelEnvNeoRL2ParityTest:
-    """Bit-faithful parity vs NeoRL2 with Envelope lifecycle plumbing."""
+    """NeoRL2 learned-dynamics parity at matching physical actuator values."""
 
     def setup_class(self):
         FusionEnv = _neorl2_fusion_env()
@@ -424,15 +476,19 @@ class WorldModelEnvNeoRL2ParityTest:
         self.ref = FusionEnv(random_target=False, max_episode_steps=100)
         self.env = WorldModelEnv(random_target=False)
 
-    def test_reset_and_rollout_match(self):
+    def test_reset_and_rollout_match_at_reference_actuator_values(self):
         ref_obs, _ = self.ref.reset(seed=0)
         state, info = self.env.init(jax.random.key(0))
         np.testing.assert_allclose(np.asarray(info.obs), ref_obs, rtol=1e-4, atol=1e-4)
 
         actions = np.random.default_rng(123).uniform(-1, 1, (20, 6)).astype(np.float32)
+        low, high = INPUT_MINS[CTRL_IDX], INPUT_MAXS[CTRL_IDX]
         for action in actions:
             ref_obs, ref_reward, *_ = self.ref.step(action)
-            state, info = self.env.step(state, jnp.asarray(action))
+            # NeoRL2 quantizes actuators; match its realized physical controls
+            # while the plasmax action mapping remains continuous.
+            realized_action = 2.0 * (np.asarray(ref_obs[:6]) - low) / (high - low) - 1.0
+            state, info = self.env.step(state, jnp.asarray(realized_action))
             np.testing.assert_allclose(
                 np.asarray(info.obs), ref_obs, rtol=1e-3, atol=1e-3
             )

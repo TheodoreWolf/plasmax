@@ -2,10 +2,11 @@
 
 Contract-level smoke (construct, reset, step, time advance, finite obs) lives
 in :mod:`tests.env_smoke_test`. This file owns the immutable OpenSTEP asset,
-reset physics, source projections, upstream-locked transport, actuator, and reward
+nominal physics, source projections, upstream-locked transport, actuator, and reward
 regressions for the STEP scenario.
 
-Initial profiles and composition are the rounded OpenSTEP values saved in YAML.
+Nominal profiles and composition are the rounded OpenSTEP values saved in YAML;
+episode resets apply the configured state noise to that reference.
 Equilibrium is loaded from the packaged OpenSTEP IMAS data file (~1.3 MB).
 """
 
@@ -53,7 +54,8 @@ class StepEnvOracleTest:
     def setup_class(cls):
         cls._env = OracleWrappers(make(_ENV, _BACKEND))
         cls._base_env = cls._env.unwrapped
-        cls._reset_state, _ = cls._base_env.init(jax.random.key(0))
+        # Reference parity checks inspect the nominal snapshot before reset noise.
+        cls._nominal_state = cls._base_env._dynamics._initial_env_state
 
     def test_action_space_has_three_actuators(self):
         assert self._base_env.action_space.shape == (3,)
@@ -75,8 +77,8 @@ class StepEnvOracleTest:
         assert n_rho == 25
         assert obs_size == 5 * 25 + 9
 
-    def test_reset_profiles_and_composition_match_openstep(self):
-        sim = self._reset_state.plasma.sim
+    def test_nominal_profiles_and_composition_match_openstep(self):
+        sim = self._nominal_state.plasma.sim
         core_profiles = sim.core_profiles
         rho = np.asarray(sim.geometry.torax_mesh.cell_centers)
 
@@ -107,7 +109,7 @@ class StepEnvOracleTest:
                 expected,
                 rtol=1.0e-12,
                 atol=1.0e-12,
-                err_msg=f"{name} reset differs from the rounded OpenSTEP slice",
+                err_msg=f"{name} nominal profile differs from rounded OpenSTEP",
             )
 
         np.testing.assert_allclose(
@@ -121,10 +123,10 @@ class StepEnvOracleTest:
                 f"{species} has a negative impurity fraction"
             )
 
-    def test_reset_equilibrium_and_global_quantities(self):
-        sim = self._reset_state.plasma.sim
+    def test_nominal_equilibrium_and_global_quantities(self):
+        sim = self._nominal_state.plasma.sim
         geometry = sim.geometry
-        post = self._reset_state.plasma.post
+        post = self._nominal_state.plasma.post
 
         with h5py.File(_OPENSTEP_PATH) as data:
             equilibrium = data["equilibrium/0"]
@@ -221,7 +223,7 @@ class StepEnvOracleTest:
         assert composition.impurity_species["Ar"] is None
 
     def test_integrated_sources_and_current_balance(self):
-        post = self._reset_state.plasma.post
+        post = self._nominal_state.plasma.post
 
         with h5py.File(_OPENSTEP_PATH) as data:
             names = [
@@ -280,7 +282,7 @@ class StepEnvOracleTest:
         )
 
     def test_simplified_source_deposition_moments(self):
-        sim = self._reset_state.plasma.sim
+        sim = self._nominal_state.plasma.sim
         geometry = sim.geometry
         rho = np.asarray(geometry.torax_mesh.cell_centers)
 

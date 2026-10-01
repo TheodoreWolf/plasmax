@@ -8,9 +8,10 @@ lifecycle and property-based spaces, so the same wrapper stack can drive them.
 Episode horizons are deliberately supplied by an outer truncation wrapper.
 
 The task: hold three plasma scalars (βp, q95, li) at sampled targets by steering
-6 engineering actuators (Ip + plasma shape). A faithful port of NeoRL2's
-``FusionEnv`` reset/step/_predict0d, minus the h89/h98/wmhd diagnostics (which
-feed neither the observation nor the reward).
+6 engineering actuators (Ip + plasma shape). Adapted from NeoRL2's
+``FusionEnv`` reset/step/_predict0d with continuous actuator inputs for
+backpropagation, minus the h89/h98/wmhd diagnostics (which feed neither the
+observation nor the reward).
 
 Observation (15): ``[Ip, Elon, Up.Tri, Lo.Tri, In.Mid, Out.Mid, βp, q95, li,
 βp*, q95*, li*, Pnb1a, Pnb1b, Pnb1c]`` (``*`` = target). Action (6) in
@@ -43,9 +44,6 @@ from plasmax.models.world_model import (
 from plasmax.spaces import ObsLayout
 
 # --- constants (verbatim from NeoRL2 neorl2/envs/fusion.py) -----------------
-# float64 on purpose: these feed the slider quantization (_quantize), which must
-# see the true decimal (e.g. 1.8, not float32's 1.79999995) to match NeoRL2's
-# Python-float ``f2i``/``i2f`` round-trip exactly.
 INPUT_MINS = np.array(
     [0.3, 1.5, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, -10, -10, 1.265, 2.18, 1.6, 0.1, 0.5]
 )
@@ -60,7 +58,6 @@ BPW_IN_IDX = np.array([0, 1, 10, 11, 12, 13, 14])  # after the βn slot
 
 INTERVAL = 20
 YEAR_IN = 2021.0
-_SCALE = 10.0 ** np.log10(1000.0)  # slider int<->float quantization
 REWARD_SCALE = np.array([0.2, 0.5, 0.05], np.float32)
 
 OBS_NAMES = (
@@ -130,7 +127,7 @@ class WorldModelEnvState:
     Attributes:
       x: ``(10, 21)`` LSTM history buffer (cols 0-3 = denormalised [βn,q95,q0,li]
         outputs, cols 4-20 = transformed input features incl. a fixed year).
-      inputs: ``(15,)`` current actuator/engineering values (physical, quantized).
+      inputs: ``(15,)`` current actuator/engineering values (physical, continuous).
       targets: ``(3,)`` per-episode [βp, q95, li] setpoints.
       t: scalar step counter.
       prev_action: last action (``(6,)``), for rate-limit-style wrappers.
@@ -141,15 +138,6 @@ class WorldModelEnvState:
     targets: jax.Array
     t: jax.Array
     prev_action: jax.Array
-
-
-def _quantize(v: jax.Array) -> jax.Array:
-    """Replicate NeoRL2's slider round-trip ``i2f(f2i(v))`` (truncate to ~3 dp).
-
-    Done in float64 because NeoRL2's scale is ``10**log10(1000) = 999.999…``
-    (not exactly 1000); float32 would collapse it to 1000 and shift values.
-    """
-    return (jnp.trunc(v.astype(jnp.float64) * _SCALE) / _SCALE).astype(jnp.float32)
 
 
 def _lstm_features(inputs: jax.Array) -> jax.Array:
@@ -176,8 +164,9 @@ def _bpw_features(beta_n: jax.Array, inputs: jax.Array) -> jax.Array:
 def target_tracking_reward(pred: jax.Array, targets: jax.Array) -> jax.Array:
     """``-log(RMS((pred - target)/scale))`` over [βp, q95, li] (NeoRL2 reward)."""
     err = (pred - targets) / REWARD_SCALE
-    rms = jnp.sqrt(jnp.mean(err**2))
-    return -jnp.log(jnp.maximum(rms, 1e-6))
+    # Floor before sqrt so exact target matches also have finite derivatives.
+    rms = jnp.sqrt(jnp.maximum(jnp.mean(err**2), 1e-12))
+    return -jnp.log(rms)
 
 
 def _validate_typed_key(key: jax.Array) -> None:
@@ -312,7 +301,8 @@ class _WorldModelDynamics:
         a01 = (action + 1.0) / 2.0
         lo = jnp.asarray(INPUT_MINS)[CTRL_IDX]
         hi = jnp.asarray(INPUT_MAXS)[CTRL_IDX]
-        inputs = env_state.inputs.at[CTRL_IDX].set(_quantize((hi - lo) * a01 + lo))
+        controls = ((hi - lo) * a01 + lo).astype(jnp.float32)
+        inputs = env_state.inputs.at[CTRL_IDX].set(controls)
 
         feat = _lstm_features(inputs)  # constant over the relaxation phase
 
