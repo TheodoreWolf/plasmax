@@ -119,7 +119,6 @@ def test_shared_physics_scalars_use_final_valid_states_under_jit_and_vmap():
                     "tau_E",
                     "H98",
                     "beta_N",
-                    "q_min",
                     "q95",
                     "f_non_inductive",
                     "fgw_n_e_line_avg",
@@ -128,6 +127,7 @@ def test_shared_physics_scalars_use_final_valid_states_under_jit_and_vmap():
                 )
             },
             P_LH=jnp.ones_like(beta_values),
+            core=SimpleNamespace(q_face=beta_values[..., None]),
         )
         traj = SimpleNamespace(
             env_state=SimpleNamespace(plasma=plasma),

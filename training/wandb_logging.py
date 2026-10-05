@@ -280,7 +280,9 @@ def _physics_scalar_metrics(traj, episode_returns, episode_lengths, train_metric
         "obs/tau_E_s": _last_valid(plasma.tau_E, traj.valid).mean(),
         "obs/H98": _last_valid(plasma.H98, traj.valid).mean(),
         "obs/beta_N": _last_valid(plasma.beta_N, traj.valid).mean(),
-        "obs/q_min": _last_valid(plasma.q_min, traj.valid).mean(),
+        "obs/q_min": _last_valid(
+            jnp.min(plasma.core.q_face, axis=-1), traj.valid
+        ).mean(),
         "obs/q95": _last_valid(plasma.q95, traj.valid).mean(),
         "obs/f_non_inductive": _last_valid(plasma.f_non_inductive, traj.valid).mean(),
         "obs/fgw_n_e_line_avg": _last_valid(plasma.fgw_n_e_line_avg, traj.valid).mean(),
@@ -582,7 +584,7 @@ def make_training_callback(
                 plasma.Q_fusion,
                 plasma.tau_E,
                 plasma.H98,
-                plasma.q_min,
+                jnp.min(plasma.core.q_face, axis=-1),
                 plasma.q95,
                 plasma.beta_N,
                 plasma.f_non_inductive,
