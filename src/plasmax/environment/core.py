@@ -664,6 +664,7 @@ class _ToraxDynamics:
         """
         cfg = self._disruption_cfg
         fgw = getattr(plasma, cfg.greenwald_field)
+        # TODO: change back once we go to TORAX > 1.4.3
         q_min_disruption = jnp.min(plasma.core.q_face) < cfg.q_min_threshold
         greenwald_exceeded = fgw > cfg.greenwald_threshold
         solver_failure = plasma.sim.solver_numeric_outputs.solver_error_state == 1
