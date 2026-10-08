@@ -127,6 +127,7 @@ def test_shared_physics_scalars_use_final_valid_states_under_jit_and_vmap():
                 )
             },
             P_LH=jnp.ones_like(beta_values),
+            # TODO: change back once we go to TORAX > 1.4.3
             core=SimpleNamespace(q_face=beta_values[..., None]),
         )
         traj = SimpleNamespace(
