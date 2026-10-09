@@ -62,7 +62,8 @@ SCALAR_REGISTRY: Mapping[str, _ExtractFn] = {
     "P_fusion": lambda p: p.P_fusion,
     "t": lambda p: p.t,
     "Ip": lambda p: p.Ip,
-    "q_min": lambda p: p.q_min,
+    # TODO: change back once we go to TORAX > 1.4.3
+    "q_min": lambda p: jnp.min(p.core.q_face),
     "q95": lambda p: p.q95,
     "beta_N": lambda p: p.beta_N,
     "f_non_inductive": lambda p: p.f_non_inductive,

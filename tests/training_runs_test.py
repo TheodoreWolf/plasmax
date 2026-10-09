@@ -50,7 +50,6 @@ class PhysicsBoundaryState(CheapBoundaryState):
                     "tau_E",
                     "H98",
                     "beta_N",
-                    "q_min",
                     "q95",
                     "f_non_inductive",
                     "fgw_n_e_line_avg",
@@ -59,6 +58,8 @@ class PhysicsBoundaryState(CheapBoundaryState):
                 )
             },
             P_LH=jnp.ones_like(value),
+            # TODO: change back once we go to TORAX > 1.4.3
+            core=SimpleNamespace(q_face=value[..., None]),
         )
 
 
