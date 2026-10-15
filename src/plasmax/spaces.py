@@ -62,7 +62,8 @@ SCALAR_REGISTRY: Mapping[str, _ExtractFn] = {
     "P_fusion": lambda p: p.P_fusion,
     "t": lambda p: p.t,
     "Ip": lambda p: p.Ip,
-    # TODO: change back once we go to TORAX > 1.4.3
+    # TODO: Restore TORAX's q_min after upgrading to a release containing
+    # upstream commit e7b4e1145a4e6875c7af32757df5df0c6cc95e14.
     "q_min": lambda p: jnp.min(p.core.q_face),
     "q95": lambda p: p.q95,
     "beta_N": lambda p: p.beta_N,

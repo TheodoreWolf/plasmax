@@ -58,7 +58,8 @@ class PhysicsBoundaryState(CheapBoundaryState):
                 )
             },
             P_LH=jnp.ones_like(value),
-            # TODO: change back once we go to TORAX > 1.4.3
+            # TODO: Restore TORAX's q_min after upgrading to a release containing
+            # upstream commit e7b4e1145a4e6875c7af32757df5df0c6cc95e14.
             core=SimpleNamespace(q_face=value[..., None]),
         )
 
