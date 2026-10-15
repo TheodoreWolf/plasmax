@@ -1,7 +1,7 @@
 TORAX 1.4.3 rollout evaluation — 15 October 2026
 
 **No upgrade-induced behavior change was detected on the tested stack.**
-Branch `codex/torax-1.4.3-rollouts` starts from `8e48dc8`; only the TORAX
+Branch `theo/bump-torax-version` starts from `8e48dc8`; only the TORAX
 lock changes from 1.4.2 to 1.4.3. All other dependency versions are unchanged.
 No environment code or configuration adaptation was needed.
 
