@@ -58,7 +58,7 @@ class PhysicsBoundaryState(CheapBoundaryState):
                 )
             },
             P_LH=jnp.ones_like(value),
-            # TODO: change back once we go to TORAX > 1.4.3
+            # TODO: Use TORAX q_min once it includes e7b4e1145a4e.
             core=SimpleNamespace(q_face=value[..., None]),
         )
 

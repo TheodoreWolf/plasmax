@@ -27,7 +27,7 @@ dependencies = [
     "numpy>2",
     "pydantic>=2",
     "pyyaml",
-    "torax>=1.4.1",
+    "torax>=1.4.1,<=1.4.3",
 ]
 
 [dependency-groups]

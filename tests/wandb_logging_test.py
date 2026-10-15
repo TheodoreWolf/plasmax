@@ -127,7 +127,7 @@ def test_shared_physics_scalars_use_final_valid_states_under_jit_and_vmap():
                 )
             },
             P_LH=jnp.ones_like(beta_values),
-            # TODO: change back once we go to TORAX > 1.4.3
+            # TODO: Use TORAX q_min once it includes e7b4e1145a4e.
             core=SimpleNamespace(q_face=beta_values[..., None]),
         )
         traj = SimpleNamespace(

@@ -1792,7 +1792,7 @@ requires-dist = [
     { name = "numpy", specifier = ">2" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pyyaml" },
-    { name = "torax", specifier = ">=1.4.1" },
+    { name = "torax", specifier = ">=1.4.1,<=1.4.3" },
 ]
 
 [package.metadata.requires-dev]
@@ -2536,7 +2536,7 @@ wheels = [
 
 [[package]]
 name = "torax"
-version = "1.4.2"
+version = "1.4.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "absl-py" },
@@ -2568,9 +2568,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "xarray" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/73/69/45cee29b029f781c5881bd0a7ab2e9318effc45739b83a18b5e78095cd68/torax-1.4.2.tar.gz", hash = "sha256:90d85640a703bd0f0f047d40853d4db0132784a6b16da2fd9d41bb727cd35f48", size = 939618 }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/96/0615960e296a247aa6bf5143c22a25bab9be6a2d881e7689f3458205813d/torax-1.4.3.tar.gz", hash = "sha256:b5d72d6a871615db800190447c8a5e050617540ac8ea1205b02f83d9d70a8470", size = 946998 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/e5/0dc0af55b669bb64d9a658dadb289697185b1e5e84b2c853d113d5c1eae1/torax-1.4.2-py3-none-any.whl", hash = "sha256:d22c59a40aa5a2490008fe0e73aa04b8ab03ee50f55e899d01e96581e82b1506", size = 1169454 },
+    { url = "https://files.pythonhosted.org/packages/bc/0b/cedb8135cdcbca57adbc7213da9164e30d85b54d870bb97b963a313762d8/torax-1.4.3-py3-none-any.whl", hash = "sha256:a6a5619b030438f436a3e23842128f6d5bb641315deab8942b1e4a7915ab3d1d", size = 1180723 },
 ]
 
 [[package]]
