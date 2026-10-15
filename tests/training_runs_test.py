@@ -58,8 +58,7 @@ class PhysicsBoundaryState(CheapBoundaryState):
                 )
             },
             P_LH=jnp.ones_like(value),
-            # TODO: Restore TORAX's q_min after upgrading to a release containing
-            # upstream commit e7b4e1145a4e6875c7af32757df5df0c6cc95e14.
+            # TODO: Use TORAX q_min once it includes e7b4e1145a4e.
             core=SimpleNamespace(q_face=value[..., None]),
         )
 
