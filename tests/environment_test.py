@@ -18,6 +18,7 @@ from helpers import (
 from plasmax.environment import core as core_lib
 from plasmax.environment.core import _derive_safe_max_steps
 from plasmax.environment.schema import DisruptionConfig, PhysicsRandomizationSpec
+from plasmax.rollout import collect_episode
 from plasmax.spaces import ActuatorSpec
 from plasmax.wrappers import (
     NoiseWrapper,
@@ -25,6 +26,7 @@ from plasmax.wrappers import (
     TimeAwareWrapper,
     unwrap_to_env_state,
 )
+from training.evaluation import trajectory_arrays
 
 # Expected observation size: 5 profiles * n_rho + 8 scalars.
 _OBS_SIZE = 5 * N_RHO + 8
@@ -292,13 +294,21 @@ class DisruptionContractTest:
         both = DisruptionConfig(q_min_threshold=1e9, greenwald_threshold=-1e9)
         _stub_torax_step(monkeypatch)
 
-        def nonfinite_obs(_plasma):
-            return jnp.full((_OBS_SIZE,), invalid_value)
+        def nonfinite_obs(plasma):
+            value = jnp.where(plasma.t > 0.0, invalid_value, plasma.t)
+            return jnp.full((_OBS_SIZE,), value)
 
-        _, _, info = self._step_with(both, obs_fn=nonfinite_obs)
+        env = make_test_env(disruption=both, obs_fn=nonfinite_obs)
+        state, init_info = env.init(jax.random.key(0))
+        next_state, info = env.step(state, _ACTION)
+        _assert_same_pytree_values(next_state, state)
+        np.testing.assert_array_equal(info.obs, init_info.obs)
         assert bool(info.terminated)
         assert not bool(info.truncated)
         assert int(info.termination_code) == 4
+        assert int(info.internal_steps) == 1
+        assert bool(info.control_step_complete)
+        assert not bool(info.step_limit_reached)
         np.testing.assert_array_equal(info.reward, 0.0)
 
     @pytest.mark.parametrize("invalid", [False, True])
@@ -319,7 +329,7 @@ class DisruptionContractTest:
 
     @pytest.mark.parametrize("field", ["P_cyclotron_e", "P_SOL_total", "P_LH"])
     @pytest.mark.parametrize("invalid_value", [np.nan, np.inf, -np.inf])
-    def test_nonfinite_derived_output_terminates_with_finite_profiles(
+    def test_nonfinite_derived_output_restores_entire_input_state(
         self, monkeypatch, field, invalid_value
     ):
         _stub_torax_step(monkeypatch, post_updates={field: invalid_value})
@@ -335,21 +345,26 @@ class DisruptionContractTest:
         env = make_test_env(
             disruption=disruption,
             reward_fn=finite_reward,
+            physics_randomization={
+                "numerics.resistivity_multiplier": PhysicsRandomizationSpec(
+                    absolute=(0.5, 1.5)
+                )
+            },
         )
         state, init_info = env.init(jax.random.key(0))
-        next_state, info = env.step(state, _ACTION)
+        requested_action = jnp.asarray([30e6, 5e21], dtype=_ACTION.dtype)
+        next_state, info = env.step(state, requested_action)
 
-        for profile in ("T_e", "T_i", "n_e", "psi"):
-            np.testing.assert_array_equal(
-                getattr(next_state.plasma, profile), getattr(state.plasma, profile)
-            )
-            assert jnp.all(jnp.isfinite(getattr(next_state.plasma, profile)))
+        _assert_same_pytree_values(next_state, state)
+        np.testing.assert_array_equal(info.obs, init_info.obs)
         assert jnp.all(jnp.isfinite(info.obs))
         assert bool(info.terminated)
         assert not bool(info.truncated)
         assert int(info.termination_code) == 4
         assert int(info.internal_steps) == 1
+        assert int(info.sawtooth_crashes) == 0
         assert not bool(info.control_step_complete)
+        assert not bool(info.step_limit_reached)
         np.testing.assert_array_equal(info.reward, 2.0)
         assert jax.tree.structure(info) == jax.tree.structure(init_info)
         assert _leaf_signature(info) == _leaf_signature(init_info)
@@ -385,13 +400,149 @@ class DisruptionContractTest:
         _stub_torax_step(
             monkeypatch, post_updates={disruption.greenwald_field: invalid_value}
         )
-        _, _, info = self._step_with(disruption)
+        env = make_test_env(disruption=disruption)
+        state, init_info = env.init(jax.random.key(0))
+        next_state, info = env.step(state, _ACTION)
 
+        _assert_same_pytree_values(next_state, state)
+        np.testing.assert_array_equal(info.obs, init_info.obs)
         assert jnp.all(jnp.isfinite(info.obs))
         assert bool(info.terminated)
         assert not bool(info.truncated)
         assert int(info.termination_code) == 4
+        assert int(info.internal_steps) == 1
+        assert bool(info.control_step_complete)
         np.testing.assert_array_equal(info.reward, 0.0)
+
+    def test_invalid_custom_reward_receives_restored_state_and_clipped_action(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _stub_torax_step(monkeypatch, post_updates={"P_LH": np.nan})
+
+        def reward_fn(
+            state: core_lib.EnvState,
+            action: jax.Array,
+            next_state: core_lib.EnvState,
+            termination_code: jax.Array,
+        ) -> jax.Array:
+            # Both the restored physical outputs and previous action are observable.
+            restored = (
+                (next_state.plasma.t == state.plasma.t)
+                & (next_state.plasma.P_LH == state.plasma.P_LH)
+                & jnp.all(next_state.prev_action == state.prev_action)
+            )
+            return jnp.where(
+                restored,
+                action[0] * 1e-6 + action[1] * 1e-21 + termination_code,
+                -1.0,
+            )
+
+        env = make_test_env(
+            reward_fn=reward_fn,
+            actuator_specs=[
+                ActuatorSpec("P_nbi", low=1e6, high=30e6, max_delta=1e6),
+                DEFAULT_ACTUATOR_SPECS[1],
+            ],
+        )
+        state, _ = env.init(jax.random.key(0))
+        next_state, info = jax.jit(env.step)(
+            state, jnp.asarray([100e6, 10e21], dtype=_ACTION.dtype)
+        )
+
+        _assert_same_pytree_values(next_state, state)
+        assert int(info.termination_code) == 4
+        # The attempted action is clipped to 11 MW by the slew limit and 5e21
+        # by the gas-puff upper bound, even though prev_action is rolled back.
+        np.testing.assert_allclose(info.reward, 11.0 + 5.0 + 4.0, rtol=1e-6, atol=0.0)
+
+    def test_invalid_state_rolls_back_only_failed_jit_vmap_lane(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _stub_torax_step(monkeypatch)
+
+        def observation(plasma: core_lib.PlasmaState) -> jax.Array:
+            return jnp.full((_OBS_SIZE,), jnp.where(plasma.t > 0.15, jnp.nan, plasma.t))
+
+        env = make_test_env(
+            obs_fn=observation,
+            disruption=DisruptionConfig(q_min_threshold=-1e9, greenwald_threshold=1e9),
+        )
+        state, _ = env.init(jax.random.key(0))
+        later_state = dataclasses.replace(
+            state,
+            plasma=dataclasses.replace(
+                state.plasma,
+                sim=dataclasses.replace(state.plasma.sim, t=state.plasma.t + 0.1),
+            ),
+        )
+        states = jax.tree.map(lambda a, b: jnp.stack((a, b)), state, later_state)
+        action = jnp.asarray([20e6, 2e21], dtype=_ACTION.dtype)
+        next_states, info = jax.jit(jax.vmap(env.step))(
+            states, jnp.stack((action, action))
+        )
+
+        _assert_same_pytree_values(
+            jax.tree.map(lambda leaf: leaf[1], next_states), later_state
+        )
+        np.testing.assert_allclose(
+            next_states.plasma.t, [0.1, 0.1], rtol=0.0, atol=1e-12
+        )
+        np.testing.assert_array_equal(next_states.prev_action[0], action)
+        np.testing.assert_array_equal(info.termination_code, [-1, 4])
+        np.testing.assert_array_equal(info.terminated, [False, True])
+        np.testing.assert_array_equal(info.internal_steps, [1, 1])
+        np.testing.assert_array_equal(info.control_step_complete, [True, True])
+        np.testing.assert_allclose(
+            info.obs, np.full((2, _OBS_SIZE), 0.1), rtol=0.0, atol=1e-12
+        )
+        assert float(info.reward[0]) > 0.0
+        np.testing.assert_array_equal(info.reward[1], 0.0)
+
+    def test_collection_retains_rejected_transition_and_masks_later_padding(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _stub_torax_step(monkeypatch)
+
+        def observation(plasma: core_lib.PlasmaState) -> jax.Array:
+            return jnp.full((_OBS_SIZE,), jnp.where(plasma.t > 0.15, jnp.nan, plasma.t))
+
+        def policy(obs: jax.Array, key: jax.Array) -> jax.Array:
+            del key
+            power = jnp.asarray(_ACTION[0] + 1e8 * obs[0], dtype=_ACTION.dtype)
+            return _ACTION.at[0].set(power)
+
+        env = make_test_env(
+            obs_fn=observation,
+            disruption=DisruptionConfig(q_min_threshold=-1e9, greenwald_threshold=1e9),
+        )
+        trajectory = collect_episode(policy, env, jax.random.key(0), num_steps=4)
+
+        np.testing.assert_array_equal(trajectory.valid, [True, True, False, False])
+        np.testing.assert_array_equal(
+            trajectory.terminated, [False, True, False, False]
+        )
+        np.testing.assert_array_equal(trajectory.truncated, False)
+        np.testing.assert_array_equal(trajectory.info.termination_code, [-1, 4, -1, -1])
+        np.testing.assert_allclose(
+            trajectory.env_state.plasma.t, 0.1, rtol=0.0, atol=1e-12
+        )
+        np.testing.assert_array_equal(trajectory.reward[1:], 0.0)
+        np.testing.assert_array_equal(trajectory.next_obs[1], trajectory.obs[1])
+        for index in range(1, 4):
+            _assert_same_pytree_values(
+                jax.tree.map(
+                    lambda leaf, index=index: leaf[index], trajectory.env_state
+                ),
+                jax.tree.map(lambda leaf: leaf[0], trajectory.env_state),
+            )
+
+        arrays = trajectory_arrays(trajectory, env)
+        np.testing.assert_allclose(
+            arrays["command_physical"][:2, 0], [10e6, 20e6], rtol=1e-6, atol=0.0
+        )
+        np.testing.assert_allclose(
+            arrays["applied_physical"][:2, 0], [10e6, 10e6], rtol=1e-6, atol=0.0
+        )
 
     @pytest.mark.parametrize(
         "raw_reward",
