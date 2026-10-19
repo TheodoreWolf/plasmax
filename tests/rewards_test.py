@@ -21,6 +21,7 @@ _NAMED_REWARDS = (
     rewards_lib.Q_fusion,
     rewards_lib.beta_N,
     rewards_lib.P_diff,
+    rewards_lib.P_diff_MW,
     rewards_lib.W_thermal,
     rewards_lib.rampdown,
     rewards_lib.lh_transition,
@@ -82,6 +83,35 @@ class NamedRewardsTest:
         # must give less utility than the unit baseline at zero net power.
         reward = float(self._call(rewards_lib.P_diff))
         assert 0.0 < reward < 1.0
+
+    def test_P_diff_MW_uses_megawatts_before_utility_transform(self) -> None:
+        def reward_at(fusion: jax.Array, auxiliary: jax.Array) -> jax.Array:
+            next_state = _with_postout(
+                self._state, P_fusion=fusion, P_aux_total=auxiliary
+            )
+            return rewards_lib.P_diff_MW(
+                self._state, self._action, next_state, jnp.int32(-1)
+            )
+
+        # Fusion at 8, 10, and 12 MW against 10 MW of heating gives scores
+        # of -2, 0, and 2 MW. Convert the score before applying squareplus.
+        values, (fusion_gradients, auxiliary_gradients) = jax.jit(
+            jax.vmap(jax.value_and_grad(reward_at, argnums=(0, 1)))
+        )(jnp.asarray([8e6, 10e6, 12e6]), jnp.full(3, 10e6))
+
+        root_two = np.sqrt(2.0)
+        np.testing.assert_allclose(
+            values, [root_two - 1.0, 1.0, root_two + 1.0], rtol=1e-6, atol=0.0
+        )
+        expected_gradients = 1e-6 * np.asarray(
+            [0.5 - 0.5 / root_two, 0.5, 0.5 + 0.5 / root_two]
+        )
+        np.testing.assert_allclose(
+            fusion_gradients, expected_gradients, rtol=1e-6, atol=0.0
+        )
+        np.testing.assert_allclose(
+            auxiliary_gradients, -expected_gradients, rtol=1e-6, atol=0.0
+        )
 
     def test_W_thermal_keeps_hundred_megajoule_scale(self):
         np.testing.assert_allclose(
@@ -419,6 +449,7 @@ class ResolveRewardFnTest:
         assert rewards_lib.resolve_reward_fn("Q_fusion") is rewards_lib.Q_fusion
         assert rewards_lib.resolve_reward_fn("beta_N") is rewards_lib.beta_N
         assert rewards_lib.resolve_reward_fn("P_diff") is rewards_lib.P_diff
+        assert rewards_lib.resolve_reward_fn("P_diff_MW") is rewards_lib.P_diff_MW
 
     def test_passes_through_callable(self):
         def fn(state, action, next_state, termination_code):
@@ -437,6 +468,7 @@ class ResolveRewardFnTest:
         assert "Q_fusion" in msg
         assert "beta_N" in msg
         assert "P_diff" in msg
+        assert "P_diff_MW" in msg
 
     def test_non_callable_non_string_raises_type_error(self):
         with pytest.raises(TypeError, match="callable or string"):
