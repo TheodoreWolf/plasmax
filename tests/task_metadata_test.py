@@ -62,6 +62,11 @@ def test_omitted_reward_resolves_from_task_metadata():
     assert dynamics._reward_fn is rewards.P_diff
 
 
+def test_megawatt_reward_override_resolves_from_alias() -> None:
+    env = make(_MOCK_ENV, _MOCK_BACKEND, reward="P_diff_MW")
+    assert env.unwrapped._dynamics._reward_fn is rewards.P_diff_MW
+
+
 def test_string_and_callable_reward_overrides_are_preserved():
     string_env = make(_MOCK_ENV, _MOCK_BACKEND, reward="Q_fusion")
     assert string_env.unwrapped._dynamics._reward_fn is rewards.Q_fusion
