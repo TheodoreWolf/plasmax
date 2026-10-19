@@ -113,7 +113,13 @@ def evaluate_policy(
 
 
 def trajectory_arrays(trajectory: TrajectoryStep, env: Any) -> dict[str, np.ndarray]:
-    """Flatten collected outputs for plotting without serializing simulator state."""
+    """Flatten collected outputs for plotting without serializing simulator state.
+
+    ``command_*`` records the attempted command; ``applied_*`` comes from the
+    returned state's ``prev_action``. On TORAX invalid-state rollback, the
+    latter retains the input state's action, and ``time_s`` repeats its time.
+    The rejected terminal transition remains a valid collected sample.
+    """
     fields = (
         "obs",
         "action",

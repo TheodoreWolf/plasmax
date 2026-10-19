@@ -574,7 +574,11 @@ class _ToraxDynamics:
         env_state: EnvState,
         action: jax.Array,
     ) -> tuple[EnvState, InfoContainer]:
-        """Advances one simulation step without owning a time horizon."""
+        """Advance one step, retaining the input state on invalid transitions.
+
+        Invalid transitions terminate with code 4 and report the attempted
+        step's diagnostics. The reward receives the returned state.
+        """
         if self._clip_by_max_action_delta:
             action = jnp.clip(
                 action,
@@ -604,7 +608,7 @@ class _ToraxDynamics:
             provider,
         )
 
-        new_env_state = EnvState(
+        candidate_state = EnvState(
             plasma=PlasmaState(
                 sim=step_result.sim_state,
                 post=step_result.post_processed_outputs,
@@ -612,10 +616,10 @@ class _ToraxDynamics:
             prev_action=action,
             phys_params=phys_params,
         )
-        obs = self._observe(new_env_state.plasma)
+        candidate_obs = self._observe(candidate_state.plasma)
 
         q_min_disruption, greenwald_exceeded, solver_failure, invalid_state = (
-            self._disruption_terms(new_env_state.plasma, obs)
+            self._disruption_terms(candidate_state.plasma, candidate_obs)
         )
         invalid_state = invalid_state | step_result.invalid_state
 
@@ -634,12 +638,19 @@ class _ToraxDynamics:
                 ),
             ),
         )
+        # Reject invalid transitions and retain the complete previous core state.
+        next_state, obs = jax.lax.cond(
+            invalid_state,
+            lambda _: (env_state, self._observe(env_state.plasma)),
+            lambda _: (candidate_state, candidate_obs),
+            operand=None,
+        )
         reward = jnp.asarray(
-            self._reward_fn(env_state, action, new_env_state, termination_code),
+            self._reward_fn(env_state, action, next_state, termination_code),
             dtype=self._reward_dtype,
         )
 
-        return new_env_state, _make_info(
+        return next_state, _make_info(
             obs,
             reward,
             termination_code != -1,

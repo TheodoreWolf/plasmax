@@ -161,7 +161,8 @@ Tests cover:
 
 Keep eager, JIT, vmap, scan, and gradient contracts covered with ordinary JAX
 transformations. Reward finiteness is an evaluation diagnostic, not an assertion
-inside simulator arithmetic.
+inside simulator arithmetic. Invalid-state rollback does not guarantee finite
+gradients through a failed solve.
 
 Initialization tests cover all task references from an unrelated working
 directory, typed YAML loading, numeric/scientific notation, stable serialization,
@@ -185,6 +186,14 @@ uv run pytest tests/phase_initialization_test.py -m integration
 
 Keep direct tests for controls, rewards, loaders, wrappers, collection, STEP,
 KSTAR, EQDSK geometry, fixed-duration stepping, and TORAX reference parity.
+Invalid-state regressions must preserve the entire input core `EnvState`,
+including its timestamp and previous action, and derive the returned observation
+from it. Check that termination and attempted-step diagnostics survive rollback,
+built-in rewards remain zero, and custom rewards receive the fallback state,
+attempted clipped action, and original termination code. The terminal transition
+remains valid for collection and metrics; wrapper RNG and history behavior is
+unchanged.
+
 Wrapper regression tests specifically protect:
 
 - action history initialized from configured actuator setpoints;

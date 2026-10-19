@@ -91,7 +91,18 @@ After each internal step, NaN or infinity in checked profiles or critical
 outputs (including `P_cyclotron_e`, `P_SOL_total`, and `P_LH`) stops advancement
 with code `4` (`INVALID_STATE`). Nonfinite observations or the checked
 Greenwald value also produce code `4`, which takes precedence over code `3` and
-physical disruption codes. Built-in rewards return zero for invalid states.
+physical disruption codes.
+
+Code `4` rejects the entire control transition: the core returns its input
+`EnvState` unchanged, including time, `prev_action`, and physics parameters,
+and recomputes the observation from it. Successful internal substeps are also
+discarded. Termination and info diagnostics still describe the failed attempt.
+Custom rewards receive this fallback `next_state`, the attempted clipped
+action, and code `4`; built-in rewards return zero. Wrappers still advance
+normally. The retained terminal sample repeats the input timestamp and remains
+included in episode lengths and physics metrics. This fallback does not
+guarantee finite gradients through the failed solve.
+
 Final rewards are cast to float32 without a finiteness assertion. Evaluation
 logging reports nonfinite rewards separately from invalid physical states.
 
