@@ -150,8 +150,9 @@ Tests cover:
 - loader inheritance when reward is omitted;
 - string and callable reward overrides;
 - stable built-in squareplus for ordinary transitions and its logarithm for
-  disruption or solver failure, including gradients for large negative scores;
-- zero value and reward-branch gradient for invalid-state built-in rewards;
+  disruption, including gradients for large negative scores;
+- zero value and reward-branch gradient for solver-failure and invalid-state
+  built-in rewards;
 - custom rewards receiving `(state, action, next_state, termination_code)` and
   returning the final reward without an environment transformation;
 - nonfinite rewards passing through the float32 cast without changing termination;

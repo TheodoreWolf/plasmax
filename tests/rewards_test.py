@@ -128,22 +128,23 @@ class TerminalRewardTest:
         cls._state = _make_env_state()
 
     @pytest.mark.parametrize("reward", _NAMED_REWARDS)
-    def test_physical_and_solver_terminations_take_log_of_positive_utility(
+    def test_physical_terminations_take_log_of_positive_utility(
         self, reward: rewards_lib.RewardFn
     ) -> None:
         def at_code(code: jax.Array) -> jax.Array:
             return reward(self._state, self._state.prev_action, self._state, code)
 
-        values = jax.jit(jax.vmap(at_code))(jnp.asarray([-1, 1, 2, 3]))
+        values = jax.jit(jax.vmap(at_code))(jnp.asarray([-1, 1, 2]))
         assert values[0] > 0.0
         np.testing.assert_allclose(
-            values[1:], np.full(3, np.log(values[0])), rtol=1e-6, atol=1e-7
+            values[1:], np.full(2, np.log(values[0])), rtol=1e-6, atol=1e-7
         )
         assert np.all(values[1:] < values[0])
 
+    @pytest.mark.parametrize("code", [3, 4])
     @pytest.mark.parametrize("reward", _NAMED_REWARDS)
-    def test_invalid_state_inputs_have_zero_reward_and_gradient_under_vmap(
-        self, reward: rewards_lib.RewardFn
+    def test_solver_and_invalid_inputs_have_zero_reward_and_gradient_under_vmap(
+        self, reward: rewards_lib.RewardFn, code: int
     ) -> None:
         def reward_at(value: jax.Array) -> jax.Array:
             next_state = _with_postout(
@@ -167,7 +168,7 @@ class TerminalRewardTest:
                 ),
             )
             return reward(
-                self._state, self._state.prev_action, next_state, jnp.int32(4)
+                self._state, self._state.prev_action, next_state, jnp.int32(code)
             )
 
         values, gradients = jax.jit(jax.vmap(jax.value_and_grad(reward_at)))(
@@ -187,7 +188,7 @@ class TerminalRewardTest:
             )
         )
         ordinary, ordinary_grad = evaluate(scores, jnp.int32(-1))
-        terminal, terminal_grad = evaluate(scores, jnp.int32(3))
+        terminal, terminal_grad = evaluate(scores, jnp.int32(1))
         np.testing.assert_allclose(ordinary, [2.5e-8, 1.0, 4e7], rtol=1e-6, atol=0.0)
         np.testing.assert_allclose(
             ordinary_grad, [6.25e-16, 0.5, 1.0], rtol=1e-6, atol=0.0
@@ -200,8 +201,8 @@ class TerminalRewardTest:
         )
         assert ordinary.dtype == terminal.dtype == dtype
 
-    def test_mixed_batch_masks_only_invalid_states(self) -> None:
-        scores = jnp.asarray([-2.0, -2.0, -2.0, -2.0, np.nan], dtype=jnp.float32)
+    def test_mixed_batch_masks_only_solver_and_invalid_states(self) -> None:
+        scores = jnp.asarray([-2.0, -2.0, -2.0, np.nan, np.nan], dtype=jnp.float32)
         codes = jnp.asarray([-1, 1, 2, 3, 4])
         values, gradients = jax.jit(
             jax.vmap(jax.value_and_grad(rewards_lib._terminal_reward))
@@ -209,13 +210,13 @@ class TerminalRewardTest:
         root_two = np.sqrt(2.0)
         np.testing.assert_allclose(
             values,
-            [root_two - 1.0, *([-np.arcsinh(1.0)] * 3), 0.0],
+            [root_two - 1.0, *([-np.arcsinh(1.0)] * 2), 0.0, 0.0],
             rtol=1e-6,
             atol=0.0,
         )
         np.testing.assert_allclose(
             gradients,
-            [0.5 - 0.5 / root_two, *([0.5 / root_two] * 3), 0.0],
+            [0.5 - 0.5 / root_two, *([0.5 / root_two] * 2), 0.0, 0.0],
             rtol=1e-6,
             atol=0.0,
         )

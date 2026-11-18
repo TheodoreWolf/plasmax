@@ -98,7 +98,7 @@ task:
 ```
 
 Omitting `reward` uses the task default; built-in TORAX rewards apply squareplus
-normally, its logarithm on disruption or solver failure, and zero on invalid state.
+normally, its logarithm on disruption, and zero on solver failure or invalid state.
 
 ```python
 env = RealisticWrappers(plasmax.make("iter/advanced/rampup", backend="qlknn"))

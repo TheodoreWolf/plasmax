@@ -144,9 +144,9 @@ unchanged.
 
 Built-in TORAX rewards retain their existing objectives and soft safety barriers.
 Ordinary transitions return numerically stable squareplus of the raw score;
-disruption and solver failure return its logarithm, evaluated as
-`asinh(score / 2)`. Invalid states return zero with zero reward-branch gradient;
-sanitize invalid inputs before reward arithmetic. Initialization, reset, and
+disruption returns its logarithm, evaluated as `asinh(score / 2)`. Solver
+failure and invalid states return zero with zero reward-branch gradient;
+sanitize their inputs before reward arithmetic. Initialization, reset, and
 rollout-padding rewards remain zero. There is no configurable terminal penalty
 or multiplier.
 
