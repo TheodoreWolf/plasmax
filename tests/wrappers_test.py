@@ -35,6 +35,8 @@ from helpers import (
     NOMINAL_ACTION,
     PROFILE_OBS_SPECS,
     SCALAR_OBS_SPECS,
+    CheapBoundaryEnv,
+    CheapBoundaryState,
     make_test_config,
 )
 from helpers import make_test_env as _make_base_env
@@ -54,6 +56,7 @@ from plasmax.spaces import ObsLayout
 from plasmax.wrappers import (
     ActionQuantizeConfig,
     ActionRescaleWrapper,
+    CorruptedActionWrapper,
     NoiseWrapper,
     ObsDelayConfig,
     ObsDelayWrapper,
@@ -261,6 +264,7 @@ class WrapperInterfaceTest:
                 layout=env.obs_layout(),
             ),
             ActionRescaleWrapper,
+            lambda env: CorruptedActionWrapper(env, noise_scale=0.1),
             lambda env: QuantizeActionWrapper(ActionRescaleWrapper(env), (3, 5)),
             lambda env: ObsHistoryWrapper(env, k=2),
             lambda env: ObsDelayWrapper(env, jnp.zeros(env.observation_space.shape)),
@@ -271,6 +275,7 @@ class WrapperInterfaceTest:
             "noise",
             "filter",
             "rescale",
+            "corrupted_action",
             "quantize",
             "history",
             "delay",
@@ -437,6 +442,86 @@ class ObsFilterWrapperTest:
         assert env.obs_layout().slice_of("n_e") == slice(2 + N_RHO, 5 + N_RHO)
         _, next_info = jax.jit(env.step)(state, _ACTION)
         assert next_info.obs.shape == info.obs.shape
+
+
+class _ActionRecordingEnv(CheapBoundaryEnv):
+    def step(
+        self, state: CheapBoundaryState, action: jax.Array
+    ) -> tuple[CheapBoundaryState, Info]:
+        state = state.replace(obs=action, steps=state.steps + 1)
+        return state, self._info(state)
+
+
+class CorruptedActionWrapperTest:
+    @classmethod
+    def setup_class(cls) -> None:
+        cls.base = _ActionRecordingEnv(
+            obs_dim=2, action_low=(-1.0, 10.0), action_high=(1.0, 30.0)
+        )
+        cls.env = CorruptedActionWrapper(cls.base, noise_scale=0.1)
+        cls.action = jnp.array([0.0, 20.0], dtype=jnp.float32)
+
+    def test_noise_uses_each_actuator_range_and_preserves_inner_info(self) -> None:
+        state, _ = self.env.init(jax.random.key(0))
+        next_key, noise_key = jax.random.split(_local_prng_key(state))
+        expected_action = self.action + jnp.array([0.2, 2.0]) * jax.random.normal(
+            noise_key, self.action.shape, dtype=self.action.dtype
+        )
+        expected_state, expected_info = self.base.step(
+            state.inner_state, expected_action
+        )
+
+        next_state, info = self.env.step(state, self.action)
+
+        chex.assert_trees_all_close(
+            (next_state.inner_state, info),
+            (expected_state, expected_info),
+            rtol=1e-6,
+            atol=1e-7,
+        )
+        np.testing.assert_array_equal(
+            jax.random.key_data(_local_prng_key(next_state)),
+            jax.random.key_data(next_key),
+        )
+
+    def test_zero_noise_preserves_selected_action(self) -> None:
+        env = CorruptedActionWrapper(self.base, noise_scale=0.0)
+        state, _ = env.init(jax.random.key(0))
+        next_state, info = env.step(state, self.action)
+        _assert_same_step(
+            (next_state.inner_state, info),
+            self.base.step(state.inner_state, self.action),
+        )
+
+    def test_seed_and_reset_reproduce_noise_while_steps_advance_it(self) -> None:
+        key = jax.random.key(7)
+        state, _ = self.env.init(key)
+        first = self.env.step(state, self.action)
+        second = self.env.step(first[0], self.action)
+        assert not np.array_equal(first[1].obs, second[1].obs)
+
+        repeated, _ = self.env.init(key)
+        reset, _ = self.env.reset(second[0], key)
+        for restarted in (repeated, reset):
+            chex.assert_trees_all_equal(
+                _with_key_data(self.env.step(restarted, self.action)),
+                _with_key_data(first),
+            )
+
+    def test_jit_and_vmap_preserve_independent_noise(self) -> None:
+        env = VmapWrapper(self.env, batch_size=3)
+        state, _ = jax.jit(env.init)(jax.random.key(0))
+        actions = jnp.broadcast_to(self.action, (3, 2))
+        expected_state, expected_info = env.step(state, actions)
+        actual_state, actual_info = jax.jit(env.step)(state, actions)
+        chex.assert_trees_all_close(
+            _with_key_data((actual_state, actual_info)),
+            _with_key_data((expected_state, expected_info)),
+            rtol=1e-6,
+            atol=1e-7,
+        )
+        assert actual_info.obs.shape == (3, 2)
+        assert not np.array_equal(actual_info.obs[0], actual_info.obs[1])
 
 
 class ActionRescaleWrapperTest:
@@ -808,6 +893,7 @@ class CompositionTest:
         base = _make_base_env()
         noise = NoiseWrapper(base, jnp.zeros(base.observation_space.shape))
         env = ObsDelayWrapper(noise, jnp.zeros(noise.observation_space.shape))
+        env = CorruptedActionWrapper(env, noise_scale=0.1)
 
         key = jax.random.key(12)
         expected, _ = base.init(key)
@@ -827,6 +913,7 @@ class CompositionTest:
             ObsFilterConfig(profiles=["T_e", "n_e"], scalars=["t", "q95"]),
         )
         env = ObsDelayWrapper(env, jnp.zeros(env.observation_space.shape))
+        env = CorruptedActionWrapper(env, noise_scale=0.0)
         env = ActionRescaleWrapper(env)
         env = TimeAwareWrapper(env)
         env = ObsHistoryWrapper(env, k=2)

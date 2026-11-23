@@ -15,7 +15,7 @@ import wandb
 
 from agents.policy_io import save_policy
 from plasmax import make
-from plasmax.wrappers import OracleWrappers, RealisticWrappers
+from plasmax.wrappers import CorruptedActionWrapper, OracleWrappers, RealisticWrappers
 from training.evaluation import (
     check_interfaces,
     evaluate_policy,
@@ -35,6 +35,7 @@ class EnvConfig:
     variant: Literal["oracle", "realistic"] = "realistic"
     max_steps: int | None = None
     time_aware: bool = False
+    action_noise_scale: float | None = None
     eval_n_envs: int = 16
     eval_seed: int = 10_000
     deterministic_eval: bool = True
@@ -54,12 +55,11 @@ def load_env(config: EnvConfig, backend: str | None) -> Any:
     if config.variant not in ("realistic", "oracle"):
         raise ValueError(f"unknown variant {config.variant!r}")
     wrappers = RealisticWrappers if config.variant == "realistic" else OracleWrappers
+    env = make(config.env_setup, backend, reward=config.reward)
+    if config.action_noise_scale is not None:
+        env = CorruptedActionWrapper(env, noise_scale=config.action_noise_scale)
     return wrappers(
-        make(
-            config.env_setup,
-            backend,
-            reward=config.reward,
-        ),
+        env,
         max_steps=config.max_steps,
         time_aware=config.time_aware,
     )
@@ -103,10 +103,11 @@ def load_policy_env(
     # KSTAR's native reward is not a make() override.
     if task == "kstar_worldmodel":
         reward = None
-    env = wrappers(
-        make(task, selected_backend, reward=reward),
-        **options,
-    )
+    env = make(task, selected_backend, reward=reward)
+    action_noise_scale = recorded.get("action_noise_scale")
+    if action_noise_scale is not None:
+        env = CorruptedActionWrapper(env, noise_scale=action_noise_scale)
+    env = wrappers(env, **options)
     check_interfaces(policy, env)
     return env
 

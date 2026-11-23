@@ -72,6 +72,8 @@ def main(config: Config) -> None:
         config.env.reward,
         config.num_seeds,
     )
+    if config.run_name is None and config.env.action_noise_scale is not None:
+        name += f"-action_noise{config.env.action_noise_scale:g}"
     run_native(agent, config, name)
 
 

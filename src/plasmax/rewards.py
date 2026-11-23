@@ -1,9 +1,10 @@
 """TORAX rewards and their termination behavior.
 
 Registered rewards preserve their physical scores, then return squareplus on
-ordinary transitions and its logarithm on physical or solver termination.
-Invalid-state transitions return zero. Custom reward callables own their full
-return value and are not transformed by the environment.
+ordinary transitions and its logarithm on physical termination. Solver-failure
+and invalid-state transitions return zero with zero reward-branch gradient.
+Custom reward callables own their full return value and are not transformed by
+the environment.
 """
 
 import dataclasses
@@ -21,11 +22,16 @@ RewardFn = Callable[[EnvState, jax.Array, EnvState, jax.Array], jax.Array]
 Quantity = Callable[[EnvState], jax.Array]
 
 
+def _masked(termination_code: jax.Array) -> jax.Array:
+    """Solver failure (3) and invalid state (4) receive zero reward and gradient."""
+    return termination_code >= 3
+
+
 def _valid_input(
     value: jax.Array, termination_code: jax.Array, *, fallback: float = 0.0
 ) -> jax.Array:
-    """Mask invalid-state lanes before potentially undefined arithmetic."""
-    return jnp.where(termination_code == 4, jnp.full_like(value, fallback), value)
+    """Mask solver-failure and invalid-state lanes before undefined arithmetic."""
+    return jnp.where(_masked(termination_code), jnp.full_like(value, fallback), value)
 
 
 def _terminal_reward(score: jax.Array, termination_code: jax.Array) -> jax.Array:
@@ -42,7 +48,7 @@ def _terminal_reward(score: jax.Array, termination_code: jax.Array) -> jax.Array
     log_magnitude = jnp.log1p(absolute_half + (radius - 1.0))
     terminal = jnp.where(half >= 0.0, log_magnitude, -log_magnitude)
     reward = jnp.where(termination_code == -1, positive, terminal)
-    return jnp.where(termination_code == 4, jnp.zeros_like(reward), reward)
+    return jnp.where(_masked(termination_code), jnp.zeros_like(reward), reward)
 
 
 def _safe_barrier_state(next_state: EnvState, termination_code: jax.Array) -> EnvState:

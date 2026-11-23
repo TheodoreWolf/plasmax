@@ -98,7 +98,7 @@ task:
 ```
 
 Omitting `reward` uses the task default; built-in TORAX rewards apply squareplus
-normally, its logarithm on disruption or solver failure, and zero on invalid state.
+normally, its logarithm on disruption, and zero on solver failure or invalid state.
 
 ```python
 env = RealisticWrappers(plasmax.make("iter/advanced/rampup", backend="qlknn"))
@@ -120,6 +120,18 @@ from plasmax.wrappers import NoiseWrapper, PhysicsRandomizationWrapper
 
 env = plasmax.make("iter/baseline/flattop", "bohm_gyrobohm")
 env = NoiseWrapper(PhysicsRandomizationWrapper(env))
+```
+
+To corrupt actuator commands, wrap the bare environment before composing training
+wrappers. Each step adds independent Gaussian noise with standard deviation
+`noise_scale * (high - low)` per actuator. This order applies noise after action
+decoding and scaling; the core then applies its existing bounds and rate limits.
+
+```python
+from plasmax.wrappers import CorruptedActionWrapper, RealisticWrappers
+
+env = plasmax.make("iter/baseline/flattop", "bohm_gyrobohm")
+env = RealisticWrappers(CorruptedActionWrapper(env, noise_scale=0.05))
 ```
 
 Physics parameters live in `EnvState.phys_params`. Use

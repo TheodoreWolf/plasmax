@@ -18,7 +18,11 @@ from rejax.networks import GaussianPolicy
 
 from agents.ppo import MultiDiscretePolicy, PPOAdapter
 from plasmax.environment.factory import make
-from plasmax.wrappers import ActionRescaleWrapper, QuantizeActionWrapper
+from plasmax.wrappers import (
+    ActionRescaleWrapper,
+    CorruptedActionWrapper,
+    QuantizeActionWrapper,
+)
 from training.envelope_gymnax import EnvelopeGymnax
 
 
@@ -66,6 +70,35 @@ def test_launcher_rejects_removed_policy_options(args: list[str]) -> None:
     with pytest.raises(SystemExit) as error:
         tyro.cli(train_ppo.Config, args=args)
     assert error.value.code != 0
+
+
+@pytest.mark.parametrize("scale", [None, 0.0, 0.05])
+def test_launcher_composes_action_noise_before_action_transforms(
+    monkeypatch: pytest.MonkeyPatch, scale: float | None
+) -> None:
+    from training import train_ppo
+
+    args = [] if scale is None else ["--env.action-noise-scale", str(scale)]
+    cfg = tyro.cli(train_ppo.Config, args=args)
+    assert cfg.env.action_noise_scale == scale
+    base = CheapBoundaryEnv(obs_dim=2, action_low=(-2.0,), action_high=(3.0,))
+    monkeypatch.setattr(train_ppo, "make", lambda *args, **kwargs: base)
+    monkeypatch.setattr(
+        train_ppo,
+        "RealisticWrappers",
+        lambda env, **kwargs: QuantizeActionWrapper(ActionRescaleWrapper(env), (3,)),
+    )
+    env = train_ppo._load_env(cfg, cfg.env.backend)
+    inner = env.env.env
+    if scale is None:
+        assert inner is base
+    else:
+        assert isinstance(inner, CorruptedActionWrapper)
+        assert inner.env is base
+        assert inner.noise_scale == scale
+    default_name = train_ppo._run_name(train_ppo.Config())
+    suffix = "" if scale is None else f"-action_noise{scale:g}"
+    assert train_ppo._run_name(cfg) == default_name + suffix
 
 
 class ResetActionState(CheapBoundaryState):
@@ -138,6 +171,7 @@ def test_short_training_on_cheap_envelope_env_has_finite_outputs(quantized):
         action_low=(-1.0,),
         action_high=(1.0,),
     )
+    env = CorruptedActionWrapper(env, noise_scale=0.1)
     if quantized:
         env = QuantizeActionWrapper(env=env, bin_counts=(3,))
     env = TruncationWrapper(env=env, max_steps=2)

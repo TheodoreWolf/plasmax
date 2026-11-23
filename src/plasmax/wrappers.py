@@ -37,6 +37,7 @@ from plasmax.spaces import ObsLayout
 _NOISE_SAMPLE_STREAM = 0x4E4F4953  # "NOIS"
 _NOISE_STATE_STREAM = 0x4E4F4954
 _DELAY_STATE_STREAM = 0x44454C59  # "DELY"
+_ACTION_NOISE_STATE_STREAM = 0x4143544E  # "ACTN"
 
 
 def _require_typed_key(key: Key) -> None:
@@ -398,6 +399,56 @@ class ObsFilterWrapper(Wrapper):
                 "Use from_obs_config or pass layout=..."
             )
         return self.layout
+
+
+class CorruptedActionState(WrappedState):
+    """Inner environment state plus the action-noise PRNG stream."""
+
+    key: jax.Array = field()
+
+
+class CorruptedActionWrapper(Wrapper):
+    """Add independent Gaussian noise centered on each supplied action value.
+
+    Standard deviations are ``noise_scale * (high - low)``; for example,
+    ``noise_scale=0.05`` gives 5% of each actuator's range.
+    """
+
+    noise_scale: float = field()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.env.action_space, Continuous):
+            raise TypeError("CorruptedActionWrapper requires a Continuous action space")
+        super().__post_init__()
+
+    @override
+    def init(self, key: Key) -> tuple[CorruptedActionState, Info]:
+        _require_typed_key(key)
+        state_key = jax.random.fold_in(key, _ACTION_NOISE_STATE_STREAM)
+        inner_state, info = self.env.init(key)
+        return CorruptedActionState(inner_state=inner_state, key=state_key), info
+
+    @override
+    def reset(
+        self, state: CorruptedActionState, key: Key
+    ) -> tuple[CorruptedActionState, Info]:
+        _require_typed_key(key)
+        state_key = jax.random.fold_in(key, _ACTION_NOISE_STATE_STREAM)
+        inner_state, info = self.env.reset(state.inner_state, key)
+        return CorruptedActionState(inner_state=inner_state, key=state_key), info
+
+    @override
+    def step(
+        self, state: CorruptedActionState, action: PyTree
+    ) -> tuple[CorruptedActionState, Info]:
+        next_key, noise_key = jax.random.split(state.key)
+        action = jnp.asarray(action)
+        space = self.env.action_space
+        corrupted = action + jax.random.normal(
+            noise_key, action.shape, dtype=action.dtype
+        ) * self.noise_scale * (space.high - space.low)
+        inner_state, info = self.env.step(state.inner_state, corrupted)
+        return CorruptedActionState(inner_state=inner_state, key=next_key), info
 
 
 class ActionRescaleWrapper(Wrapper):
