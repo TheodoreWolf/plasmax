@@ -158,7 +158,8 @@ class SeedBufferLogger:
                 log_data[f"{k}_seed_std"] = std[k]
             for run_idx, seed_id in enumerate(self.seed_ids):
                 log_data[f"seeds/{seed_id}/{k}"] = per_run[k][run_idx]
-        self._run.log(log_data, step=step)
+        # Explicit W&B steps otherwise buffer this evaluation until the next one.
+        self._run.log(log_data, step=step, commit=True)
 
         ret = mean.get("evaluation/return_mean", float("nan"))
         ret_std = std.get("evaluation/return_mean", 0.0)

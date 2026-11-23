@@ -17,19 +17,19 @@ import optax
 from envelope import Continuous
 from flax import linen as nn
 from flax import struct
+from rejax.networks import GaussianPolicy
 
 from agents.direct_gradient import (
     FiniteGradientStats,
     apply_policy_optimizer_update,
-    apply_updates_with_backoff,
     finite_mean_gradients,
     gradient_horizon,
-    gradient_statistics,
     knot_actions,
     make_knot_chunk,
     make_optimizer,
     tree_is_finite,
 )
+from agents.ppo import init_ppo_mean_params, ppo_mean_action
 from plasmax.environment.schema import WorldModelConfig
 from training.envelope_gymnax import to_typed_key
 
@@ -54,8 +54,10 @@ class DeterministicPolicy(nn.Module):
 
 
 def policy_action(
-    policy: DeterministicPolicy, params: Any, obs: jax.Array
+    policy: DeterministicPolicy | GaussianPolicy, params: Any, obs: jax.Array
 ) -> jax.Array:
+    if isinstance(policy, GaussianPolicy):
+        return ppo_mean_action(policy, params, obs)
     return jnp.tanh(policy.apply({"params": params}, obs))
 
 
@@ -95,7 +97,7 @@ class PolicyChunk:
 
 def make_policy_chunk(
     env: Any,
-    policy: DeterministicPolicy,
+    policy: DeterministicPolicy | GaussianPolicy,
     chunk_steps: int,
     *,
     remat: bool,
@@ -131,7 +133,10 @@ def make_policy_chunk(
         state, info = env.init(key)
         return PolicyCarry(info.obs, state, jnp.asarray(True))
 
-    def run(params: Any, carry: PolicyCarry) -> tuple[jax.Array, Any]:
+    def run(
+        params: Any, carry: PolicyCarry, start_step: jax.Array | None = None
+    ) -> tuple[jax.Array, Any]:
+        del start_step
         carry, trajectory = jax.lax.scan(
             lambda state, _: scan_step(params, state, None),
             carry,
@@ -144,23 +149,9 @@ def make_policy_chunk(
 
 
 @struct.dataclass
-class PolicyTrainState:
+class BackpropTrainState:
     params: Any
     opt_state: Any
-    global_step: jax.Array
-    alive_steps: jax.Array
-    update_index: jax.Array
-    failed: jax.Array
-    failure_step: jax.Array
-
-
-@struct.dataclass
-class OpenLoopTrainState:
-    params: jax.Array
-    opt_state: Any
-    rollback_params: jax.Array
-    rollback_opt_state: Any
-    update_scale: jax.Array
     global_step: jax.Array
     alive_steps: jax.Array
     update_index: jax.Array
@@ -223,9 +214,7 @@ _GRADIENT_DIAGNOSTICS = (
 _UPDATE_DIAGNOSTICS = (
     "attempted_updates",
     "accepted_updates",
-    "rollback_updates",
     "update_accepted_rate",
-    "update_scale",
     "parameter_change_norm",
     "parameter_change_fraction",
     "parameter_norm",
@@ -245,7 +234,6 @@ _COUNT_DIAGNOSTICS = {
         "zero_grad_updates",
         "attempted_updates",
         "accepted_updates",
-        "rollback_updates",
     )
 }
 
@@ -276,10 +264,8 @@ def _update_metrics(
     candidate_params: Any,
     *,
     safe: jax.Array,
-    accepted: jax.Array,
-    update_scale: jax.Array,
 ) -> dict[str, jax.Array]:
-    """Measure committed parameter movement, including successful rollbacks.
+    """Measure committed parameter movement.
 
     Acceptance means the optimizer branch was committed; it does not imply a
     nonzero gradient or parameter change. Unsafe candidates are never committed.
@@ -294,18 +280,69 @@ def _update_metrics(
     changed = sum(jnp.sum(leaf != 0) for leaf in leaves)
     return {
         "train/attempted_updates": jnp.asarray(1),
-        "train/accepted_updates": safe & accepted,
-        "train/rollback_updates": safe & ~accepted,
-        "train/update_accepted_rate": safe & accepted,
-        "train/update_scale": update_scale,
+        "train/accepted_updates": safe,
+        "train/update_accepted_rate": safe,
         "train/parameter_change_norm": optax.global_norm(changes),
         "train/parameter_change_fraction": changed / sum(leaf.size for leaf in leaves),
         "train/parameter_norm": optax.global_norm(committed),
     }
 
 
+def _empty_diagnostics() -> dict[str, jax.Array]:
+    names = (
+        "grad_norm",
+        "grad_clip_scale",
+        "optimizer_update_finite",
+        "params_finite",
+        "alive_steps",
+        *_GRADIENT_DIAGNOSTICS,
+        *_UPDATE_DIAGNOSTICS,
+    )
+    return {f"train/{name}": jnp.asarray(0.0, jnp.float32) for name in names}
+
+
+def _update(
+    agent: Any, state: BackpropTrainState, carries: Any, start_step: jax.Array
+) -> tuple:
+    """Optimize either parameterization with the same finite-only clipped Adam."""
+
+    def loss(params: Any, carry: Any) -> tuple:
+        reward, (next_carry, trajectory) = agent.chunk.run(params, carry, start_step)
+        return -reward, (next_carry, jnp.sum(trajectory.alive))
+
+    (losses, (carries, alive)), per_rollout_grads = jax.vmap(
+        jax.value_and_grad(loss, has_aux=True), in_axes=(None, 0)
+    )(state.params, carries)
+    grads, stats = finite_mean_gradients(per_rollout_grads)
+    params, opt_state, diagnostics = apply_policy_optimizer_update(
+        agent.optimizer, grads, state.opt_state, state.params, agent.grad_clip
+    )
+    safe = (
+        stats.aggregate_finite
+        & diagnostics.optimizer_update_finite
+        & diagnostics.params_finite
+        & tree_is_finite(opt_state)
+        & jnp.all(jnp.isfinite(losses))
+    )
+    metrics = {
+        "train/grad_norm": diagnostics.grad_norm,
+        "train/grad_clip_scale": diagnostics.grad_clip_scale,
+        "train/optimizer_update_finite": diagnostics.optimizer_update_finite,
+        "train/params_finite": diagnostics.params_finite,
+        "train/alive_steps": jnp.sum(alive),
+        **_gradient_metrics(stats),
+        **_update_metrics(state.params, params, safe=safe),
+    }
+    return (
+        state.replace(params=params, opt_state=opt_state),
+        carries,
+        jax.tree.map(lambda value: value.astype(jnp.float32), metrics),
+        safe,
+    )
+
+
 def _train(agent: Any, rng: jax.Array) -> tuple[Any, dict[str, Any]]:
-    """Shared chunk scheduling only; each agent owns its objective and update."""
+    """Shared truncated-gradient training for either policy parameterization."""
     rng = to_typed_key(rng)
     state = agent.init_state(rng)
     step_size = agent.gradient_horizon * agent.num_rollouts
@@ -428,7 +465,7 @@ class BackpropPolicyAgent:
     eval_seed: int = 10_000
     episode_steps: int | None = None
     eval_callback: Callable | None = None
-    policy: DeterministicPolicy = dataclasses.field(init=False, repr=False)
+    policy: GaussianPolicy = dataclasses.field(init=False, repr=False)
     optimizer: Any = dataclasses.field(init=False, repr=False)
     chunk: PolicyChunk = dataclasses.field(init=False, repr=False)
 
@@ -437,7 +474,12 @@ class BackpropPolicyAgent:
         object.__setattr__(
             self,
             "policy",
-            DeterministicPolicy(self.env.action_space.shape[0], self.hidden_sizes),
+            GaussianPolicy(
+                action_dim=self.env.action_space.shape[0],
+                action_range=(self.env.action_space.low, self.env.action_space.high),
+                hidden_layer_sizes=self.hidden_sizes,
+                activation=nn.swish,
+            ),
         )
         object.__setattr__(
             self,
@@ -454,85 +496,27 @@ class BackpropPolicyAgent:
     def create(cls, env: Any, **kwargs: Any) -> BackpropPolicyAgent:
         return cls(env, **kwargs)
 
-    def init_state(self, rng: jax.Array) -> PolicyTrainState:
-        params = self.policy.init(
-            jax.random.fold_in(rng, 0x1A17),
-            jnp.zeros(self.env.observation_space.shape, jnp.float32),
-        )["params"]
-        return PolicyTrainState(
+    def init_state(self, rng: jax.Array) -> BackpropTrainState:
+        params = init_ppo_mean_params(
+            self.policy, to_typed_key(rng), self.env.observation_space.shape
+        )
+        return BackpropTrainState(
             params, self.optimizer.init(params), **_state_counters()
         )
 
     def empty_diagnostics(self) -> dict[str, jax.Array]:
-        names = (
-            "grad_norm",
-            "grad_clip_scale",
-            "optimizer_update_finite",
-            "params_finite",
-            "alive_steps",
-            *_GRADIENT_DIAGNOSTICS,
-            *_UPDATE_DIAGNOSTICS,
-        )
-        return {f"train/{name}": jnp.asarray(0.0, jnp.float32) for name in names}
+        return _empty_diagnostics()
 
     def update(
-        self, state: PolicyTrainState, carries: Any, start_step: jax.Array
+        self, state: BackpropTrainState, carries: Any, start_step: jax.Array
     ) -> tuple:
-        del start_step
+        return _update(self, state, carries, start_step)
 
-        def loss(params: Any, carry: Any) -> tuple:
-            reward, (next_carry, trajectory) = self.chunk.run(params, carry)
-            return -reward, (next_carry, jnp.sum(trajectory.alive))
-
-        (losses, (carries, alive)), per_rollout_grads = jax.vmap(
-            jax.value_and_grad(loss, has_aux=True), in_axes=(None, 0)
-        )(state.params, carries)
-        grads, stats = finite_mean_gradients(per_rollout_grads)
-        params, opt_state, diagnostics = apply_policy_optimizer_update(
-            self.optimizer, grads, state.opt_state, state.params, self.grad_clip
-        )
-        metrics = dict(
-            zip(
-                (
-                    "train/grad_norm",
-                    "train/grad_clip_scale",
-                    "train/optimizer_update_finite",
-                    "train/params_finite",
-                ),
-                diagnostics,
-                strict=True,
-            )
-        )
-        safe = (
-            stats.aggregate_finite
-            & diagnostics.optimizer_update_finite
-            & diagnostics.params_finite
-            & tree_is_finite(opt_state)
-            & jnp.all(jnp.isfinite(losses))
-        )
-        metrics.update(_gradient_metrics(stats))
-        metrics.update(
-            _update_metrics(
-                state.params,
-                params,
-                safe=safe,
-                accepted=jnp.asarray(True),
-                update_scale=jnp.asarray(1.0, jnp.float32),
-            )
-        )
-        metrics["train/alive_steps"] = jnp.sum(alive)
-        return (
-            state.replace(params=params, opt_state=opt_state),
-            carries,
-            jax.tree.map(lambda value: value.astype(jnp.float32), metrics),
-            safe,
-        )
-
-    def train(self, rng: jax.Array) -> tuple[PolicyTrainState, dict[str, Any]]:
+    def train(self, rng: jax.Array) -> tuple[BackpropTrainState, dict[str, Any]]:
         return _train(self, rng)
 
     def make_act(
-        self, state: PolicyTrainState, deterministic: bool | None = None
+        self, state: BackpropTrainState, deterministic: bool | None = None
     ) -> Callable:
         del deterministic
         return lambda obs, rng: policy_action(self.policy, state.params, obs)
@@ -566,11 +550,9 @@ class BackpropOpenLoopAgent:
     eval_freq: int = 1_000_000
     num_rollouts: int = 64
     gradient_horizon: int = 32
-    learning_rate: float = 5e-2
+    learning_rate: float = 1e-4
     grad_clip: float = 1.0
     num_knots: int = 10
-    nonfinite_backoff_factor: float = 0.5
-    min_update_scale: float = 1e-3
     remat: bool = True
     eval_n_envs: int = 16
     eval_seed: int = 10_000
@@ -586,13 +568,6 @@ class BackpropOpenLoopAgent:
         _setup(self)
         if self.num_knots <= 0:
             raise ValueError("num_knots must be positive")
-        if (
-            not 0 < self.nonfinite_backoff_factor < 1
-            or not 0 < self.min_update_scale <= 1
-        ):
-            raise ValueError(
-                "backoff_factor must be in (0, 1) and min_update_scale in (0, 1]"
-            )
         try:
             clock_slice = self.env.obs_layout().slice_of("elapsed_time")
         except (KeyError, ValueError, AttributeError) as error:
@@ -644,88 +619,25 @@ class BackpropOpenLoopAgent:
     def create(cls, env: Any, **kwargs: Any) -> BackpropOpenLoopAgent:
         return cls(env, **kwargs)
 
-    def init_state(self, rng: jax.Array) -> OpenLoopTrainState:
+    def init_state(self, rng: jax.Array) -> BackpropTrainState:
         del rng
-        opt_state = self.optimizer.init(self.theta0)
-        return OpenLoopTrainState(
-            self.theta0,
-            opt_state,
-            self.theta0,
-            opt_state,
-            jnp.asarray(1.0, jnp.float32),
-            **_state_counters(),
+        return BackpropTrainState(
+            self.theta0, self.optimizer.init(self.theta0), **_state_counters()
         )
 
     def empty_diagnostics(self) -> dict[str, jax.Array]:
-        return {
-            f"train/{name}": jnp.asarray(0.0, jnp.float32)
-            for name in (
-                "grad_norm",
-                "grads_finite",
-                "alive_steps",
-                *_GRADIENT_DIAGNOSTICS,
-                *_UPDATE_DIAGNOSTICS,
-            )
-        }
+        return _empty_diagnostics()
 
     def update(
-        self, state: OpenLoopTrainState, carries: Any, start_step: jax.Array
+        self, state: BackpropTrainState, carries: Any, start_step: jax.Array
     ) -> tuple:
-        def loss(params: Any, carry: Any, start: jax.Array) -> tuple:
-            reward, (next_carry, trajectory) = self.chunk.run(params, carry, start)
-            return -reward, (next_carry, jnp.sum(trajectory.alive))
+        return _update(self, state, carries, start_step)
 
-        (losses, (carries, alive)), per_rollout_grads = jax.vmap(
-            jax.value_and_grad(loss, has_aux=True), in_axes=(None, 0, None)
-        )(state.params, carries, start_step)
-        grads = jax.tree.map(lambda value: jnp.mean(value, axis=0), per_rollout_grads)
-        stats = gradient_statistics(per_rollout_grads, grads)
-        params, opt_state, rollback_params, rollback_opt_state, scale, finite = (
-            apply_updates_with_backoff(
-                self.optimizer,
-                grads,
-                state.opt_state,
-                state.params,
-                state.rollback_opt_state,
-                state.rollback_params,
-                state.update_scale,
-                backoff_factor=self.nonfinite_backoff_factor,
-                min_update_scale=self.min_update_scale,
-            )
-        )
-        candidate = state.replace(
-            params=params,
-            opt_state=opt_state,
-            rollback_params=rollback_params,
-            rollback_opt_state=rollback_opt_state,
-            update_scale=scale,
-        )
-        safe = tree_is_finite((params, opt_state)) & jnp.all(jnp.isfinite(losses))
-        metrics = {
-            "train/grad_norm": optax.global_norm(grads),
-            "train/grads_finite": finite,
-            "train/alive_steps": jnp.sum(alive),
-            **_gradient_metrics(stats),
-            **_update_metrics(
-                state.params,
-                params,
-                safe=safe,
-                accepted=finite,
-                update_scale=jnp.where(safe, scale, state.update_scale),
-            ),
-        }
-        return (
-            candidate,
-            carries,
-            jax.tree.map(lambda value: value.astype(jnp.float32), metrics),
-            safe,
-        )
-
-    def train(self, rng: jax.Array) -> tuple[OpenLoopTrainState, dict[str, Any]]:
+    def train(self, rng: jax.Array) -> tuple[BackpropTrainState, dict[str, Any]]:
         return _train(self, rng)
 
     def make_act(
-        self, state: OpenLoopTrainState, deterministic: bool | None = None
+        self, state: BackpropTrainState, deterministic: bool | None = None
     ) -> Callable:
         del deterministic
         return lambda obs, rng: open_loop_action(

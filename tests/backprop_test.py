@@ -20,6 +20,7 @@ from agents.backprop import (
 from agents.direct_gradient import (
     apply_policy_optimizer_update,
     finite_mean_gradients,
+    gradient_statistics,
     make_knot_chunk,
     make_parameterization,
 )
@@ -136,13 +137,19 @@ def test_controller_initialization_is_independent_of_reset_defaults(kind: str) -
     states = [agent.init_state(key) for agent in agents]
     _assert_trees_close(states[0].params, states[1].params)
     assert [env.reset_calls for env in envs] == [0, 0]
-    for agent, state in zip(agents, states, strict=True):
-        act = agent.make_act(state)
-        for obs in (jnp.zeros(2, jnp.float32), jnp.asarray([0.5, 1.5], jnp.float32)):
-            np.testing.assert_array_equal(act(obs, key), jnp.zeros(1, jnp.float32))
+    observations = jnp.asarray([[0.0, 0.0], [0.5, 1.5]], jnp.float32)
+    actions = [
+        jax.vmap(agent.make_act(state), in_axes=(0, None))(observations, key)
+        for agent, state in zip(agents, states, strict=True)
+    ]
+    np.testing.assert_array_equal(actions[0], actions[1])
+    np.testing.assert_array_equal(actions[0][0], jnp.zeros(1, jnp.float32))
     if kind == "open_loop":
+        np.testing.assert_array_equal(actions[0], jnp.zeros((2, 1), jnp.float32))
         np.testing.assert_array_equal(states[0].params, np.zeros((2, 1), np.float32))
         assert states[0].params.dtype == jnp.float32
+    else:
+        assert np.any(np.asarray(actions[0][1]) != 0)
 
 
 def test_compiled_policy_chunk_keeps_float32_action_boundary_for_float64_obs() -> None:
@@ -161,15 +168,19 @@ def test_compiled_policy_chunk_keeps_float32_action_boundary_for_float64_obs() -
         key = jax.random.key(2)
         state = agent.init_state(key)
         carry = agent.chunk.initialize(key)
+        expected_action = agent.make_act(state)(carry.obs, key)
         reward, (next_carry, trajectory) = jax.jit(agent.chunk.run)(state.params, carry)
     assert next_carry.obs.dtype == jnp.float64
     assert reward.dtype == jnp.float32
     assert trajectory.action.dtype == jnp.float32
     np.testing.assert_array_equal(trajectory.alive, [True, False])
-    np.testing.assert_array_equal(trajectory.action, np.zeros((2, 1), np.float32))
+    np.testing.assert_allclose(
+        trajectory.action[0], expected_action, rtol=1e-6, atol=1e-7
+    )
+    np.testing.assert_array_equal(trajectory.action[1], np.zeros(1, np.float32))
 
 
-def test_absolute_policy_has_unit_initial_sensitivity_and_bounded_actions() -> None:
+def test_policy_mean_has_unit_bias_sensitivity_and_clipped_actions() -> None:
     agent = _agent()
     state = agent.init_state(jax.random.key(3))
     obs = jnp.asarray([0.5, 1.5], jnp.float32)
@@ -177,12 +188,16 @@ def test_absolute_policy_has_unit_initial_sensitivity_and_bounded_actions() -> N
     def action(bias: jax.Array) -> jax.Array:
         params = {
             **state.params,
-            "action_mean": {**state.params["action_mean"], "bias": bias},
+            "action_mean": {
+                "kernel": jnp.zeros_like(state.params["action_mean"]["kernel"]),
+                "bias": bias,
+            },
         }
         return policy_action(agent.policy, params, obs)
 
     derivative = jax.jacrev(action)(jnp.zeros(1, jnp.float32))
     np.testing.assert_allclose(derivative, [[1.0]], rtol=1e-6, atol=0)
+    np.testing.assert_allclose(action(jnp.asarray([0.5])), [0.5], rtol=1e-6, atol=0)
     for bias in (-1e6, 1e6):
         value = action(jnp.asarray([bias], jnp.float32))
         assert np.all(np.isfinite(value))
@@ -402,4 +417,137 @@ def test_open_loop_reads_clock_index_from_current_history_layout():
         jnp.tanh(jnp.asarray([1 / 3])),
         rtol=1e-6,
         atol=1e-7,
+    )
+
+
+def test_raw_gradient_statistics_distinguish_zero_and_missing_signal():
+    raw = {
+        "weights": jnp.asarray([[jnp.nan, jnp.inf], [0.0, 0.0], [2.0, 0.0]]),
+        "bias": jnp.asarray([[-jnp.inf], [0.0], [-2.0]]),
+    }
+    aggregate, stats = jax.jit(finite_mean_gradients)(raw)
+    np.testing.assert_array_equal(stats.nonfinite_elements, 3)
+    np.testing.assert_array_equal(stats.total_elements, 9)
+    np.testing.assert_array_equal(stats.zero_elements, 4)
+    np.testing.assert_array_equal(stats.zero_rollouts, 1)
+    np.testing.assert_array_equal(stats.all_nonfinite_rollouts, 1)
+    np.testing.assert_array_equal(stats.aggregate_zero, False)
+    np.testing.assert_array_equal(aggregate["weights"], [1.0, 0.0])
+    np.testing.assert_array_equal(aggregate["bias"], [-1.0])
+
+    invalid = jax.tree.map(lambda leaf: jnp.full_like(leaf, jnp.nan), raw)
+    filtered, filtered_stats = jax.jit(finite_mean_gradients)(invalid)
+    unfiltered_stats = jax.jit(gradient_statistics)(
+        invalid, jax.tree.map(lambda leaf: jnp.mean(leaf, axis=0), invalid)
+    )
+    np.testing.assert_array_equal(filtered_stats.zero_elements, 0)
+    np.testing.assert_array_equal(filtered_stats.zero_rollouts, 0)
+    np.testing.assert_array_equal(filtered_stats.all_nonfinite_rollouts, 3)
+    np.testing.assert_array_equal(filtered_stats.all_missing_elements, 3)
+    np.testing.assert_array_equal(filtered_stats.aggregate_zero, True)
+    np.testing.assert_array_equal(unfiltered_stats.aggregate_zero, False)
+    np.testing.assert_array_equal(unfiltered_stats.aggregate_finite, False)
+    for leaf in jax.tree.leaves(filtered):
+        np.testing.assert_array_equal(leaf, jnp.zeros_like(leaf))
+
+
+def test_both_parameterizations_share_filtered_adam_and_keep_momentum() -> None:
+    class Carry(NamedTuple):
+        gradients: jax.Array
+        step: jax.Array
+
+    class Trajectory(NamedTuple):
+        alive: jax.Array
+
+    @jax.custom_vjp
+    def loss(params: jax.Array, gradients: jax.Array) -> jax.Array:
+        return jnp.asarray(0.0, jnp.float32)
+
+    def forward(params: jax.Array, gradients: jax.Array) -> tuple:
+        return loss(params, gradients), gradients
+
+    def backward(gradients: jax.Array, cotangent: jax.Array) -> tuple:
+        return cotangent * gradients, jnp.zeros_like(gradients)
+
+    loss.defvjp(forward, backward)
+
+    def run(params: jax.Array, carry: Carry, start_step: jax.Array) -> tuple:
+        del start_step
+        return -loss(params, carry.gradients), (
+            carry._replace(step=carry.step + 1),
+            Trajectory(jnp.asarray([True])),
+        )
+
+    agents = [_agent(kind) for kind in ("policy", "open_loop")]
+    params = jnp.asarray([1.0, -1.0], jnp.float32)
+    states = []
+    for agent in agents:
+        assert agent.learning_rate == 1e-4
+        object.__setattr__(agent, "chunk", dataclasses.replace(agent.chunk, run=run))
+        states.append(
+            agent.init_state(jax.random.key(0)).replace(
+                params=params, opt_state=agent.optimizer.init(params)
+            )
+        )
+    update = [jax.jit(agent.update) for agent in agents]
+    optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-4))
+    expected_params = params
+    expected_opt = optimizer.init(params)
+    batches = (
+        ([[2.0, 4.0], [4.0, 2.0]], [3.0, 3.0]),
+        ([[jnp.nan, 6.0], [2.0, jnp.inf]], [2.0, 6.0]),
+        ([[jnp.nan, jnp.inf], [-jnp.inf, jnp.nan]], [0.0, 0.0]),
+    )
+    for index, (raw, expected_gradient) in enumerate(batches):
+        carries = Carry(jnp.asarray(raw, jnp.float32), jnp.full(2, index, jnp.int32))
+        expected_updates, expected_opt = optimizer.update(
+            jnp.asarray(expected_gradient, jnp.float32), expected_opt, expected_params
+        )
+        expected_params = optax.apply_updates(expected_params, expected_updates)
+        results = [
+            apply(state, carries, jnp.asarray(0))
+            for apply, state in zip(update, states, strict=True)
+        ]
+        _assert_trees_close(results[0], results[1])
+        for state, next_carries, metrics, safe in results:
+            _assert_trees_close(
+                (state.params, state.opt_state), (expected_params, expected_opt)
+            )
+            np.testing.assert_array_equal(next_carries.step, [index + 1, index + 1])
+            np.testing.assert_array_equal(safe, True)
+            np.testing.assert_array_equal(metrics["train/accepted_updates"], 1)
+            np.testing.assert_array_equal(metrics["train/alive_steps"], 2)
+        states = [result[0] for result in results]
+    metrics = results[0][2]
+    np.testing.assert_array_equal(metrics["train/raw_grad_finite_rate"], 0)
+    np.testing.assert_array_equal(metrics["train/raw_zero_grad_elements"], 0)
+    np.testing.assert_array_equal(metrics["train/raw_zero_grad_rollouts"], 0)
+    np.testing.assert_array_equal(metrics["train/raw_all_nonfinite_grad_rollouts"], 2)
+    np.testing.assert_array_equal(metrics["train/zero_grad_update_rate"], 1)
+    assert float(metrics["train/parameter_change_norm"]) > 0
+
+
+@pytest.mark.parametrize("kind", ["policy", "open_loop"])
+def test_update_diagnostic_counts_sum_while_rates_average_over_intervals(kind):
+    agent = _agent(kind)
+    _, results = jax.jit(agent.train)(jax.random.key(3))
+    metrics = results["diagnostics"]
+    np.testing.assert_array_equal(metrics["train/attempted_updates"], [0, 2, 2])
+    np.testing.assert_array_equal(metrics["train/accepted_updates"], [0, 2, 2])
+    np.testing.assert_array_equal(metrics["train/update_accepted_rate"], [0, 1, 1])
+    np.testing.assert_array_equal(metrics["train/raw_grad_finite_rate"], [0, 1, 1])
+    np.testing.assert_array_equal(metrics["train/zero_grad_update_rate"], [0, 0, 0])
+    assert np.all(np.asarray(metrics["train/parameter_change_norm"])[1:] > 0)
+
+
+@pytest.mark.parametrize("kind", ["policy", "open_loop"])
+def test_unsafe_update_diagnostics_report_no_committed_parameter_change(kind):
+    agent = _agent(kind, env=_Environment(fail=True), eval_freq=4)
+    _, results = jax.jit(agent.train)(jax.random.key(5))
+    metrics = results["diagnostics"]
+    np.testing.assert_array_equal(metrics["train/attempted_updates"], [0, 1, 1, 0, 0])
+    np.testing.assert_array_equal(metrics["train/accepted_updates"], [0, 1, 0, 0, 0])
+    np.testing.assert_array_equal(metrics["train/parameter_change_norm"][2:], [0, 0, 0])
+    np.testing.assert_array_equal(
+        metrics["train/parameter_change_fraction"][2:], [0, 0, 0]
     )

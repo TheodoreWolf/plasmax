@@ -2,6 +2,7 @@
 
 import functools
 
+import jax
 import numpy as np
 import pytest
 
@@ -77,6 +78,17 @@ def test_seed_keys_do_not_depend_on_batch_size():
     first_ten = seed_keys(7, 10)[:5]
 
     np.testing.assert_array_equal(first_five, first_ten)
+
+
+def test_seed_keys_match_single_seed_mode_and_shard_consecutively():
+    first_shard = seed_keys(0, 5)
+    second_shard = seed_keys(5, 5)
+
+    np.testing.assert_array_equal(first_shard[0], jax.random.PRNGKey(0))
+    np.testing.assert_array_equal(
+        np.concatenate((first_shard, second_shard)),
+        seed_keys(0, 10),
+    )
 
 
 def test_lh_transition_binds_the_environment_rampup_duration():

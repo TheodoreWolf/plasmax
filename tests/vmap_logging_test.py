@@ -32,12 +32,15 @@ class _FakeRun:
         self.name = name
         self.summary = {}
         self.logged = []
+        self.committed_steps = []
         self.finished = False
         self.exit_code = None
         self.artifacts = []
 
-    def log(self, values, step):
+    def log(self, values, step, commit=False):
         self.logged.append((step, values))
+        if commit:
+            self.committed_steps.append(step)
 
     def log_artifact(self, artifact: _FakeArtifact) -> None:
         self.artifacts.append(artifact)
@@ -72,13 +75,24 @@ def test_seed_logger_streams_long_form_rows_and_raw_npz(
         out_dir=str(tmp_path),
     )
 
-    logger.log_batch(
+    logger.log(
         100,
+        0,
         {
-            "evaluation/return_mean": np.asarray([1.0, 3.0]),
-            "evaluation/episode_length_mean": np.asarray([5.0, 7.0]),
+            "evaluation/return_mean": 1.0,
+            "evaluation/episode_length_mean": 5.0,
         },
     )
+    assert fake_run.logged == []
+    logger.log(
+        100,
+        1,
+        {
+            "evaluation/return_mean": 3.0,
+            "evaluation/episode_length_mean": 7.0,
+        },
+    )
+    assert fake_run.committed_steps == [100]
     logger.finish()
 
     csv_path = tmp_path / "stable-run-name_metrics.csv"

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import fields
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
+from rejax.algos.algorithm import INIT_REGISTRATION_KEY
 from rejax.algos.ppo import PPO
-from rejax.networks import MLP, VNetwork
+from rejax.networks import MLP, GaussianPolicy, VNetwork
 
 from agents.normalization import EnvelopeNormalizationMixin
 from training.envelope_gymnax import GymnaxMultiDiscrete
@@ -185,4 +187,50 @@ class PPOAdapter(EnvelopeNormalizationMixin, PPO):
         return super().action_dim
 
 
-__all__ = ["MultiDiscretePolicy", "PPOAdapter"]
+def init_ppo_mean_params(
+    policy: GaussianPolicy, rng: jax.Array, observation_shape: tuple[int, ...]
+) -> Any:
+    """Initialize a deterministic mean network with PPO's actor key and weights."""
+    # Follow Rejax's initializer order without resetting an environment.
+    for name in dir(PPOAdapter):
+        if getattr(getattr(PPOAdapter, name), INIT_REGISTRATION_KEY, False):
+            rng, init_key = jax.random.split(rng)
+            if name == "initialize_network_params":
+                actor_key = jax.random.split(init_key, 3)[1]
+                break
+    else:
+        raise RuntimeError("PPO's registered network initializer was not found")
+    with jax.enable_x64(False):
+        params = policy.init(
+            actor_key,
+            jnp.zeros((1, *observation_shape), jnp.float32),
+            actor_key,
+        )["params"]
+    return {name: value for name, value in params.items() if name != "action_log_std"}
+
+
+def ppo_mean_action(
+    policy: GaussianPolicy, params: Any, observation: jax.Array
+) -> jax.Array:
+    """Evaluate the deterministic PPO mean at the float32 controller boundary."""
+    variables = {
+        "params": {
+            **params,
+            "action_log_std": jnp.zeros(policy.action_dim, jnp.float32),
+        }
+    }
+    distribution = policy.apply(
+        variables,
+        jnp.asarray(observation, jnp.float32)[None],
+        method="_action_dist",
+    )
+    low, high = (jnp.asarray(bound, jnp.float32) for bound in policy.action_range)
+    return jnp.clip(distribution.mode()[0], low, high)
+
+
+__all__ = [
+    "MultiDiscretePolicy",
+    "PPOAdapter",
+    "init_ppo_mean_params",
+    "ppo_mean_action",
+]

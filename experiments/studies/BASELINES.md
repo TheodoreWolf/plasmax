@@ -55,24 +55,21 @@ off by default: Rejax 0.1.2's RMS count widens to float64 after TORAX enables
 x64, which violates the JAX scan-carry contract. The repository does not patch
 or copy Rejax internals.
 
-The direct policy uses a deterministic 64x64 MLP with absolute normalized
-actions, a zero-initialized output head, and `tanh` action bounding. It starts
-at the action-range midpoint independently of the environment's reset actuator
-defaults and uses 64 parallel trajectories. It differentiates windows near 32
-steps (the largest divisor of the episode length no greater than 32), carries
-simulator state between windows,
-and cuts gradients at window boundaries. Adam uses learning rate 1e-6 and
-betas `(0.7, 0.95)`; ten-seed SPARC pilots found non-finite follow-up gradients
-at both SHAC's 0.002 setting and 5e-4, while 1e-6 remained finite at every
-checkpoint. Non-finite updates are skipped rather than silently zeroing
-individual gradient entries. This is a direct truncated-BPTT baseline, not SHAC: it does
-not add SHAC's learned terminal critic.
+The direct policy uses the deterministic mean of a 64x64 PPO actor, with the
+same seed-to-parameter initialization as PPO and CMA-ES and actions clipped to
+the environment's bounds. Initialization does not read reset actuator defaults.
+It uses 64 parallel trajectories and differentiates windows near 32 steps
+(the largest divisor of the episode length no greater than 32), carrying
+simulator state between windows and cutting gradients at window boundaries.
+It does not add a learned terminal critic.
 
 Direct knot schedules initialize unconstrained knots to zero, giving midpoint
 actions without reading reset actuator defaults. They use the same 64 parallel
-trajectories and truncated-BPTT windows as the direct policy, with physical
-simulator state carried between
-windows and gradients cut at each boundary. Adam uses learning rate 0.05. All
+trajectories and truncated-BPTT windows as the direct policy. Both
+parameterizations share coordinatewise finite-only gradient averaging, replacing
+coordinates without finite samples with zero, followed by global-norm clipping
+at 1.0 and Adam with a default learning rate of 1e-4. There is no rollback or
+backoff; nonfinite losses or optimizer results stop further training. All
 direct methods retain the best fixed-evaluation checkpoint because
 differentiable control can cross a hard disruption or actuator-saturation cliff
 after finding a good iterate.
@@ -102,11 +99,11 @@ Local Isambard artifacts are written below
 - `*_config.json`: complete run configuration;
 - `*_checkpoint.npz`: retained parameters for direct methods.
 
-`experiments/plotting/plot_baseline_learning_curves.py` first combines every recorded
+`plotting/scripts/_archive/legacy/experiments/plotting/plot_baseline_learning_curves.py` (preserved local historical script) first combines every recorded
 per-seed evaluation statistic into `baseline_returns.csv`, then writes
 `baseline_learning_curves.csv` with a two-sided 95% Student-t interval across
 training-seed means (for ten seeds, 9 degrees of freedom). Tables go under
-`outputs/` and one PNG per environment goes under `plots/`, with oracle and
+`outputs/` and historical rendered figures are preserved under `plotting/outputs/legacy/plots/`, with oracle and
 realistic variants as side-by-side panels when both are present.
 Evaluation-episode variation within a seed is not incorrectly treated as an
 independent training seed.

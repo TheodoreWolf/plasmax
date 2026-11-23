@@ -286,6 +286,9 @@ def test_native_controller_roundtrip_preserves_parameters_and_source_clock(
     if algorithm == "es":
         assert loaded.inference["parameterization"] == kind
         assert "es_state" not in loaded.inference
+    elif kind == "policy":
+        assert loaded.inference["model"]["hidden_layer_sizes"] == [4]
+        assert "action_log_std" not in loaded.inference["params"]
     for expected, actual in zip(
         jax.tree.leaves(state.params),
         jax.tree.leaves(loaded.inference["params"]),
@@ -306,7 +309,10 @@ def test_native_controller_roundtrip_preserves_parameters_and_source_clock(
         )
     if kind == "policy":
         np.testing.assert_allclose(
-            act(obs, jax.random.key(0)), [np.tanh(1.5)], rtol=1e-6, atol=1e-6
+            act(obs, jax.random.key(0)),
+            [1.0 if algorithm == "backprop" else np.tanh(1.5)],
+            rtol=1e-6,
+            atol=1e-6,
         )
     if kind == "open_loop":
         np.testing.assert_allclose(
@@ -321,6 +327,81 @@ def test_native_controller_roundtrip_preserves_parameters_and_source_clock(
             rtol=1e-6,
             atol=1e-6,
         )
+
+
+@pytest.mark.parametrize("algorithm", ["cma_es", "backprop"])
+def test_ppo_mean_policy_roundtrip_preserves_clipped_mean_without_sampling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, algorithm: str
+) -> None:
+    env = TruncationWrapper(
+        env=CheapBoundaryEnv(
+            obs_dim=2, action_low=(-0.7, -0.8), action_high=(0.9, 0.6)
+        ),
+        max_steps=2,
+    )
+    agent = (
+        ESAgent.create(
+            env,
+            strategy="cma_es",
+            population_size=4,
+            total_timesteps=8,
+            hidden_sizes=(4,),
+        )
+        if algorithm == "cma_es"
+        else BackpropPolicyAgent.create(
+            env,
+            total_timesteps=2,
+            num_rollouts=1,
+            gradient_horizon=2,
+            hidden_sizes=(4,),
+        )
+    )
+    state = agent.init_state(jax.random.key(4))
+    state = state.replace(
+        params={
+            **state.params,
+            "action_mean": {
+                "kernel": jnp.zeros_like(state.params["action_mean"]["kernel"]),
+                "bias": jnp.asarray([1.5, -0.4], jnp.float32),
+            },
+        }
+    )
+    path = save_policy(
+        agent,
+        state,
+        tmp_path / "mean-policy.msgpack",
+        deterministic=False if algorithm == "cma_es" else None,
+    )
+    expected_act = agent.make_act(state)
+
+    def forbid_init(*args, **kwargs):
+        raise AssertionError("loading must not initialize a model or environment")
+
+    monkeypatch.setattr(nn.Module, "init", forbid_init)
+    monkeypatch.setattr(CheapBoundaryEnv, "init", forbid_init)
+    loaded = load_policy(path)
+    assert loaded.algorithm == ("es" if algorithm == "cma_es" else "backprop_policy")
+    assert loaded.deterministic
+    assert loaded.inference["model"]["type"] == "GaussianPolicy"
+    assert "action_log_std" not in loaded.inference["params"]
+    assert "es_state" not in loaded.inference
+    for expected, actual in zip(
+        jax.tree.leaves(state.params),
+        jax.tree.leaves(loaded.inference["params"]),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(actual, expected)
+
+    obs = jnp.asarray([0.2, 1.3], jnp.float64)
+    for deterministic in (False, True):
+        act = jax.jit(loaded.make_act(deterministic=deterministic))
+        for key in jax.random.split(jax.random.key(1), 2):
+            actual = act(obs, key)
+            assert actual.dtype == jnp.float32
+            np.testing.assert_allclose(actual, [0.9, -0.4], rtol=1e-6, atol=1e-6)
+            np.testing.assert_allclose(
+                actual, expected_act(obs, key), rtol=1e-6, atol=1e-6
+            )
 
 
 @pytest.mark.parametrize("kind", ["ppo", "sac", "policy", "knots_10", "knots_100"])

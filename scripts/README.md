@@ -7,14 +7,21 @@ the installed `plasmax` distribution. Run them from the repository root with
 | Entrypoint | Purpose |
 |---|---|
 | `evaluate_policy.py` | Compare saved policies with paired episode keys, including backend transfer. |
-| `rollout_discharge.py` | Roll out a constant-action discharge and render its traces. |
+| `rollout_discharge.py` | Collect a constant-action discharge as numeric NPZ and JSON. |
 
 `_runtime.py` and `project_paths.py` are shared private helpers rather than
 entrypoints. Training launchers and the agent API are documented in
 [training/README.md](../training/README.md).
 
-Research studies and publication plotting live under `experiments/`. Artifact,
-calibration, and equilibrium builders live under `tools/`.
+Research studies live under `experiments/`. Standalone plots live in ignored
+`plotting/scripts/`, with saved inputs in `plotting/data/` and PDFs in
+`plotting/outputs/`. This optional local workspace is not present in fresh
+clones. Artifact, calibration, and equilibrium builders live under `tools/`.
+
+The discharge collector saves scalar traces, radial grids, full profiles,
+initial-state arrays, and diagnostics without rendering. When the local
+workspace is available, `plotting/scripts/plot_discharge_rollout.py` redraws
+those saved inputs without rerunning the simulator.
 
 ```bash
 uv run python scripts/evaluate_policy.py --policies outputs/policies/policy.msgpack \
@@ -28,3 +35,9 @@ validity/boundary masks, observations, rewards, and requested/applied controls.
 Use `--env-setup` and `--backend` when a programmatic export has no named run
 configuration; `--target-backend` adds a paired transfer comparison.
 Evaluation defaults to online W&B logging.
+
+## Control Room
+
+The interactive simulator now lives in the separate sibling repository
+[`control-room`](../../control-room/README.md), with its own frontend, server,
+dependencies, and launch instructions.

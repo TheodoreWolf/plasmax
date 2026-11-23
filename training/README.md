@@ -29,15 +29,23 @@ ES and MPC use native Envelope training; PPO/SAC use upstream Rejax. Whole train
 can be jitted and vmapped across seeds with the same static configuration.
 TGLFNN training seeds must run as separate single-seed processes.
 
+Both Backprop parameterizations use the same truncated-gradient optimizer:
+each gradient coordinate is averaged over its finite rollout values, and
+coordinates without finite values become zero. Global-norm clipping precedes
+Adam, with a shared default learning rate of `1e-4`. Nonfinite gradients do not
+trigger rollback or learning-rate backoff. A zero gradient still advances Adam
+and can move parameters through existing momentum.
+
 Agents predict absolute actions using the environment's existing action space
-and scaling. Backprop and ES feedback policies use a zero-initialized output
+and scaling. Backprop and CMA-ES feedback policies use PPO's initialized mean
+network and clipped mean action. OpenES feedback uses a zero-initialized output
 head followed by `tanh`; APG applies the same transform across its planned
-sequence and scales to the native action bounds. These deterministic policies
-and the zero-initialized Backprop/ES open-loop knots start at the action-range
-midpoint. PPO/SAC retain upstream actor initialization; SAPO/MPC retain their
-existing action parameterizations. No agent reads reset actuator defaults to
-initialize its policy. Simulator reset values, action history, and rate limits
-still use those defaults.
+sequence and scales to the native action bounds. OpenES/APG policies and the
+zero-initialized Backprop/ES open-loop knots start at the action-range midpoint.
+PPO/SAC retain upstream actor initialization; SAPO/MPC retain their existing
+action parameterizations. No agent reads reset actuator defaults to initialize
+its policy. Simulator reset values, action history, and rate limits still use
+those defaults.
 
 The `residual_policy` and `action_setpoint` options, PPO's residual-only
 `initial_log_std`, and reset-only Backprop/APG `init_seed` have been removed.
@@ -103,14 +111,27 @@ OpenES requires an even population. `--es.num-rollouts` counts full episodes per
 candidate (one by default), with shared reset seeds across candidates and fresh
 seeds each generation. Knot runs enable time-aware observations automatically.
 
+CMA-ES feedback policies initialize the same 64×64 Swish mean network as PPO,
+including its random output layer and per-training-seed RNG sequence. They use
+PPO's clipped mean action deterministically; action log-standard-deviation is
+not part of the search. OpenES feedback policies retain their zero-initialized
+output layer and `tanh` action mapping. Knot initialization is unchanged.
+
 A generation costs `population_size × num_rollouts × episode_steps` scheduled
-simulator steps. Training runs only complete generations within
-`--es.total-timesteps` and rejects budgets smaller than one generation. Episode
-horizons are never shortened to fit the budget. Evaluation runs initially, at
-generation boundaries crossing `--es.eval-freq`, and finally; it and inference
-export use the current distribution mean. W&B records the strategy and
+simulator steps. CMA-ES treats `--es.total-timesteps` as a target and rounds up
+to complete generations, with at least one generation. For example, a 5M-step
+target with 8,400-step episodes, 128 candidates and 16 rollouts runs one
+17,203,200-step generation. OpenES runs only complete generations within its
+budget and rejects budgets smaller than one generation. Episode horizons,
+populations and rollout counts are never shortened to fit the budget.
+Evaluation runs initially, at
+generation boundaries crossing `--es.eval-freq`, and finally, using 128 parallel
+episodes and evaluation seed 0 by default, matching PPO. Evaluation and inference
+export use the current search-distribution mean. W&B records the strategy and
 parameterization alongside the existing evaluation metrics, generation and
-search scale. Logging defaults to online and training defaults to one seed.
+search scale. Training diagnostics also record the step cost per generation,
+planned generation count, planned steps and budget overshoot. Logging defaults
+to online and training defaults to one seed.
 
 The defaults are starting settings, not tuned results. Full CMA-ES stores a
 dense covariance, so the small open-loop parameterization is the practical

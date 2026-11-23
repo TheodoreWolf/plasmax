@@ -7,10 +7,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from envelope import Continuous
+from envelope import Continuous, Environment, static_field
 
+from agents.backprop import BackpropPolicyAgent
 from agents.es import ESAgent
+from agents.ppo import PPOAdapter
 from plasmax.spaces import ObsLayout
+from training.envelope_gymnax import EnvelopeGymnax
 
 
 class _Info(NamedTuple):
@@ -78,6 +81,10 @@ class _ClockRewardEnvironment(_Environment):
         del action
         state = state._replace(step=state.step + 1)
         return state, self.info(state, state.step.astype(jnp.float32))
+
+
+class _PPOEnvironment(_Environment, Environment):
+    terminal_at: int = static_field(default=4)
 
 
 class _RandomRewardEnvironment(_Environment):
@@ -168,6 +175,91 @@ def test_controller_initialization_is_independent_of_reset_defaults(
         assert states[0].params.dtype == jnp.float32
 
 
+@pytest.mark.parametrize("typed_keys", [False, True])
+@pytest.mark.parametrize("algorithm", ["cma_es", "backprop"])
+def test_direct_policy_initialization_matches_ppo_eager_jit_and_vmap(
+    typed_keys: bool,
+    algorithm: str,
+) -> None:
+    env = _PPOEnvironment()
+    agent = (
+        _agent("cma_es", env=env, hidden_sizes=(3, 3))
+        if algorithm == "cma_es"
+        else BackpropPolicyAgent.create(
+            env,
+            hidden_sizes=(3, 3),
+            total_timesteps=8,
+            num_rollouts=2,
+            gradient_horizon=2,
+        )
+    )
+    gymnax_env = EnvelopeGymnax(env, max_steps_in_episode=env.max_steps)
+    ppo = PPOAdapter.create(
+        env=gymnax_env,
+        env_params=gymnax_env.default_params,
+        num_envs=2,
+        num_steps=2,
+        num_minibatches=1,
+        normalize_observations=False,
+        normalize_rewards=False,
+        agent_kwargs={"hidden_layer_sizes": agent.hidden_sizes, "activation": "swish"},
+    )
+    observations = jnp.asarray(
+        [[0.5, 1.5], [-2.0, 0.25], [100.0, -50.0], [-100.0, 50.0]],
+        jnp.float32,
+    )
+    key = jax.random.key(7) if typed_keys else jax.random.PRNGKey(7)
+    keys = jax.random.split(key, 3)
+
+    def snapshot(training_key: jax.Array) -> tuple[Any, ...]:
+        state = agent.init_state(training_key)
+        ppo_state = ppo.init_state(training_key)
+        expected_params = {
+            name: value
+            for name, value in ppo_state.actor_ts.params["params"].items()
+            if name != "action_log_std"
+        }
+        act = jax.vmap(agent.make_act(state), in_axes=(0, None))
+        ppo_act = jax.vmap(
+            ppo.make_act(ppo_state, deterministic=True), in_axes=(0, None)
+        )
+        return (
+            state.params,
+            expected_params,
+            act(observations, jax.random.key(0)),
+            act(observations, jax.random.key(1)),
+            ppo_act(observations, jax.random.key(0)),
+        )
+
+    eager = [snapshot(seed_key) for seed_key in keys]
+    compiled = jax.jit(snapshot)(keys[0])
+    batched = jax.jit(jax.vmap(snapshot))(keys)
+    results = [*eager, compiled]
+    for index, expected in enumerate(eager):
+        result = jax.tree.map(lambda leaf, i=index: leaf[i], batched)
+        _assert_trees_close(result, expected)
+        results.append(result)
+    _assert_trees_close(compiled, eager[0])
+    for params, expected_params, actions, repeated_actions, expected_actions in results:
+        assert jax.tree.structure(params) == jax.tree.structure(expected_params)
+        for actual, expected in zip(
+            jax.tree.leaves(params), jax.tree.leaves(expected_params), strict=True
+        ):
+            np.testing.assert_array_equal(actual, expected)
+        assert np.any(np.asarray(params["action_mean"]["kernel"]) != 0)
+        np.testing.assert_array_equal(actions, repeated_actions)
+        np.testing.assert_allclose(actions, expected_actions, rtol=1e-6, atol=1e-6)
+    assert not np.array_equal(
+        eager[0][0]["action_mean"]["kernel"], eager[1][0]["action_mean"]["kernel"]
+    )
+
+
+def test_es_default_evaluation_matches_ppo_episode_bank() -> None:
+    agent = ESAgent.create(env=_Environment(), hidden_sizes=(3,))
+    assert agent.eval_n_envs == 128
+    assert agent.eval_seed == 0
+
+
 @pytest.mark.parametrize(
     "options, message",
     [
@@ -180,6 +272,13 @@ def test_invalid_population_or_insufficient_budget_is_rejected(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         _agent(**options)
+
+
+@pytest.mark.parametrize("strategy", ["open_es", "cma_es"])
+@pytest.mark.parametrize("total_timesteps", [0, -1])
+def test_nonpositive_budget_is_rejected(strategy: str, total_timesteps: int) -> None:
+    with pytest.raises(ValueError, match="total_timesteps must be positive"):
+        _agent(strategy, total_timesteps=total_timesteps)
 
 
 @pytest.mark.parametrize("strategy", ["open_es", "cma_es"])
@@ -242,7 +341,7 @@ def test_rollouts_sum_full_episode_and_exclude_terminal_padding(
 
 
 @pytest.mark.parametrize("strategy", ["open_es", "cma_es"])
-def test_budget_counts_candidates_and_rollouts_and_stops_at_last_generation(
+def test_budget_counts_candidates_and_rollouts_and_rounds_by_strategy(
     strategy: str,
 ) -> None:
     agent = _agent(
@@ -253,10 +352,56 @@ def test_budget_counts_candidates_and_rollouts_and_stops_at_last_generation(
         eval_freq=35,
     )
     state, results = jax.jit(agent.train)(jax.random.key(3))
-    np.testing.assert_array_equal(state.global_step, 96)
-    np.testing.assert_array_equal(state.alive_steps, 48)
-    np.testing.assert_array_equal(state.update_index, 3)
-    np.testing.assert_array_equal(results["global_step"], [0, 64, 96])
+    generations = 4 if strategy == "cma_es" else 3
+    planned_steps = generations * 32
+    expected_steps = [0, 64, 96, 128] if strategy == "cma_es" else [0, 64, 96]
+    np.testing.assert_array_equal(state.global_step, planned_steps)
+    np.testing.assert_array_equal(state.alive_steps, planned_steps // 2)
+    np.testing.assert_array_equal(state.update_index, generations)
+    np.testing.assert_array_equal(results["global_step"], expected_steps)
+    for key, value in {
+        "train/generation_steps": 32,
+        "train/planned_generations": generations,
+        "train/planned_steps": planned_steps,
+        "train/budget_overshoot": max(0, planned_steps - 101),
+    }.items():
+        np.testing.assert_array_equal(
+            results["diagnostics"][key], np.full(len(expected_steps), value)
+        )
+
+
+@pytest.mark.parametrize("total_timesteps, generations", [(1, 1), (32, 1), (33, 2)])
+def test_cma_budget_runs_at_least_one_complete_generation(
+    total_timesteps: int, generations: int
+) -> None:
+    agent = _agent("cma_es", "open_loop", total_timesteps=total_timesteps)
+    state, results = jax.jit(agent.train)(jax.random.key(3))
+    np.testing.assert_array_equal(state.update_index, generations)
+    np.testing.assert_array_equal(state.global_step, generations * 32)
+    np.testing.assert_array_equal(state.alive_steps, generations * 32)
+    np.testing.assert_array_equal(results["global_step"][-1], agent.planned_timesteps)
+    assert agent.episode_steps == 4
+    assert agent.population_size == 4
+    assert agent.num_rollouts == 2
+
+
+def test_cma_large_generation_budget_preserves_full_episodes_and_population() -> None:
+    agent = _agent(
+        "cma_es",
+        "open_loop",
+        total_timesteps=5_000_000,
+        episode_steps=8400,
+        population_size=128,
+        num_rollouts=16,
+        source_times=jnp.arange(8400, dtype=jnp.float32),
+    )
+    assert agent.episode_steps == 8400
+    assert agent.population_size == 128
+    assert agent.num_rollouts == 16
+    assert agent.generation_steps == 17_203_200
+    assert agent.num_generations == 1
+    assert agent.planned_timesteps == 17_203_200
+    assert agent.planned_timesteps - agent.total_timesteps == 12_203_200
 
 
 @pytest.mark.parametrize("strategy", ["open_es", "cma_es"])
@@ -337,10 +482,11 @@ def test_inference_uses_current_mean_controller_parameters(
     _assert_trees_close(state.params, agent.es.get_mean(state.es_state))
     obs = jnp.asarray([0.25, 2.0], jnp.float32)
     act = agent.make_act(state)
-    actual = jax.jit(act)(obs, jax.random.key(10))
+    compiled_act = jax.jit(act)
+    actual = compiled_act(obs, jax.random.key(10))
     expected = agent.controller.action(state.params, obs)
     np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-7)
-    np.testing.assert_array_equal(actual, act(obs, jax.random.key(11)))
+    np.testing.assert_array_equal(actual, compiled_act(obs, jax.random.key(11)))
     assert actual.shape == agent.env.action_space.shape
     assert np.all(np.abs(actual) <= 1.0)
 

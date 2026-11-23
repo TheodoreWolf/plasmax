@@ -102,6 +102,7 @@ def _paper_scenario(geometry_directory: Path, t_final: float, dt: float):
         "pedestal": {
             "model_name": "set_T_ped_n_ped",
             "set_pedestal": False,
+            "mode": "ADAPTIVE_TRANSPORT",
         },
         "transport": {
             "model_name": "constant",

@@ -24,12 +24,10 @@ class BackpropConfig:
     eval_freq: int = 1_000_000
     num_rollouts: int = 64
     gradient_horizon: int = 32
-    learning_rate: float | None = None
+    learning_rate: float = 1e-4
     hidden_sizes: tuple[int, ...] = (64, 64)
     num_knots: int = 10
     grad_clip: float = 1.0
-    nonfinite_backoff_factor: float = 0.5
-    min_update_scale: float = 1e-3
     remat: bool = True
 
 
@@ -61,14 +59,8 @@ def main(config: Config) -> None:
     )
     env = load_env(config.env, config.env.backend)
     options = dataclasses.asdict(config.backprop)
-    options["learning_rate"] = (
-        config.backprop.learning_rate
-        if config.backprop.learning_rate is not None
-        else (1e-4 if is_policy else 5e-2)
-    )
     if is_policy:
-        for name in ("num_knots", "nonfinite_backoff_factor", "min_update_scale"):
-            options.pop(name)
+        options.pop("num_knots")
     else:
         options.pop("hidden_sizes")
     agent_type = BackpropPolicyAgent if is_policy else BackpropOpenLoopAgent

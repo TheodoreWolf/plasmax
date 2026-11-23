@@ -16,7 +16,7 @@ from agents.backprop import BackpropPolicyAgent
 from agents.policy_io import save_policy
 from experiments.studies import train_direct_baseline
 from scripts import evaluate_policy
-from training import train_backprop, train_es, train_mpc
+from training import train_backprop, train_es, train_mpc, train_ppo
 from training.evaluation import check_interfaces
 from training.runs import EnvConfig
 
@@ -49,9 +49,9 @@ def _capture_launcher(monkeypatch, module):
     return calls
 
 
-@pytest.mark.parametrize("mode,rate", [("policy", 1e-4), ("open_loop", 5e-2)])
+@pytest.mark.parametrize("mode", ["policy", "open_loop"])
 def test_backprop_launcher_passes_supported_constructor_options_and_clock_metadata(
-    monkeypatch, mode, rate
+    monkeypatch, mode
 ):
     calls = _capture_launcher(monkeypatch, train_backprop)
     cfg = train_backprop.Config(
@@ -66,7 +66,7 @@ def test_backprop_launcher_passes_supported_constructor_options_and_clock_metada
     train_backprop.main(cfg)
     created = calls.created[0]
     _, effective, name = calls.runs[0]
-    assert created.options["learning_rate"] == rate
+    assert created.options["learning_rate"] == 1e-4
     assert created.options["total_timesteps"] == 80
     assert created.options["eval_freq"] == 12
     assert created.options["num_rollouts"] == 4
@@ -82,15 +82,45 @@ def test_backprop_launcher_passes_supported_constructor_options_and_clock_metada
     assert ("num_knots" in created.options) == (mode == "open_loop")
 
 
-def test_backprop_explicit_zero_learning_rate_and_run_name_are_preserved(monkeypatch):
+@pytest.mark.parametrize("mode", ["policy", "open_loop"])
+def test_backprop_explicit_zero_learning_rate_and_run_name_are_preserved(
+    monkeypatch, mode
+):
     calls = _capture_launcher(monkeypatch, train_backprop)
     train_backprop.main(
         train_backprop.Config(
-            run_name="given", backprop=train_backprop.BackpropConfig(learning_rate=0.0)
+            mode=mode,
+            run_name="given",
+            backprop=train_backprop.BackpropConfig(learning_rate=0.0),
         )
     )
     assert calls.created[0].options["learning_rate"] == 0.0
     assert calls.runs[0][2] == "given"
+
+
+@pytest.mark.parametrize(
+    ("args", "eval_n_envs", "eval_seed"),
+    [([], 128, 0), (["--env.eval-n-envs", "3", "--env.eval-seed", "42"], 3, 42)],
+)
+def test_es_launcher_evaluation_defaults_match_ppo_and_preserve_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    args: list[str],
+    eval_n_envs: int,
+    eval_seed: int,
+) -> None:
+    calls = _capture_launcher(monkeypatch, train_es)
+    config = tyro.cli(train_es.Config, args=args)
+    if not args:
+        ppo_env = train_ppo.Config().env
+        assert config.env.eval_n_envs == ppo_env.eval_n_envs
+        assert config.env.eval_seed == ppo_env.eval_seed
+
+    train_es.main(config)
+    created, effective, _ = calls.runs[0]
+    assert effective.env.eval_n_envs == config.env.eval_n_envs == eval_n_envs
+    assert effective.env.eval_seed == config.env.eval_seed == eval_seed
+    assert created.options["eval_n_envs"] == eval_n_envs
+    assert created.options["eval_seed"] == eval_seed
 
 
 @pytest.mark.parametrize("scale", [None, 0.0, 0.1, 0.5])
@@ -158,11 +188,9 @@ def test_direct_study_keeps_labels_and_budget_while_using_new_agents(
     assert algorithm in name
     assert effective.env.time_aware == (knots is not None)
     assert validated == [(cfg.env.env_setup, cfg.env.reward, cfg.env.backend)]
+    assert agent.options["learning_rate"] == cfg.direct.learning_rate == 1e-4
     if knots is not None:
         assert agent.options["num_knots"] == knots
-        assert agent.options["learning_rate"] == cfg.direct.knot_learning_rate
-    else:
-        assert agent.options["learning_rate"] == cfg.direct.policy_learning_rate
 
 
 def test_mpc_launcher_passes_planner_and_evaluation_settings(monkeypatch):

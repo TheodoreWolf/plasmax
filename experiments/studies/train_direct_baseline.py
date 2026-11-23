@@ -31,16 +31,9 @@ class DirectConfig:
     # simulator batch size as the feedback policy.
     num_rollouts: int = 0
     gradient_horizon: int = 32
-    # SHAC used 2e-3 for smoother rigid-body simulators. TORAX's stiff
-    # implicit solve produced non-finite follow-up gradients at both 2e-3 and
-    # 5e-4. A ten-seed SPARC pilot remained finite at every checkpoint with
-    # 1e-6, so use that conservative package default.
-    policy_learning_rate: float = 1e-6
-    knot_learning_rate: float = 5e-2
+    learning_rate: float = 1e-4
     hidden_sizes: tuple[int, ...] = (64, 64)
     grad_clip: float = 1.0
-    nonfinite_backoff_factor: float = 0.5
-    min_update_scale: float = 1e-3
     remat: bool = True
 
 
@@ -52,6 +45,7 @@ class Config:
     wandb: WandbConfig = dataclasses.field(default_factory=WandbConfig)
     seed: int = 0
     num_seeds: int = 10
+    run_name: str | None = None
     history_dir: str | None = None
     checkpoint_dir: str | None = None
     study: str = "debug"
@@ -75,6 +69,7 @@ def main(cfg: Config) -> None:
         eval_freq=cfg.direct.eval_freq,
         num_rollouts=cfg.direct.num_rollouts or 64,
         gradient_horizon=cfg.direct.gradient_horizon,
+        learning_rate=cfg.direct.learning_rate,
         grad_clip=cfg.direct.grad_clip,
         remat=cfg.direct.remat,
         eval_n_envs=cfg.env.eval_n_envs,
@@ -84,7 +79,6 @@ def main(cfg: Config) -> None:
         agent = BackpropPolicyAgent.create(
             env,
             **options,
-            learning_rate=cfg.direct.policy_learning_rate,
             hidden_sizes=cfg.direct.hidden_sizes,
         )
     else:
@@ -92,11 +86,8 @@ def main(cfg: Config) -> None:
             env,
             **options,
             num_knots=int(cfg.algorithm.rsplit("_", 1)[1]),
-            learning_rate=cfg.direct.knot_learning_rate,
-            nonfinite_backoff_factor=cfg.direct.nonfinite_backoff_factor,
-            min_update_scale=cfg.direct.min_update_scale,
         )
-    name = run_slug(
+    name = cfg.run_name or run_slug(
         cfg.algorithm,
         cfg.env.env_setup,
         cfg.env.backend or "native",

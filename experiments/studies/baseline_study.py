@@ -71,18 +71,21 @@ def validate_reward(
         )
 
 
-def seed_keys(base_seed: int, num_seeds: int) -> jax.Array:
-    """Return keys invariant to how a seed set is batched across jobs.
+def seed_keys(first_seed: int, num_seeds: int) -> jax.Array:
+    """Return consecutive numeric seed keys, invariant to job sharding.
 
-    ``jax.random.split(key, n)`` changes the key assigned to seed zero when
-    ``n`` changes. Folding an explicit seed index into one base key lets a
-    pilot, a five-seed shard, and the final ten-seed job use the same seed IDs.
+    Seed ``i`` is always ``jax.random.PRNGKey(i)``, matching single-seed runs.
+    Consequently, ``seed_keys(0, 5)`` followed by ``seed_keys(5, 5)`` is
+    identical to ``seed_keys(0, 10)``.
     """
     if num_seeds <= 0:
         raise ValueError("num_seeds must be positive")
-    indices = jnp.arange(num_seeds, dtype=jnp.uint32)
-    key = jax.random.PRNGKey(base_seed)
-    return jax.vmap(lambda index: jax.random.fold_in(key, index))(indices)
+    indices = jnp.arange(
+        first_seed,
+        first_seed + num_seeds,
+        dtype=jnp.uint32,
+    )
+    return jax.vmap(jax.random.PRNGKey)(indices)
 
 
 def indexed_keys(key: jax.Array, count: int) -> jax.Array:
