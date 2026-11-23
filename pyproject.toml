@@ -40,6 +40,7 @@ research = [
     "chex",
     "wandb",
     "tyro",
+    "litellm>=1.80.0",
     "plotly",
     "matplotlib",
     "pillow",

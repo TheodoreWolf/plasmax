@@ -30,6 +30,8 @@ CLAUDE.md
 
 # Local-only research infrastructure and notes.
 /experiments/*
+!/experiments/agent_policy_search/
+!/experiments/agent_policy_workspace/
 /docs/
 /tools/manifests/*
 .flairignore
