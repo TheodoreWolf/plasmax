@@ -154,6 +154,14 @@ wrapper owns its RNG; `init(key)` and `reset(state, key)` seed these streams.
 
 If termination and the time limit coincide, termination wins.
 
+On `INVALID_STATE` (code `4`), the TORAX core returns its entire input
+`EnvState` unchanged and observes that state. The episode still terminates;
+info retains diagnostics from the failed attempt. Custom rewards receive the
+input state as `next_state`, the attempted clipped action, and code `4`;
+built-in rewards return zero. Wrappers retain their usual step behavior,
+including RNG and history updates. This fallback does not guarantee finite
+gradients through a failed solve.
+
 Fixed-shape rollout collection is part of the installed library:
 
 ```python
@@ -177,6 +185,8 @@ trajectory = collect_episode(
 
 The collector retains the first terminal transition, stops stepping the
 environment, and pads the remaining fixed-size output with `valid=False`.
+An invalid-state terminal transition repeats the input state's physical time
+and physics values. It still counts toward episode length and physics metrics.
 
 ## Contribution and Development
 

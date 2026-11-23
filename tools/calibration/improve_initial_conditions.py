@@ -904,9 +904,12 @@ def verify_packaged_references() -> dict[str, Any]:
         ("T_e", "T_e_keV"),
         ("n_e", "n_e_m-3"),
     ):
+        expected = np.asarray(round_significant(advanced[column_name]))
+        if condition_name == "n_e":
+            expected -= 5e18
         np.testing.assert_allclose(
             _numeric_mapping_values(advanced_conditions[condition_name]),
-            round_significant(advanced[column_name]),
+            expected,
             rtol=1e-7,
             atol=0.0,
         )

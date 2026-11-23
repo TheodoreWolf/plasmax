@@ -46,6 +46,11 @@ def test_shared_metrics_keep_terminal_transition_mask_padding_and_pair_keys():
     )
     np.testing.assert_array_equal(trajectory.valid[0], [True, True, False, False])
     np.testing.assert_array_equal(trajectory.done[0], [False, True, False, False])
+    np.testing.assert_array_equal(metrics["evaluation/return_mean"], 3)
+    np.testing.assert_array_equal(metrics["evaluation/episode_length_mean"], 2)
+    np.testing.assert_array_equal(metrics["termination/q_min_disruption_rate"], 1)
+    np.testing.assert_array_equal(metrics["evaluation/nonfinite_reward_rate"], 0)
+    assert "obs/beta_N" not in metrics
 
 
 def test_return_collection_supports_outer_jit_vmap():

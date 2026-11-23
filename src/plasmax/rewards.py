@@ -113,6 +113,32 @@ def P_diff_MW(
     return _terminal_reward((fusion - auxiliary) * 1e-6, termination_code)
 
 
+def P_diff_107(
+    state: EnvState,
+    action: jax.Array,
+    next_state: EnvState,
+    termination_code: jax.Array,
+) -> jax.Array:
+    """Fusion power minus auxiliary heating power, in units of 10 MW."""
+    del state, action
+    fusion = _valid_input(next_state.plasma.P_fusion, termination_code)
+    auxiliary = _valid_input(next_state.plasma.P_aux_total, termination_code)
+    return _terminal_reward((fusion - auxiliary) * 1e-7, termination_code)
+
+
+def P_diff_108(
+    state: EnvState,
+    action: jax.Array,
+    next_state: EnvState,
+    termination_code: jax.Array,
+) -> jax.Array:
+    """Fusion power minus auxiliary heating power, in units of 100 MW."""
+    del state, action
+    fusion = _valid_input(next_state.plasma.P_fusion, termination_code)
+    auxiliary = _valid_input(next_state.plasma.P_aux_total, termination_code)
+    return _terminal_reward((fusion - auxiliary) * 1e-8, termination_code)
+
+
 def W_thermal(
     state: EnvState,
     action: jax.Array,
@@ -255,9 +281,11 @@ _REWARD_ALIASES: dict[str, RewardFn] = {
     "beta_N": beta_N,
     "P_diff": P_diff,
     "P_diff_MW": P_diff_MW,
+    "P_diff_107": P_diff_107,
     "W_thermal": W_thermal,
     "rampdown": rampdown,
     "lh_transition": lh_transition,
+    "P_diff_108": P_diff_108,
 }
 
 
