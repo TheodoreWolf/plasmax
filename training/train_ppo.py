@@ -60,6 +60,7 @@ from experiments.studies.baseline_study import seed_keys
 from plasmax.environment.factory import make
 from plasmax.environment.registry import resolve_backend
 from plasmax.wrappers import (
+    CorruptedActionWrapper,
     NoiseWrapper,
     ObsDelayWrapper,
     ObsFilterWrapper,
@@ -123,6 +124,8 @@ class EnvConfig:
     # Discretize every actuator into this many evenly spaced bins (MultiDiscrete
     # action space; realistic variant only). None = continuous actions.
     quantize_bins: int | None = None
+    # Gaussian action-noise std as a fraction of each actuator's range.
+    action_noise_scale: float | None = None
     # Number of episodes to roll out per seed during the transfer evaluation.
     transfer_n_envs: int = 128
 
@@ -222,6 +225,8 @@ def _run_name(cfg: Config) -> str:
         name += "-time_aware"
     if cfg.env.quantize_bins is not None:
         name += f"-q{cfg.env.quantize_bins}"
+    if cfg.env.action_noise_scale is not None:
+        name += f"-action_noise{cfg.env.action_noise_scale:g}"
     if cfg.env.deterministic_eval:
         name += "-det_eval"
     if cfg.num_seeds > 1:
@@ -297,6 +302,8 @@ def _load_env(cfg: Config, backend_alias_or_path: str | None) -> Environment:
         backend_alias_or_path,
         reward=cfg.env.reward,
     )
+    if cfg.env.action_noise_scale is not None:
+        env = CorruptedActionWrapper(env, noise_scale=cfg.env.action_noise_scale)
     if variant == "realistic":
         return RealisticWrappers(
             env, time_aware=cfg.env.time_aware, quantize_bins=cfg.env.quantize_bins

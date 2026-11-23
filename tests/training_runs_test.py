@@ -4,6 +4,7 @@ import dataclasses
 import sys
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import jax
 import jax.numpy as jnp
@@ -20,6 +21,7 @@ from agents.policy_io import LoadedPolicy, environment_interface, load_policy
 from agents.ppo import PPOAdapter
 from agents.sac import SACAdapter
 from plasmax.spaces import ObsLayout
+from plasmax.wrappers import CorruptedActionWrapper
 from training import runs, train_ppo, train_sac, vmap_logging
 from training.envelope_gymnax import EnvelopeGymnax
 
@@ -129,6 +131,38 @@ def tracking(monkeypatch):
     monkeypatch.setattr(runs, "SeedBufferLogger", Logger)
     monkeypatch.setattr(runs.wandb, "Artifact", Artifact)
     return records
+
+
+@pytest.mark.parametrize("noise_scale", [None, 0.0, 0.1])
+@pytest.mark.parametrize("variant", ["realistic", "oracle"])
+def test_load_env_applies_action_noise_before_preset(
+    monkeypatch: pytest.MonkeyPatch, noise_scale: float | None, variant: str
+) -> None:
+    base = _env()
+    make = Mock(return_value=base)
+    preset = Mock()
+    monkeypatch.setattr(runs, "make", make)
+    monkeypatch.setattr(runs, f"{variant.title()}Wrappers", preset)
+    config = runs.EnvConfig(
+        env_setup="mock/circular/smoke",
+        reward="Q_fusion",
+        variant=variant,
+        max_steps=2,
+        time_aware=True,
+        action_noise_scale=noise_scale,
+    )
+
+    assert runs.load_env(config, "mock") is preset.return_value
+
+    make.assert_called_once_with("mock/circular/smoke", "mock", reward="Q_fusion")
+    inner = preset.call_args.args[0]
+    if noise_scale is None:
+        assert inner is base
+    else:
+        assert isinstance(inner, CorruptedActionWrapper)
+        assert inner.env is base
+        assert inner.noise_scale == noise_scale
+    preset.assert_called_once_with(inner, max_steps=2, time_aware=True)
 
 
 @pytest.mark.parametrize(
@@ -485,6 +519,32 @@ def test_environment_reconstruction_preserves_reward_and_source_clock(
     assert calls[0][1] == {"reward": expected}
     assert calls[1]["time_aware"] is True
     assert calls[1]["max_steps"] == 2
+
+
+@pytest.mark.parametrize("noise_scale", [0.0, 0.05])
+def test_environment_reconstruction_preserves_action_noise(monkeypatch, noise_scale):
+    env = _env()
+    monkeypatch.setattr(runs, "make", lambda *args, **kwargs: env)
+    monkeypatch.setattr(runs, "RealisticWrappers", lambda env, **kwargs: env)
+    policy = LoadedPolicy(
+        "ppo",
+        {},
+        environment_interface(env),
+        {
+            "config": {
+                "env": {
+                    "env_setup": "mock/circular/smoke",
+                    "backend": "mock",
+                    "action_noise_scale": noise_scale,
+                }
+            }
+        },
+        True,
+    )
+    restored = runs.load_policy_env(policy)
+    assert isinstance(restored, CorruptedActionWrapper)
+    assert restored.env is env
+    assert restored.noise_scale == noise_scale
 
 
 def test_reconstruction_rejects_changed_history_or_observation_layout(monkeypatch):

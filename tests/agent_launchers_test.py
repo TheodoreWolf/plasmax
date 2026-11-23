@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+import tyro
 from envelope import TruncationWrapper, static_field
 from helpers import CheapBoundaryEnv
 
@@ -15,7 +16,7 @@ from agents.backprop import BackpropPolicyAgent
 from agents.policy_io import save_policy
 from experiments.studies import train_direct_baseline
 from scripts import evaluate_policy
-from training import train_backprop, train_mpc
+from training import train_backprop, train_es, train_mpc
 from training.evaluation import check_interfaces
 from training.runs import EnvConfig
 
@@ -30,7 +31,7 @@ def _capture_launcher(monkeypatch, module):
 
     monkeypatch.setattr(module, "load_env", load)
     monkeypatch.setattr(module, "run_native", lambda *args: calls.runs.append(args))
-    for name in ("BackpropPolicyAgent", "BackpropOpenLoopAgent", "MPCAgent"):
+    for name in ("BackpropPolicyAgent", "BackpropOpenLoopAgent", "MPCAgent", "ESAgent"):
         if not hasattr(module, name):
             continue
         original = getattr(module, name)
@@ -90,6 +91,37 @@ def test_backprop_explicit_zero_learning_rate_and_run_name_are_preserved(monkeyp
     )
     assert calls.created[0].options["learning_rate"] == 0.0
     assert calls.runs[0][2] == "given"
+
+
+@pytest.mark.parametrize("scale", [None, 0.0, 0.1, 0.5])
+@pytest.mark.parametrize("run_name", [None, "given"])
+def test_es_launcher_preserves_action_noise_and_isolates_automatic_names(
+    monkeypatch: pytest.MonkeyPatch, scale: float | None, run_name: str | None
+) -> None:
+    calls = _capture_launcher(monkeypatch, train_es)
+    args = ["--parameterization", "open_loop", "--es.strategy", "cma_es"]
+    if scale is not None:
+        args += ["--env.action-noise-scale", str(scale)]
+    if run_name is not None:
+        args += ["--run-name", run_name]
+    config = tyro.cli(train_es.Config, args=args)
+    train_es.main(config)
+    created, effective, name = calls.runs[0]
+    assert calls.loaded[0][0] is effective.env
+    assert effective.env.action_noise_scale == scale
+    assert effective.env.time_aware
+    assert created.options["parameterization"] == "open_loop"
+    assert created.options["strategy"] == "cma_es"
+    assert created.options["num_knots"] == 10
+    assert created.options["population_size"] == 64
+    assert created.options["num_rollouts"] == 1
+    assert created.options["sigma"] == 0.01
+    if run_name is not None:
+        assert name == run_name
+    elif scale is None:
+        assert "-action_noise" not in name
+    else:
+        assert name.endswith(f"-action_noise{scale:g}")
 
 
 @pytest.mark.parametrize(
