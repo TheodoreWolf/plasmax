@@ -14,6 +14,11 @@ Run one small subset with::
         --environments iter/hybrid/flattop \
         --backends cgm \
         --variants realistic
+
+Compare held actuator policies over five paired initialization seeds with::
+
+    uv run python benchmarks/env_trajectory.py diagnose \
+        --environments iter/advanced/flattop --backends tglfnn
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import gc
+import hashlib
 import html
 import importlib.metadata
 import json
@@ -30,17 +36,18 @@ import platform
 import sys
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import tyro
 
 import plasmax
 from plasmax.environment.merge import valid_env_backend_combos
-from plasmax.wrappers import OracleWrappers, RealisticWrappers
+from plasmax.wrappers import OracleWrappers, RealisticWrappers, unwrap_to_env_state
 
 SCHEMA_VERSION = 1
 SEED = 0
@@ -108,9 +115,26 @@ class ReportConfig:
     require_baseline: bool = False
 
 
+ActionPolicy = Literal["midpoint", "nominal", "minimum_fuel"]
+
+
+@dataclasses.dataclass(frozen=True)
+class DiagnoseConfig:
+    """Compare held actuator policies across paired initialization seeds."""
+
+    environments: tuple[str, ...]
+    backends: tuple[str, ...] = ()
+    variants: tuple[Literal["oracle", "realistic"], ...] = VARIANTS
+    seeds: tuple[int, ...] = (0, 1, 2, 3, 4)
+    policies: tuple[ActionPolicy, ...] = ("midpoint", "nominal", "minimum_fuel")
+    output: Path = Path("outputs/env_trajectory_diagnostics.json")
+    revision: str | None = None
+
+
 Command = (
     Annotated[RunConfig, tyro.conf.subcommand(name="run")]
     | Annotated[ReportConfig, tyro.conf.subcommand(name="report")]
+    | Annotated[DiagnoseConfig, tyro.conf.subcommand(name="diagnose")]
 )
 
 
@@ -286,6 +310,14 @@ def _run_to_boundary(environment: Any) -> tuple[Any, jax.Array]:
         environment.action_space.shape,
         dtype=environment.action_space.dtype,
     )
+    _, info, steps = _advance_to_boundary(environment, state, info, action)
+    jax.block_until_ready((info, steps))
+    return info, steps
+
+
+def _advance_to_boundary(
+    environment: Any, state: Any, info: Any, action: jax.Array
+) -> tuple[Any, Any, jax.Array]:
     active = ~(info.terminated | info.truncated)
     steps = jnp.zeros((), dtype=jnp.int32)
 
@@ -305,9 +337,8 @@ def _run_to_boundary(environment: Any) -> tuple[Any, jax.Array]:
         None,
         length=environment.max_steps,
     )
-    jax.block_until_ready(final)
-    _, info, _, steps = final
-    return info, steps
+    state, info, _, steps = final
+    return state, info, steps
 
 
 def run_case(environment: str, backend: str, variant: str) -> CaseResult:
@@ -369,9 +400,13 @@ def _report_dict(report: TrajectoryReport) -> dict[str, Any]:
 
 def write_report(report: TrajectoryReport, path: Path) -> None:
     """Atomically write one report, rejecting non-standard JSON numbers."""
+    _write_json(_report_dict(report), path)
+
+
+def _write_json(data: Mapping[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(
-        _report_dict(report),
+        data,
         indent=2,
         sort_keys=True,
         allow_nan=False,
@@ -391,6 +426,179 @@ def write_report(report: TrajectoryReport, path: Path) -> None:
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def _diagnostic_action(environment: Any, policy: ActionPolicy) -> jax.Array:
+    """Resolve a physical target; nominal means the core's reset actuator vector."""
+    space = environment.unwrapped.action_space
+    low, high = jnp.asarray(space.low), jnp.asarray(space.high)
+    if policy == "midpoint":
+        return (low + high) / 2
+    state, _ = environment.init(jax.random.key(SEED))
+    action = unwrap_to_env_state(state).prev_action
+    if policy == "minimum_fuel":
+        fuel = jnp.asarray(
+            [
+                spec.name in {"gas_puff_rate", "pellet_rate"}
+                for spec in environment.actuator_specs
+            ]
+        )
+        action = jnp.where(fuel, low, action)
+    elif policy != "nominal":
+        raise ValueError(f"Unknown diagnostic policy: {policy!r}")
+    return action
+
+
+def _diagnostic_state(state: Any, greenwald_field: str) -> dict[str, Any]:
+    core = unwrap_to_env_state(state)
+    plasma = core.plasma
+    profiles = np.concatenate(
+        [np.asarray(getattr(plasma, name)) for name in ("T_e", "T_i", "n_e", "psi")]
+    )
+    return {
+        "time_s": float(plasma.t),
+        "ip_a": float(plasma.Ip),
+        "density_m3": float(getattr(plasma, greenwald_field.removeprefix("fgw_"))),
+        "greenwald_fraction": float(getattr(plasma, greenwald_field)),
+        "q_min": float(jnp.min(plasma.core.q_face)),
+        "profile_sha256": hashlib.sha256(profiles.tobytes()).hexdigest(),
+        "applied_action": np.asarray(core.prev_action).tolist(),
+    }
+
+
+def _diagnostic_runner(
+    environment: Any,
+) -> Callable[[jax.Array, jax.Array], tuple[Any, Any, Any, jax.Array]]:
+    space = environment.unwrapped.action_space
+    low, high = jnp.asarray(space.low), jnp.asarray(space.high)
+
+    @jax.jit
+    def run(key: jax.Array, action: jax.Array) -> tuple[Any, Any, Any, jax.Array]:
+        initial, info = environment.init(key)
+        normalized = 2 * (action - low) / (high - low) - 1
+        final, info, steps = _advance_to_boundary(
+            environment, initial, info, normalized
+        )
+        return initial, final, info, steps
+
+    return run
+
+
+def run_diagnostics(cfg: DiagnoseConfig) -> int:
+    """Run sequential seeds with one compiled scan per environment and variant."""
+    if not cfg.environments:
+        raise ValueError("diagnose requires explicit environments")
+    if not cfg.seeds or len(set(cfg.seeds)) != len(cfg.seeds):
+        raise ValueError("seeds must be non-empty and unique")
+    if any(seed < 0 or seed >= 2**32 for seed in cfg.seeds):
+        raise ValueError("seeds must be unsigned 32-bit integers")
+    if not cfg.policies or len(set(cfg.policies)) != len(cfg.policies):
+        raise ValueError("policies must be non-empty and unique")
+    if set(cfg.policies) - {"midpoint", "nominal", "minimum_fuel"}:
+        raise ValueError("Unknown diagnostic policy")
+    cases = select_cases(
+        RunConfig(
+            environments=cfg.environments, backends=cfg.backends, variants=cfg.variants
+        )
+    )
+    report: dict[str, Any] = {
+        "diagnostic_schema_version": 1,
+        "complete": False,
+        "revision": cfg.revision or os.environ.get("GITHUB_SHA"),
+        "generated_at_utc": _utc_now(),
+        "runner": dataclasses.asdict(_runner_metadata("diagnose")),
+        "seeds": cfg.seeds,
+        "policies": cfg.policies,
+        "expected_results": len(cases) * len(cfg.seeds) * len(cfg.policies),
+        "cases": {},
+        "results": [],
+    }
+    _write_json(report, cfg.output)
+    errors = 0
+    for environment, backend, variant in cases:
+        case = f"{environment}/{backend}/{variant}"
+        try:
+            env = (RealisticWrappers if variant == "realistic" else OracleWrappers)(
+                plasmax.make(environment, backend)
+            )
+            if variant == "realistic" and env.plasmax_config.actions.realistic.quantize:
+                raise ValueError("diagnose requires continuous actions")
+            disruption = env.plasmax_config.disruption
+            actions = {
+                policy: _diagnostic_action(env, policy) for policy in cfg.policies
+            }
+            report["cases"][case] = {
+                "environment": environment,
+                "backend": backend,
+                "variant": variant,
+                "horizon": env.max_steps,
+                "greenwald_field": disruption.greenwald_field,
+                "greenwald_threshold": disruption.greenwald_threshold,
+                "actuator_names": [spec.name for spec in env.actuator_specs],
+                "physical_actions": {
+                    name: np.asarray(action).tolist()
+                    for name, action in actions.items()
+                },
+                "configuration": env.plasmax_config.model_dump(mode="json"),
+            }
+
+            run = _diagnostic_runner(env)
+            for policy, action in actions.items():
+                for seed in cfg.seeds:
+                    result: dict[str, Any] = {
+                        "case": case,
+                        "seed": seed,
+                        "policy": policy,
+                    }
+                    started = time.perf_counter()
+                    try:
+                        initial, final, info, steps = jax.block_until_ready(
+                            run(jax.random.key(seed), action)
+                        )
+                        if not bool(info.terminated | info.truncated):
+                            raise RuntimeError("trajectory did not reach a boundary")
+                        result.update(
+                            status="ok",
+                            steps=int(steps),
+                            boundary="terminated"
+                            if bool(info.terminated)
+                            else "truncated",
+                            termination_code=int(info.termination_code),
+                            initial=_diagnostic_state(
+                                initial, disruption.greenwald_field
+                            ),
+                            final=_diagnostic_state(final, disruption.greenwald_field),
+                        )
+                    except Exception as error:  # noqa: BLE001 - retain other trials.
+                        errors += 1
+                        result.update(
+                            status="error",
+                            error_type=type(error).__name__,
+                            error_message=str(error),
+                        )
+                    result["elapsed_seconds"] = time.perf_counter() - started
+                    report["results"].append(result)
+                    _write_json(report, cfg.output)
+                    print(
+                        f"{case} {policy} seed={seed}: {result.get('steps')} steps, "
+                        f"code={result.get('termination_code')}, {result['status']}",
+                        flush=True,
+                    )
+        except Exception as error:  # noqa: BLE001 - retain other cases.
+            errors += 1
+            report["cases"][case] = {
+                "error_type": type(error).__name__,
+                "error_message": str(error),
+            }
+            _write_json(report, cfg.output)
+            print(f"{case}: {type(error).__name__}: {error}", flush=True)
+        finally:
+            jax.clear_caches()
+            gc.collect()
+    report["complete"] = len(report["results"]) == report["expected_results"]
+    report["generated_at_utc"] = _utc_now()
+    _write_json(report, cfg.output)
+    return 1 if errors else 0
 
 
 def _refresh_report(
@@ -1152,6 +1360,8 @@ def build_report(cfg: ReportConfig) -> int:
 def main(command: Command) -> int:
     if isinstance(command, RunConfig):
         return run_trajectories(command)
+    if isinstance(command, DiagnoseConfig):
+        return run_diagnostics(command)
     return build_report(command)
 
 

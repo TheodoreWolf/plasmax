@@ -142,8 +142,52 @@ def test_solver_failure_is_rejected_with_state_and_indices():
         _validate_solver_error_states(np.array([0, 1, 2, 1]))
 
 
+@pytest.mark.parametrize(
+    ("output_index", "invalid_value", "error_message"),
+    [
+        (0, np.nan, "non-finite observations"),
+        (1, True, "rollout terminated"),
+        (2, False, "did not complete the physical control interval"),
+        (4, 1, "solver reported failed or unknown states"),
+    ],
+)
+def test_invalid_initial_rollout_is_rejected_before_warm_repeats(
+    output_index, invalid_value, error_message, capsys
+):
+    outputs = (
+        np.zeros((2, 4)),
+        np.zeros(2, dtype=bool),
+        np.ones(2, dtype=bool),
+        np.ones(2, dtype=np.int32),
+        np.zeros(2, dtype=np.int32),
+    )
+    outputs[output_index][0] = invalid_value
+    calls = 0
+
+    def run(_key):
+        nonlocal calls
+        calls += 1
+        return outputs
+
+    with pytest.raises(RuntimeError, match=error_message):
+        backend_agreement._collect_rollout(
+            object(),
+            seed=8,
+            n_steps=2,
+            fail_on_boundary=True,
+            timing_repeats=3,
+            runner=run,
+        )
+
+    assert calls == 1
+    progress = capsys.readouterr().out
+    assert "seed=8 initial rollout:" in progress
+    assert "warm repeat" not in progress
+
+
+@pytest.mark.parametrize("cpu_scalar_sps", [(1.0, 2.0, 3.0), ()])
 def test_multi_seed_failures_are_reported_without_pruning_other_pairs(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, cpu_scalar_sps
 ):
     layout = ObsLayout(
         profile_slices={
@@ -191,6 +235,7 @@ def test_multi_seed_failures_are_reported_without_pruning_other_pairs(
             solver_iterations=np.ones(2, dtype=np.int32),
             solver_error_states=np.zeros(2, dtype=np.int32),
             elapsed_s=0.1,
+            timing_durations_s=(0.2, 0.1, 0.3) if _args[2] else (),
         )
 
     monkeypatch.setattr(backend_agreement, "_collect_rollout", collect)
@@ -201,7 +246,8 @@ def test_multi_seed_failures_are_reported_without_pruning_other_pairs(
             reference_backend="reference",
             seeds=(0, 1),
             n_steps=2,
-            cpu_scalar_sps=(1.0, 2.0, 3.0),
+            cpu_scalar_sps=cpu_scalar_sps,
+            timing_repeats=3,
             output=output,
             require_cpu=False,
         )
@@ -220,3 +266,46 @@ def test_multi_seed_failures_are_reported_without_pruning_other_pairs(
     }
     assert result["metrics"]["healthy"]["paired_seeds"] == [0, 1]
     assert result["metrics"]["partial"]["paired_seeds"] == [0]
+    assert result["comparison_mode"] == "registered"
+    assert result["shared_stack"] is None
+    assert result["physics_randomization_enabled"] is False
+    assert result["timing"]["partial"]["completed_control_intervals_by_seed"] == {
+        "0": 2
+    }
+    if cpu_scalar_sps:
+        assert result["timing"]["healthy"]["source"] == "provided"
+        assert result["timing"]["healthy"]["warm_durations_s"] == []
+    else:
+        assert result["timing"]["healthy"]["source"] == "measured"
+        assert result["timing"]["healthy"]["warm_durations_s"] == [0.2, 0.1, 0.3]
+        assert result["metrics"]["healthy"]["sps"] == 10.0
+
+
+def test_registered_mode_rejects_ignored_controlled_options():
+    with pytest.raises(ValueError, match="require comparison_mode='controlled'"):
+        backend_agreement._validate(Config(fixed_dt_s=0.5, require_cpu=False))
+
+
+@pytest.mark.parametrize("physics_randomization", [False, True])
+def test_registered_mode_applies_only_requested_physics_wrapper(
+    monkeypatch, physics_randomization
+):
+    bare_env = object()
+    wrapped_env = object()
+    monkeypatch.setattr(backend_agreement, "make", lambda _env, _backend: bare_env)
+
+    def wrap(env):
+        assert env is bare_env
+        return wrapped_env
+
+    monkeypatch.setattr(backend_agreement, "PhysicsRandomizationWrapper", wrap)
+    build, metadata = backend_agreement._comparison_setup(
+        Config(physics_randomization=physics_randomization)
+    )
+    assert build("cgm") is (wrapped_env if physics_randomization else bare_env)
+    assert metadata["physics_randomization_enabled"] is physics_randomization
+
+
+def test_controlled_mode_reports_required_migration():
+    with pytest.raises(NotImplementedError, match="require migration"):
+        backend_agreement._comparison_setup(Config(comparison_mode="controlled"))
