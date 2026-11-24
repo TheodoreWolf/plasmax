@@ -65,9 +65,6 @@ jobs:
       - name: Run fast test suite
         run: uv run pytest -m "not integration" tests/
 
-      - name: Run clone-only experiment tests
-        run: uv run pytest experiments/tests/
-
   integration-tests:
     name: Integration
     runs-on: ubuntu-latest

@@ -13,8 +13,14 @@ set_default_xla_flags("--xla_gpu_enable_command_buffer=")
 import tyro
 
 from agents.mpc import MPCAgent
-from experiments.studies.baseline_study import run_slug
-from training.runs import EnvConfig, WandbConfig, load_env, run_native, validate_seeds
+from training.runs import (
+    EnvConfig,
+    WandbConfig,
+    load_env,
+    run_native,
+    run_slug,
+    validate_seeds,
+)
 
 
 @dataclasses.dataclass

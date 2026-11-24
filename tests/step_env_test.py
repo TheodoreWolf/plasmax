@@ -256,9 +256,11 @@ class StepEnvOracleTest:
             ]
 
         np.testing.assert_allclose(post.P_ecrh_e, ec_power, rtol=1.0e-10, atol=1.0)
-        # The source shape is moment-matched to OpenSTEP, but the total rate is
-        # deliberately the exact TORAX v1.4.2 STEP value (3e21 s^-1).
-        np.testing.assert_allclose(post.S_pellet, 3.0e21, rtol=1.0e-12, atol=1.0)
+        # Keep the OpenSTEP source shape with the lower default fuelling.
+        np.testing.assert_allclose(post.S_pellet, 1.0e20, rtol=1.0e-12, atol=1.0)
+        np.testing.assert_allclose(
+            self._nominal_state.prev_action[2], post.S_pellet, rtol=1.0e-12, atol=1.0
+        )
         assert not np.isclose(float(post.S_pellet), pellet_rate, rtol=1.0e-3)
         np.testing.assert_allclose(
             post.P_alpha_total, fusion_power, rtol=2.0e-2, atol=0.0

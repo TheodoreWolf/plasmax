@@ -1,11 +1,14 @@
-"""Measure rollout agreement between transport backends over matched seeds.
+"""Measure profile agreement and throughput of registered environments.
 
-The comparison uses the same initial state, configured initial actuator values,
-and number of transitions for every backend. Agreement defaults to equal-weight
-mean squared error (MSE) on the normalized full profiles T_e, T_i, n_e, and q,
-with TGLFNN-linear as the reference. Each profile is averaged over its radial
-dimensions and time before the four profile scores are averaged equally. MRE
-remains available as an optional diagnostic.
+Registered comparisons retain each backend's configured transport, solver,
+numerics, and physics settings. Physics randomization is optional. The initial
+actuator vector is held fixed for every transition. The legacy controlled-mode
+options require migration of the research helper to the current environment API.
+
+Agreement defaults to equal-weight mean squared error (MSE) on the normalized
+full profiles T_e, T_i, n_e, and q, with TGLFNN-linear as the reference. Each
+profile is averaged over its radial dimensions and time before the four profile
+scores are averaged equally. MRE remains available as an optional diagnostic.
 
 Run on CPU:
 
@@ -36,6 +39,7 @@ BACKENDS = (
     "bohm_gyrobohm",
     "qlknn",
     "tglfnn",
+    "tglfnn_nr",
 )
 ErrorMetric = Literal["mse", "mre"]
 METRIC_SENSORS = (
@@ -49,10 +53,38 @@ METRIC_SENSORS = (
 @dataclasses.dataclass(frozen=True)
 class Config:
     env_setup: str = "iter/hybrid/flattop"
+    comparison_mode: Literal["registered", "controlled"] = "registered"
+    physics_randomization: bool = False
     backends: tuple[str, ...] = BACKENDS
     reference_backend: str = "tglfnn"
     n_steps: int = 100
-    seeds: tuple[int, ...] = tuple(range(11))
+    seeds: tuple[int, ...] = (8,)
+    fixed_dt_s: float = 0.1
+    n_corrector_steps: int = 10
+    solver_type: Literal["linear", "newton_raphson"] = "linear"
+    newton_backends: tuple[str, ...] = ()
+    newton_n_max_iterations: int = 100
+    newton_tau_min: float = 1.0e-6
+    template_backend: str = "bohm_gyrobohm"
+    max_solver_substeps: int = 1
+    normalize_transport_guards: bool = True
+    include_sawtooth: bool = True
+    geometry_preset: Literal[
+        "scenario",
+        "torax_iterhybrid_chease",
+        "iter_hybrid_repo_eqdsk",
+    ] = "scenario"
+    physics_preset: Literal["scenario", "torax_iterhybrid_reference"] = "scenario"
+    actuator_preset: Literal["scenario", "torax_iterhybrid_reference"] = "scenario"
+    te_gradient_factor: float = 1.0
+    ti_gradient_factor: float = 1.0
+    ne_gradient_factor: float = 1.0
+    p_nbi_w: float | None = None
+    p_eccd_w: float | None = None
+    rho_eccd: float | None = None
+    gas_puff_rate_s: float | None = None
+    equilibrium_initializations: Path | None = None
+    equilibrium_initialization_mode: Literal["backend", "consensus"] = "consensus"
     error_metric: ErrorMetric = "mse"
     metric_sensors: tuple[str, ...] = METRIC_SENSORS
     relative_floor_fraction: float = 1.0e-3
@@ -146,13 +178,7 @@ def _collect_rollout(
         (observations, boundaries, complete, iterations, error_states)
     )
     elapsed_s = time.perf_counter() - start
-
-    timing_durations = []
-    for _ in range(timing_repeats):
-        start = time.perf_counter()
-        timed_outputs = run(key)
-        jax.block_until_ready(timed_outputs)
-        timing_durations.append(time.perf_counter() - start)
+    print(f"  seed={seed} initial rollout: {elapsed_s:.2f}s", flush=True)
 
     observations_np = np.asarray(observations)
     boundaries_np = np.asarray(boundaries)
@@ -171,6 +197,19 @@ def _collect_rollout(
             f"transition indices {indices}"
         )
     _validate_solver_error_states(error_states_np)
+
+    timing_durations = []
+    for repeat in range(timing_repeats):
+        start = time.perf_counter()
+        timed_outputs = run(key)
+        jax.block_until_ready(timed_outputs)
+        duration_s = time.perf_counter() - start
+        timing_durations.append(duration_s)
+        print(
+            f"  seed={seed} warm repeat {repeat + 1}/{timing_repeats}: "
+            f"{duration_s:.2f}s",
+            flush=True,
+        )
     return Rollout(
         observations=observations_np,
         boundaries=boundaries_np,
@@ -298,12 +337,42 @@ def _validate(cfg: Config) -> None:
         raise ValueError("seeds must not contain duplicates")
     if cfg.n_steps < 1:
         raise ValueError("n_steps must be positive")
+    if not cfg.backends or len(set(cfg.backends)) != len(cfg.backends):
+        raise ValueError("backends must be nonempty and unique")
+    if cfg.comparison_mode not in ("registered", "controlled"):
+        raise ValueError(f"unknown comparison_mode {cfg.comparison_mode!r}")
+    if cfg.comparison_mode == "registered":
+        defaults = Config()
+        fields = tuple(field.name for field in dataclasses.fields(Config))
+        controlled_fields = fields[
+            fields.index("fixed_dt_s") : fields.index("error_metric")
+        ]
+        changed = [
+            name
+            for name in controlled_fields
+            if getattr(cfg, name) != getattr(defaults, name)
+        ]
+        if changed:
+            raise ValueError(
+                f"options {changed} require comparison_mode='controlled'; "
+                "registered comparisons retain the environment defaults"
+            )
+    elif cfg.physics_randomization:
+        raise ValueError("controlled comparisons require physics_randomization=False")
     if cfg.timing_repeats < 0:
         raise ValueError("timing_repeats must be non-negative")
     if not 0.0 < cfg.relative_floor_fraction < 1.0:
         raise ValueError("relative_floor_fraction must lie in (0, 1)")
     if cfg.reference_backend not in cfg.backends:
         raise ValueError("reference_backend must be included in backends")
+    if len(set(cfg.newton_backends)) != len(cfg.newton_backends):
+        raise ValueError("newton_backends must not contain duplicates")
+    unknown_newton_backends = set(cfg.newton_backends) - set(cfg.backends)
+    if unknown_newton_backends:
+        raise ValueError(
+            "newton_backends must be included in backends: "
+            f"{sorted(unknown_newton_backends)}"
+        )
     if not cfg.metric_sensors:
         raise ValueError("metric_sensors must not be empty")
     if len(set(cfg.metric_sensors)) != len(cfg.metric_sensors):
@@ -352,17 +421,85 @@ def _measured_throughput(
     return _throughput_sps(cfg, timed_rollouts)
 
 
+def _comparison_setup(cfg: Config) -> tuple[Callable[[str], Any], dict[str, Any]]:
+    """Select environment construction and describe only applied overrides."""
+    if cfg.comparison_mode == "registered":
+
+        def build_registered(backend: str) -> Any:
+            env = make(cfg.env_setup, backend)
+            if cfg.physics_randomization:
+                return PhysicsRandomizationWrapper(env)
+            return env
+
+        return build_registered, {
+            "comparison_mode": "registered",
+            "experiment_design": (
+                "registered environment/backend configurations with frozen initial "
+                "actuators; transport, solver, numerical, and physics settings "
+                "retain their backend defaults"
+            ),
+            "physics_randomization_enabled": cfg.physics_randomization,
+            "shared_stack": None,
+            "operating_point": None,
+            "equilibrium_initialization": None,
+        }
+
+    raise NotImplementedError(
+        "controlled comparison helpers require migration to the current "
+        "environment API; use comparison_mode='registered' for current defaults"
+    )
+
+
+def _environment_manifest(env: Any) -> dict[str, Any] | None:
+    """Record parsed backend settings and observation normalization scales."""
+    parsed = getattr(env, "plasmax_config", None)
+    if parsed is None:
+        return None
+    metadata = parsed.model_dump(
+        mode="json",
+        include={
+            "environment_key",
+            "initialization",
+            "actuators",
+            "stepping",
+            "state_noise",
+            "physics_randomization",
+        },
+    )
+    metadata["torax"] = parsed.torax.model_dump(
+        mode="json",
+        include={
+            "transport",
+            "solver",
+            "numerics",
+            "time_step_calculator",
+            "pedestal",
+            "neoclassical",
+            "mhd",
+        },
+    )
+    metadata["observation_scales"] = {
+        spec.name: spec.scale
+        for spec in (*env.profile_obs_specs, *env.scalar_obs_specs)
+    }
+    return metadata
+
+
 def main(cfg: Config) -> None:
     _validate(cfg)
+    build_env, comparison_metadata = _comparison_setup(cfg)
     rollouts: dict[str, dict[int, Rollout]] = {}
     timed_rollouts: dict[str, Rollout] = {}
     failures: dict[str, dict[str, str]] = {}
     layouts: dict[str, Any] = {}
     scalar_scales: dict[str, dict[str, float]] = {}
+    backend_configs: dict[str, dict[str, Any] | None] = {}
+    timed_seeds: dict[str, int] = {}
 
     for backend in cfg.backends:
         print(f"Collecting {backend}...", flush=True)
-        env = PhysicsRandomizationWrapper(make(cfg.env_setup, backend))
+        env = build_env(backend)
+        backend_configs[backend] = _environment_manifest(env)
         layouts[backend] = env.obs_layout()
         scalar_scales[backend] = {
             spec.name: spec.scale for spec in env.scalar_obs_specs
@@ -371,7 +508,11 @@ def main(cfg: Config) -> None:
         rollouts[backend] = {}
         failures[backend] = {}
         for seed in cfg.seeds:
-            timing_repeats = cfg.timing_repeats if backend not in timed_rollouts else 0
+            timing_repeats = (
+                cfg.timing_repeats
+                if backend not in timed_rollouts and not cfg.cpu_scalar_sps
+                else 0
+            )
             try:
                 rollout = _collect_rollout(
                     env,
@@ -388,6 +529,7 @@ def main(cfg: Config) -> None:
             rollouts[backend][seed] = rollout
             if timing_repeats:
                 timed_rollouts[backend] = rollout
+                timed_seeds[backend] = seed
             print(
                 f"  seed={seed} shape={rollout.observations.shape} "
                 f"cold/warm={rollout.elapsed_s:.2f}s",
@@ -515,6 +657,17 @@ def main(cfg: Config) -> None:
     first_reference = reference_rollouts[next(iter(reference_rollouts))]
     result = {
         "environment": cfg.env_setup,
+        **comparison_metadata,
+        "backend_configs": backend_configs,
+        "backend_solvers": {
+            backend: manifest["torax"]["solver"]
+            for backend, manifest in backend_configs.items()
+            if manifest is not None
+        },
+        "action_policy": "hold the initialized physical prev_action fixed",
+        "initial_state_policy": (
+            "configured initialization and reset-state noise, matched by seed"
+        ),
         "reference_backend": cfg.reference_backend,
         "n_steps": cfg.n_steps,
         "requested_seeds": list(cfg.seeds),
@@ -526,6 +679,30 @@ def main(cfg: Config) -> None:
         "host": platform.node(),
         "devices": [str(device) for device in jax.devices()],
         "timing_repeats": cfg.timing_repeats,
+        "timing": {
+            backend: {
+                "source": "provided" if cfg.cpu_scalar_sps else "measured",
+                "seed": timed_seeds.get(backend),
+                "warm_durations_s": (
+                    list(timed_rollouts[backend].timing_durations_s)
+                    if backend in timed_rollouts
+                    else []
+                ),
+                "median_warm_duration_s": (
+                    statistics.median(timed_rollouts[backend].timing_durations_s)
+                    if backend in timed_rollouts
+                    else None
+                ),
+                "completed_control_intervals_by_seed": {
+                    str(seed): int(np.count_nonzero(run.control_step_complete))
+                    for seed, run in backend_rollouts.items()
+                },
+                "first_run_duration_s_by_seed": {
+                    str(seed): run.elapsed_s for seed, run in backend_rollouts.items()
+                },
+            }
+            for backend, backend_rollouts in rollouts.items()
+        },
         "throughput_definition": (
             "completed physical control intervals per second; every retained "
             "rollout transition passed control_step_complete"

@@ -11,9 +11,131 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import jax
+import jax.numpy as jnp
+import numpy as np
 import pytest
+from envelope import InfoContainer
 
 from benchmarks import env_trajectory
+
+
+def test_diagnostic_policies_hold_nominal_controls_and_only_reduce_fuel() -> None:
+    space = SimpleNamespace(low=jnp.array([0.0, 1.0]), high=jnp.array([10.0, 9.0]))
+    initial = SimpleNamespace(prev_action=jnp.array([3.0, 4.0]))
+    env = SimpleNamespace(
+        unwrapped=SimpleNamespace(action_space=space),
+        init=lambda _key: (initial, None),
+        actuator_specs=[
+            SimpleNamespace(name="P_eccd"),
+            SimpleNamespace(name="pellet_rate"),
+        ],
+    )
+    for policy, expected in (
+        ("midpoint", [5.0, 5.0]),
+        ("nominal", [3.0, 4.0]),
+        ("minimum_fuel", [3.0, 1.0]),
+    ):
+        np.testing.assert_array_equal(
+            env_trajectory._diagnostic_action(env, policy), expected
+        )
+
+
+@pytest.mark.parametrize(
+    "field,value,match",
+    [
+        ("environments", (), "explicit environments"),
+        ("seeds", (), "non-empty and unique"),
+        ("seeds", (0, 0), "non-empty and unique"),
+        ("seeds", (-1,), "unsigned 32-bit"),
+        ("policies", ("unknown",), "Unknown diagnostic policy"),
+    ],
+)
+def test_diagnostics_reject_invalid_selection(
+    field: str, value: tuple, match: str
+) -> None:
+    cfg = env_trajectory.DiagnoseConfig(environments=("mock/circular/smoke",))
+    with pytest.raises(ValueError, match=match):
+        env_trajectory.run_diagnostics(dataclasses.replace(cfg, **{field: value}))
+
+
+def test_diagnostics_pair_seeds_freeze_at_boundary_and_write_incrementally(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class FakeEnv:
+        max_steps = 5
+        actuator_specs = (SimpleNamespace(name="gas_puff_rate"),)
+        action_space = SimpleNamespace(low=jnp.array([0.0]), high=jnp.array([10.0]))
+        plasmax_config = SimpleNamespace(
+            actions=SimpleNamespace(realistic=SimpleNamespace(quantize={})),
+            disruption=SimpleNamespace(greenwald_field="fgw", greenwald_threshold=1.0),
+            model_dump=lambda **_: {},
+        )
+
+        @property
+        def unwrapped(self) -> FakeEnv:
+            return self
+
+        def init(self, key: jax.Array):
+            state = jax.random.key_data(key)[1]
+            return state, InfoContainer(
+                obs=state,
+                reward=0.0,
+                terminated=jnp.asarray(False),
+                truncated=jnp.asarray(False),
+            ).update(termination_code=-1)
+
+        def step(self, state: jax.Array, action: jax.Array):
+            return state + 1, InfoContainer(
+                obs=state,
+                reward=action[0],
+                terminated=jnp.asarray(True),
+                truncated=jnp.asarray(False),
+            ).update(termination_code=2)
+
+    monkeypatch.setattr(env_trajectory.plasmax, "make", lambda *_: FakeEnv())
+    monkeypatch.setattr(env_trajectory, "OracleWrappers", lambda env: env)
+    monkeypatch.setattr(env_trajectory, "_runner_metadata", lambda _: _runner())
+    monkeypatch.setattr(
+        env_trajectory, "_diagnostic_action", lambda *_: jnp.array([4.0])
+    )
+    monkeypatch.setattr(
+        env_trajectory, "_diagnostic_state", lambda state, _: {"state": int(state)}
+    )
+    snapshots = []
+    original_write = env_trajectory._write_json
+
+    def record_write(data, path):
+        snapshots.append((data["complete"], len(data["results"])))
+        original_write(data, path)
+
+    monkeypatch.setattr(env_trajectory, "_write_json", record_write)
+    output = tmp_path / "diagnostics.json"
+    status = env_trajectory.run_diagnostics(
+        env_trajectory.DiagnoseConfig(
+            environments=("mock/circular/smoke",),
+            variants=("oracle",),
+            seeds=(0, 1),
+            policies=("midpoint", "nominal"),
+            output=output,
+        )
+    )
+    assert status == 0
+    report = json.loads(output.read_text())
+    assert report["complete"] is True
+    assert snapshots == [
+        (False, 0),
+        (False, 1),
+        (False, 2),
+        (False, 3),
+        (False, 4),
+        (True, 4),
+    ]
+    assert [item["initial"]["state"] for item in report["results"]] == [0, 1, 0, 1]
+    assert all(
+        item["steps"] == 1 and item["termination_code"] == 2
+        for item in report["results"]
+    )
 
 
 def _runner(*groups: str) -> env_trajectory.RunnerMetadata:

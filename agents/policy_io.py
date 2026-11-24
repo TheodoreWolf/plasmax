@@ -17,7 +17,7 @@ from flax import linen as nn
 from flax import serialization
 from rejax.networks import DiscretePolicy, GaussianPolicy, SquashedGaussianPolicy
 
-from agents.ppo import MultiDiscretePolicy, PPOAdapter
+from agents.ppo import MultiDiscretePolicy, PPOAdapter, ppo_mean_action
 from agents.sac import SACAdapter
 
 __all__ = ["LoadedPolicy", "environment_interface", "load_policy", "save_policy"]
@@ -202,6 +202,13 @@ class LoadedPolicy:
         """Bind frozen parameters to the common ``act(obs, rng)`` interface."""
         deterministic = self.deterministic if deterministic is None else deterministic
         payload = self.inference
+        mean_policy = "model" in payload and (
+            self.algorithm == "backprop_policy"
+            or (self.algorithm == "es" and payload["parameterization"] == "policy")
+        )
+        if mean_policy:
+            actor = _restore_actor(payload["model"])
+            return lambda obs, rng: ppo_mean_action(actor, payload["params"], obs)
         if self.algorithm in ("ppo", "sac"):
             actor = _restore_actor(payload["model"])
             params = payload["params"]
@@ -313,8 +320,7 @@ def save_policy(
         algorithm = "backprop_policy"
         inference = {
             "params": serialization.to_state_dict(state.params),
-            "action_dim": agent.policy.action_dim,
-            "hidden_sizes": agent.policy.hidden_sizes,
+            "model": _actor_spec(agent.policy),
         }
     elif isinstance(agent, BackpropOpenLoopAgent):
         algorithm = "backprop_open_loop"
@@ -332,10 +338,13 @@ def save_policy(
             "params": serialization.to_state_dict(state.params),
         }
         if agent.parameterization == "policy":
-            inference.update(
-                action_dim=controller.policy.action_dim,
-                hidden_sizes=controller.policy.hidden_sizes,
-            )
+            if isinstance(controller.policy, GaussianPolicy):
+                inference["model"] = _actor_spec(controller.policy)
+            else:
+                inference.update(
+                    action_dim=controller.policy.action_dim,
+                    hidden_sizes=controller.policy.hidden_sizes,
+                )
         else:
             inference.update(
                 source_times=controller.source_times,

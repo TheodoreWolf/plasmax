@@ -7,6 +7,7 @@ operation, and own their terminal behavior. Custom callables pass through.
 """
 
 import dataclasses
+import functools
 
 import jax
 import jax.numpy as jnp
@@ -16,6 +17,8 @@ from helpers import make_test_env
 
 from plasmax import rewards as rewards_lib
 from plasmax.environment.core import EnvState
+from plasmax.environment.factory import make
+from plasmax.wrappers import RealisticWrappers
 
 _NAMED_REWARDS = (
     rewards_lib.Q_fusion,
@@ -84,27 +87,30 @@ class NamedRewardsTest:
         reward = float(self._call(rewards_lib.P_diff))
         assert 0.0 < reward < 1.0
 
-    def test_P_diff_MW_uses_megawatts_before_utility_transform(self) -> None:
+    @pytest.mark.parametrize(
+        ("reward", "power_unit"),
+        [(rewards_lib.P_diff_MW, 1e6)],
+    )
+    def test_P_diff_scales_power_before_utility_transform(
+        self, reward: rewards_lib.RewardFn, power_unit: float
+    ) -> None:
         def reward_at(fusion: jax.Array, auxiliary: jax.Array) -> jax.Array:
             next_state = _with_postout(
                 self._state, P_fusion=fusion, P_aux_total=auxiliary
             )
-            return rewards_lib.P_diff_MW(
-                self._state, self._action, next_state, jnp.int32(-1)
-            )
+            return reward(self._state, self._action, next_state, jnp.int32(-1))
 
-        # Fusion at 8, 10, and 12 MW against 10 MW of heating gives scores
-        # of -2, 0, and 2 MW. Convert the score before applying squareplus.
+        # Net power at -2, 0, and 2 units has the same utility at each scale.
         values, (fusion_gradients, auxiliary_gradients) = jax.jit(
             jax.vmap(jax.value_and_grad(reward_at, argnums=(0, 1)))
-        )(jnp.asarray([8e6, 10e6, 12e6]), jnp.full(3, 10e6))
+        )(jnp.asarray([8.0, 10.0, 12.0]) * power_unit, jnp.full(3, 10 * power_unit))
 
         root_two = np.sqrt(2.0)
         np.testing.assert_allclose(
             values, [root_two - 1.0, 1.0, root_two + 1.0], rtol=1e-6, atol=0.0
         )
-        expected_gradients = 1e-6 * np.asarray(
-            [0.5 - 0.5 / root_two, 0.5, 0.5 + 0.5 / root_two]
+        expected_gradients = (
+            np.asarray([0.5 - 0.5 / root_two, 0.5, 0.5 + 0.5 / root_two]) / power_unit
         )
         np.testing.assert_allclose(
             fusion_gradients, expected_gradients, rtol=1e-6, atol=0.0
@@ -438,6 +444,17 @@ class LHTransitionRewardTest:
             atol=1e-6,
             rtol=0.0,
         )
+
+
+def test_lh_transition_binds_the_environment_rampup_duration():
+    env = RealisticWrappers(
+        make("sparc/prd/rampup", "bohm_gyrobohm", reward="lh_transition")
+    )
+    reward_fn = env.unwrapped._dynamics._reward_fn
+
+    assert isinstance(reward_fn, functools.partial)
+    assert reward_fn.func is rewards_lib.lh_transition
+    assert reward_fn.keywords == {"t_final": 10.0}
 
 
 class ResolveRewardFnTest:

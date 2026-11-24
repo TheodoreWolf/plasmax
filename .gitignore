@@ -30,6 +30,7 @@ CLAUDE.md
 
 # Local-only research infrastructure and notes.
 /experiments/*
+/local_tests/
 /docs/
 /tools/manifests/*
 .flairignore

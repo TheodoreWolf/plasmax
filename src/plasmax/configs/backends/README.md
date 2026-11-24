@@ -134,9 +134,7 @@ each public backend still resolves to the same complete TORAX mapping.
 TORAX exposes a menu of modular physics. One geometry and one turbulent
 transport model are selected per run, while compatible source terms are summed.
 The table describes the resolved main-environment stacks; `mock/circular/smoke` instead
-uses circular geometry with the `mock` constant-transport backend, and
-`experiments/studies/reproduce_torax_paper_case.py` is a separate CHEASE
-reference case.
+uses circular geometry with the `mock` constant-transport backend.
 
 | Physics area | Current use | Important limitation |
 |--------------|-------------|----------------------|

@@ -6,7 +6,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIGS_DIR = REPO_ROOT / "src" / "plasmax" / "configs"
 OUTPUTS_DIR = REPO_ROOT / "outputs"
-PLOTS_DIR = REPO_ROOT / "plots"
 
 
 def wandb_dir() -> Path:
@@ -19,7 +18,6 @@ def wandb_dir() -> Path:
 __all__ = [
     "CONFIGS_DIR",
     "OUTPUTS_DIR",
-    "PLOTS_DIR",
     "REPO_ROOT",
     "wandb_dir",
 ]

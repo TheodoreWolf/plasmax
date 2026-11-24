@@ -13,7 +13,6 @@ import pytest
 
 from plasmax.environment.config import parse_env_and_backend
 from plasmax.environment.factory import make
-from plasmax.environment.initialization_data import round_significant
 from plasmax.environment.merge import (
     _merge_env_and_backend,
     valid_env_backend_combos,
@@ -26,11 +25,6 @@ from plasmax.environment.references import (
 )
 from plasmax.environment.schema import PlasmaxConfig
 from plasmax.wrappers import OracleWrappers, RealisticWrappers, unwrap_to_env_state
-from tools.calibration.improve_initial_conditions import (
-    REFERENCE_DATA_DIR,
-    interpolate_profile,
-    parse_sectioned_profile,
-)
 
 CONFIGS_DIR = Path(__file__).parents[1] / "src" / "plasmax" / "configs"
 PHYSICAL_ENVS = tuple(
@@ -63,12 +57,6 @@ def _config(env: str, backend: str | None = None) -> PlasmaxConfig:
 @cache
 def _payload(env: str, backend: str | None = None) -> dict[str, Any]:
     return reset_reference_payload(env, backend or _reference_backend(env))
-
-
-def _profile_values(mapping: dict[str, float]) -> np.ndarray:
-    return np.asarray(
-        [mapping[key] for key in sorted(mapping, key=float)], dtype=np.float64
-    )
 
 
 def _sha256(path: Path) -> str:
@@ -138,78 +126,6 @@ def test_flattop_and_rampdown_reuse_the_exact_hot_anchor() -> None:
         assert reset_reference_id(flattop) == reset_reference_id(rampdown)
         assert _payload(flattop) == _payload(rampdown)
         assert _time_zero_geometry_file(flattop) == _time_zero_geometry_file(rampdown)
-
-
-def test_exact_profile_artifacts_reproduce_yaml_arrays() -> None:
-    itpa = np.genfromtxt(
-        REFERENCE_DATA_DIR / "iter_baseline_450s_profiles_25.csv",
-        delimiter=",",
-        names=True,
-    )
-    baseline = _payload("iter/baseline/flattop")["profile_conditions"]
-    for condition, column in (
-        ("T_i", "T_i_keV"),
-        ("T_e", "T_e_keV"),
-        ("n_e", "n_e_m3"),
-        ("psi", "psi_Wb"),
-    ):
-        np.testing.assert_allclose(
-            _profile_values(baseline[condition]),
-            round_significant(itpa[column]),
-            rtol=1e-14,
-        )
-
-    raw = parse_sectioned_profile(REFERENCE_DATA_DIR / "sparc_prd_transp_20221013.txt")
-    prd = _payload("sparc/prd/flattop")["profile_conditions"]
-    expected = {
-        "T_i": interpolate_profile(raw["rho"], raw["ti"]),
-        "T_e": interpolate_profile(raw["rho"], raw["te"]),
-        "n_e": interpolate_profile(raw["rho"], raw["ne"] * 1e19),
-        "psi": interpolate_profile(raw["rho"], raw["polflux"] * 2.0 * np.pi),
-    }
-    for name, values in expected.items():
-        np.testing.assert_allclose(
-            _profile_values(prd[name]), round_significant(values), rtol=2e-6, atol=0.0
-        )
-
-
-def test_digitized_profile_artifacts_reproduce_yaml_arrays() -> None:
-    advanced = np.genfromtxt(
-        REFERENCE_DATA_DIR / "iter_advanced_slide25_profiles_25.csv",
-        delimiter=",",
-        names=True,
-    )
-    conditions = _payload("iter/advanced/flattop")["profile_conditions"]
-    for condition, column in (
-        ("T_i", "T_i_keV"),
-        ("T_e", "T_e_keV"),
-        ("n_e", "n_e_m3"),
-    ):
-        np.testing.assert_allclose(
-            _profile_values(conditions[condition]),
-            round_significant(advanced[column]),
-            rtol=1e-14,
-            atol=0.0,
-        )
-
-    h8 = np.genfromtxt(
-        REFERENCE_DATA_DIR / "sparc_h8_figure16_profiles_25.csv",
-        delimiter=",",
-        names=True,
-    )
-    h8_conditions = _payload("sparc/reduced_field/flattop")["profile_conditions"]
-    for prefix, unit in (("T_i", "keV"), ("T_e", "keV"), ("n_e", "m3")):
-        p10 = h8[f"{prefix}_p10_{unit}"]
-        median = h8[f"{prefix}_median_{unit}"]
-        p90 = h8[f"{prefix}_p90_{unit}"]
-        assert np.all(p10 <= median)
-        assert np.all(median <= p90)
-        np.testing.assert_allclose(
-            _profile_values(h8_conditions[prefix]),
-            round_significant(median),
-            rtol=1e-14,
-            atol=0.0,
-        )
 
 
 def test_backend_context_changes_dynamics_but_not_the_reset() -> None:

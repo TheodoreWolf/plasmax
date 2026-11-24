@@ -10,6 +10,8 @@
 # ITER Physics summer-school deck. Psi is reconstructed deterministically from
 # q and normalized to the local 9 MA equilibrium edge flux. This reference is
 # illustrative/medium-confidence, exactly as labelled by its source.
+# The hot initialization subtracts 5e18 m^-3 from the digitized density profile
+# to increase its initial Greenwald margin.
 
 tokamak: iter
 scenario: advanced

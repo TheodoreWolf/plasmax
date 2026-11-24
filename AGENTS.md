@@ -22,7 +22,6 @@ uv sync --group dev
 uv sync --no-dev --group artifacts
 
 uv run pytest
-uv run pytest experiments/tests/
 uv run pytest -m integration tests/
 uv run ruff check .
 uv run ruff format .
@@ -71,13 +70,19 @@ training/           clone-only training launchers, adapters, and shared utilitie
 scripts/            generic evaluation and rollout launchers
 tools/              artifact and equilibrium generation
 benchmarks/         backend agreement and throughput measurements
-experiments/        research studies
+experiments/        local-only research studies (gitignored via `/experiments/*`)
 tests/              installed-library and integration tests
+local_tests/        gitignored tests that do not test the package directly
 ```
 
-Study-specific behavior belongs under `experiments/`, not in a generic launcher
-or the installed package. Generated run outputs and plots stay in ignored local
-directories. Sweeps and manifests are intentionally local and ignored.
+Study-specific behavior, short-lived scripts, and one-off diagnostics belong
+under `experiments/` (for example `experiments/diagnostics/`), not in a generic
+launcher, `benchmarks/`, `tests/`, or the installed package. `/experiments/*`
+is intentionally local and ignored in `.gitignore`; do not add `!/experiments/...`
+exceptions or put study-specific tests in `tests/` unless explicitly asked.
+Nothing under `experiments/` is tracked, so tracked code and CI must never import
+or run it. Generated run outputs, plots, sweeps, and manifests are likewise
+intentionally local and ignored.
 
 ## Core architecture
 
@@ -188,7 +193,7 @@ The default `uv run pytest` command includes tests marked `integration`. CI
 partitions execution explicitly: the fast job selects `not integration`, and
 one integration job runs the slow specialised checks, including
 external-reference parity and one representative `tglfnn_nr` canary. Keep
-focused geometry, STEP, KSTAR, and fixed-duration tests in the fast suite.
+focused STEP, KSTAR, and fixed-duration tests in the fast suite.
 
 The dedicated environment trajectory workflow owns the seven-way
 environment/backend/variant matrix. Do not duplicate that full matrix in the
@@ -205,8 +210,10 @@ Release checks build a wheel and a source distribution and run `twine check` on
 them. Nothing installs or smoke-tests the built artifacts.
 
 Do not add physical-trajectory acceptance tests or noise-validation tests.
-Clone-only PPO, SAC, and MPC smoke tests should exercise upstream algorithms and
-thin adapters rather than optimizer internals.
+Apart from `tests/env_trajectory_test.py`, commit only tests that test the
+package directly. Everything else, including clone-only PPO, SAC, and MPC smoke
+tests and quick sanity checks, goes in the gitignored `local_tests/` folder;
+TESTING.md has the details.
 
 ## Experiments and tracking
 

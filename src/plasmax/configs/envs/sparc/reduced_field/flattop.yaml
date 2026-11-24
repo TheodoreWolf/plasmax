@@ -4,7 +4,7 @@ reset_reference: sparc_h8_hot_figure16
 initialization: ${DATA_DIR}/initializations/sparc/reduced_field/hot.yaml
 
 task:
-  reward: P_diff
+  reward: P_diff_MW
 torax:
   profile_conditions:
     Ip: 5.7e+6                    # constant (scalar, not time-keyed)
