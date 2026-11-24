@@ -58,24 +58,17 @@ Convenience wrappers are available for use, to make the environments more close 
 The environments use the [Envelope](https://github.com/keraJLi/envelope) API and contracts, this includes e.g. explicit truncation versus termination.
 `init`, `reset`, and `step` return `(state, info)`.
 
-On TORAX environments, `state` is an `EnvState` JAX pytree dataclass (`plasmax.EnvState`) with three fields:
+On TORAX environments, `state` is an `EnvState` JAX pytree dataclass (`plasmax.EnvState`) with fields:
 
-- `plasma`: a `PlasmaState` view over TORAX's `sim` (`SimState`) and `post` (`PostProcessedOutputs`). It exposes shortcut properties `t`, `Ip`, `core`, `geo`, `mode`, `T_e`, `T_i`, `n_e`, `psi`, and `q`, and forwards other attribute lookups directly to `post` (for example `Q_fusion`, `beta_N`, `P_fusion`, `P_aux_total`, `W_thermal_total`, `q95`, `tau_E`, `fgw_n_e_line_avg`).
-- `prev_action`: last applied physical action vector, used for per-step rate limiting.
-- `phys_params`: `dict[str, jax.Array]` of persistent physics runtime parameters keyed by TORAX provider dot-path, initialized to configured nominal values on reset and updatable via `env.with_physics(state, parameters)`.
+- `plasma`: a `PlasmaState` view over TORAX's `sim` (`SimState`) and `post` (`PostProcessedOutputs`). It exposes shortcut properties such as `t` or `Ip`. In particular, it contains`phys_params` physics runtime parameters which can be changed at each step.
 
 `info` is an Envelope `InfoContainer` exposing:
-
-- `obs`: post-transition flat observation array.
-- `reward`: scalar `float32` reward (`0.0` on `init` and `reset`).
+- `obs`: flat observation array.
+- `reward`: scalar
 - `terminated`: `bool` (`termination_code != -1`).
-- `truncated`: `bool` (`False` on the bare environment; set by `TruncationWrapper` at `max_steps`, with `terminated` taking precedence if both occur on the same step).
-- `termination_code`: `int32` termination reason (`-1` when not terminated).
-- TORAX stepping diagnostics (`0` / `False` on `init` and `reset`; omitted on `kstar_worldmodel`):
-  - `internal_steps`: `int32` total TORAX calls taken during the control step.
-  - `sawtooth_crashes`: `int32` sawtooth-event calls counted within `internal_steps`.
-  - `control_step_complete`: `bool` whether the full control interval `dt` completed without a solver, invalid-state, or budget failure.
-  - `step_limit_reached`: `bool` whether the configured internal solver/event substep budget was exhausted.
+- `truncated`: `bool` which has subtleties compared to termination, see e.g. this [paper](https://arxiv.org/abs/2506.15050).
+- `termination_code`: termination reason (`-1` when not terminated).
+- We also include TORAX stepping diagnostics, which help with debugging.
 
 Termination codes (`info.termination_code`):
 
@@ -199,10 +192,12 @@ Agents were utilized throughout this work, while I did my best to check the code
 In my experience, the most dangerous are comments that state mistakes or bad assumption as facts, this then further reinforce the agents in their bad ideas.
 
 ## Citation
+```bibtex
 @inproceedings{wolf2026plasmax,
-title={Plasmax: Differentiable \& Parallelizable Environments for Tokamak Kinetic Control},
-author={Theo Wolf and Jarek Luca Liesen and Ingmar Posner and Jakob Nicolaus Foerster},
-booktitle={Sim2Science: ML with Imperfect Scientific Models},
-year={2026},
-url={https://openreview.net/forum?id=hX9aaUMB2a}
+    title={Plasmax: Differentiable \& Parallelizable Environments for Tokamak Kinetic Control},
+    author={Theo Wolf and Jarek Luca Liesen and Ingmar Posner and Jakob Nicolaus Foerster},
+    booktitle={Sim2Science: ML with Imperfect Scientific Models},
+    year={2026},
+    url={https://openreview.net/forum?id=hX9aaUMB2a}
 }
+```
