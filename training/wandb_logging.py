@@ -464,15 +464,15 @@ def make_world_model_training_callback(
     eval_rng: jax.Array | None = None,
     deterministic: bool = False,
 ):
-    """KSTAR/``fusion_lstm`` eval callback: adds target-tracking scalars.
+    """KSTAR/``fusion_lstm`` eval callback: adds ground-truth tracking scalars.
 
-    The world-model env's flat observation already carries the physics of
-    interest (``betap``/``q95``/``li`` and their per-episode targets), so it is
-    read from the final valid ``traj.next_obs`` entry for each seed.
+    Reads ``q95``, ``li``, ``targets``, and recomputed ``betap`` from the
+    unwrapped :class:`~plasmax.models.world_model_env.WorldModelEnvState` so
+    metrics remain accurate under observation wrappers (noise, delay,
+    filtering, or history stacking).
     """
-    from plasmax.models.world_model_env import OBS_NAMES
-
-    _idx = {name: i for i, name in enumerate(OBS_NAMES)}
+    from plasmax.models.world_model import predict_bpw
+    from plasmax.models.world_model_env import _bpw_features
 
     def _callback(algo, ts, rng, train_metrics):
         traj, episode_returns, episode_lengths = _collect_returns_and_lengths(
@@ -483,10 +483,33 @@ def make_world_model_training_callback(
             n_seeds,
             deterministic=deterministic,
         )
-        last = _last_valid(traj.next_obs, traj.valid)
+        env = getattr(algo.env, "envelope_env", algo.env)
+        bundle = env.unwrapped._dynamics._bundle
+        base_state = unwrap_to_env_state(traj.env_state)
+        last_x = _last_valid(base_state.x, traj.valid)
+        last_inputs = _last_valid(base_state.inputs, traj.valid)
+        last_targets = _last_valid(base_state.targets, traj.valid)
+        last_phys = jax.tree.map(
+            lambda leaf: _last_valid(leaf, traj.valid), base_state.phys_params
+        )
+        bpw_member = last_phys.get(
+            "world_model.bpw_member",
+            last_phys.get("world_model.ensemble_member"),
+        )
 
-        def _tracking_error(name):
-            return jnp.abs(last[:, _idx[name]] - last[:, _idx[f"{name}_target"]])
+        def _seed_betap(x_row, inp_row, member):
+            return predict_bpw(
+                bundle, _bpw_features(x_row[-1, 0], inp_row), member=member
+            )[0]
+
+        if bpw_member is None:
+            betap = jax.vmap(lambda xr, ir: _seed_betap(xr, ir, None))(
+                last_x, last_inputs
+            )
+        else:
+            betap = jax.vmap(_seed_betap)(last_x, last_inputs, bpw_member)
+        q95 = last_x[:, -1, 1]
+        li = last_x[:, -1, 3]
 
         metrics = {
             **evaluation_scalar_metrics(
@@ -496,12 +519,12 @@ def make_world_model_training_callback(
                 train_metrics,
                 physics=False,
             ),
-            "obs/betap": last[:, _idx["betap"]].mean(),
-            "obs/q95": last[:, _idx["q95"]].mean(),
-            "obs/li": last[:, _idx["li"]].mean(),
-            "tracking/betap_error": _tracking_error("betap").mean(),
-            "tracking/q95_error": _tracking_error("q95").mean(),
-            "tracking/li_error": _tracking_error("li").mean(),
+            "obs/betap": betap.mean(),
+            "obs/q95": q95.mean(),
+            "obs/li": li.mean(),
+            "tracking/betap_error": jnp.abs(betap - last_targets[:, 0]).mean(),
+            "tracking/q95_error": jnp.abs(q95 - last_targets[:, 1]).mean(),
+            "tracking/li_error": jnp.abs(li - last_targets[:, 2]).mean(),
         }
         _io_log_scalars(
             ts.global_step,

@@ -68,6 +68,31 @@ class WorldModelForwardTest:
         assert out.shape == (2, 4)
         assert jnp.all(jnp.isfinite(out))
 
+    def test_member_selection_matches_individual_and_mean_predictions(self):
+        x_lstm = jnp.asarray(_X_LSTM)
+        x_bpw = jnp.asarray(_X_BPW)
+        mean_lstm = wm.predict_lstm(self.bundle, x_lstm)
+        mean_bpw = wm.predict_bpw(self.bundle, x_bpw)
+        np.testing.assert_array_equal(
+            wm.predict_lstm(self.bundle, x_lstm, member=jnp.int32(-1)), mean_lstm
+        )
+        np.testing.assert_array_equal(
+            wm.predict_bpw(self.bundle, x_bpw, member=jnp.int32(-1)), mean_bpw
+        )
+        per_member_lstm = jax.jit(
+            jax.vmap(lambda m: wm.predict_lstm(self.bundle, x_lstm, member=m))
+        )(jnp.arange(10, dtype=jnp.int32))
+        per_member_bpw = jax.jit(
+            jax.vmap(lambda m: wm.predict_bpw(self.bundle, x_bpw, member=m))
+        )(jnp.arange(10, dtype=jnp.int32))
+        np.testing.assert_allclose(
+            per_member_lstm.mean(axis=0), mean_lstm, rtol=1e-6, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            per_member_bpw.mean(axis=0), mean_bpw, rtol=1e-6, atol=1e-2
+        )
+        assert not np.allclose(per_member_lstm[0], per_member_lstm[1])
+
 
 def _onnx_weights_dir() -> Path | None:
     env = os.environ.get("NEORL2_WEIGHTS")

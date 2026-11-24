@@ -221,8 +221,9 @@ def _run_name(cfg: Config) -> str:
         )
     else:
         name = f"{env_name}-{backend_name}-{_fmt_steps(cfg.ppo.total_timesteps)}"
-        # World models use their native reward and observation interface.
-        if not is_world_model:
+        if is_world_model:
+            name += f"-{cfg.env.variant}"
+        else:
             name += f"-{cfg.env.variant}-{reward_name}"
 
     if cfg.env.time_aware:

@@ -229,16 +229,27 @@ class ActionsConfig(_FrozenModel):
 
 
 class PhysicsRandomizationSpec(_FrozenModel):
-    """Uniform absolute values or multipliers of a parameter's t=0 nominal."""
+    """Uniform range or discrete scalar choices for a randomized parameter."""
 
     absolute: tuple[float, float] | None = None
     relative: tuple[float, float] | None = None
+    choices: tuple[StrictInt, ...] | None = None
 
     @model_validator(mode="after")
     def _check_one_range(self) -> Self:
-        ranges = [self.absolute is not None, self.relative is not None]
+        ranges = [
+            self.absolute is not None,
+            self.relative is not None,
+            self.choices is not None,
+        ]
         if sum(ranges) != 1:
-            raise ValueError("set exactly one of absolute or relative")
+            raise ValueError("set exactly one of absolute, relative, or choices")
+        if self.choices is not None:
+            if not self.choices:
+                raise ValueError("choices must be non-empty")
+            if len(set(self.choices)) != len(self.choices):
+                raise ValueError(f"duplicate choices: {self.choices}")
+            return self
         bounds = self.absolute if self.absolute is not None else self.relative
         assert bounds is not None
         if not all(math.isfinite(bound) for bound in bounds) or bounds[0] >= bounds[1]:
@@ -248,12 +259,17 @@ class PhysicsRandomizationSpec(_FrozenModel):
     @property
     def bounds(self) -> tuple[float, float]:
         bounds = self.absolute if self.absolute is not None else self.relative
-        assert bounds is not None
+        if bounds is None:
+            raise ValueError("discrete physics randomization spec has no bounds")
         return bounds
 
     @property
     def is_relative(self) -> bool:
         return self.relative is not None
+
+    @property
+    def is_discrete(self) -> bool:
+        return self.choices is not None
 
 
 class DisruptionConfig(_FrozenModel):
@@ -326,6 +342,57 @@ class PlasmaxConfig(_FrozenModel):
         return self
 
 
+KSTAR_ACTUATOR_NAMES: tuple[str, ...] = (
+    "Ip",
+    "Elon",
+    "Up.Tri",
+    "Lo.Tri",
+    "In.Mid",
+    "Out.Mid",
+)
+KSTAR_OBS_NAMES: tuple[str, ...] = (
+    *KSTAR_ACTUATOR_NAMES,
+    "betap",
+    "q95",
+    "li",
+    "betap_target",
+    "q95_target",
+    "li_target",
+    "Pnb1a",
+    "Pnb1b",
+    "Pnb1c",
+)
+
+
+class WorldModelObservationsConfig(_FrozenModel):
+    """Wrapper observation settings for a learned world-model environment."""
+
+    realistic: RealisticObsConfig = Field(default_factory=RealisticObsConfig)
+    history: HistoryConfig | None = None
+
+    @model_validator(mode="after")
+    def _valid_sensor_sets(self) -> Self:
+        realistic = self.realistic
+        if realistic.resolution:
+            raise ValueError(
+                f"unknown profile resolution sensors: {sorted(realistic.resolution)}"
+            )
+        base_names = set(KSTAR_OBS_NAMES)
+        surviving = base_names
+        if realistic.filter is not None:
+            bad_profiles = sorted(realistic.filter.profiles)
+            bad_scalars = sorted(set(realistic.filter.scalars) - base_names)
+            if bad_profiles or bad_scalars:
+                raise ValueError(
+                    f"unknown observation filter sensors: {bad_profiles + bad_scalars}"
+                )
+            surviving = set(realistic.filter.scalars)
+        unknown_delay = sorted(set(realistic.delay) - surviving)
+        if unknown_delay:
+            raise ValueError(f"unknown delay sensors: {unknown_delay}")
+        return self
+
+
 class WorldModelSpec(_FrozenModel):
     name: Literal["kstar_lstm"]
     weights_path: Path
@@ -341,11 +408,39 @@ class WorldModelConfig(_FrozenModel):
     world_model: WorldModelSpec
     initialization: Path
     _initial_state: KstarInitialization = PrivateAttr()
+    actuators: tuple[ActuatorConfig, ...]
+    observations: WorldModelObservationsConfig = Field(
+        default_factory=WorldModelObservationsConfig
+    )
+    actions: ActionsConfig = Field(default_factory=ActionsConfig)
+    physics_randomization: dict[str, PhysicsRandomizationSpec] = Field(
+        default_factory=dict
+    )
+    clip_by_max_action_delta: bool = True
 
     @model_validator(mode="after")
     def _native_task(self) -> Self:
         if self.task.reward != "native":
             raise ValueError("world-model reward must be 'native'")
+        names = tuple(actuator.name for actuator in self.actuators)
+        if len(names) != len(set(names)):
+            raise ValueError("duplicate actuator names")
+        expected = set(KSTAR_ACTUATOR_NAMES)
+        if set(names) != expected:
+            missing = sorted(expected - set(names))
+            extra = sorted(set(names) - expected)
+            raise ValueError(
+                "world-model actuators must cover every KSTAR actuator; "
+                f"missing: {missing}, unknown: {extra}"
+            )
+        quantized = set(self.actions.realistic.quantize)
+        if quantized and quantized != set(names):
+            missing = set(names) - quantized
+            extra = quantized - set(names)
+            raise ValueError(
+                "actions.realistic.quantize must cover every actuator or none; "
+                f"missing: {sorted(missing)}, unknown: {sorted(extra)}"
+            )
         return self
 
 
@@ -354,6 +449,8 @@ __all__ = [
     "ActuatorConfig",
     "DisruptionConfig",
     "HistoryConfig",
+    "KSTAR_ACTUATOR_NAMES",
+    "KSTAR_OBS_NAMES",
     "ObservationsConfig",
     "ObsFilterSpec",
     "ObsProfileConfig",
@@ -365,5 +462,6 @@ __all__ = [
     "SteppingConfig",
     "TaskConfig",
     "WorldModelConfig",
+    "WorldModelObservationsConfig",
     "WorldModelSpec",
 ]

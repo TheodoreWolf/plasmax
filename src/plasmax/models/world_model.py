@@ -120,16 +120,28 @@ def mlp_forward(w: dict[str, jax.Array], x: jax.Array, n_dense: int) -> jax.Arra
 # --- ensemble predictions (denorm + average over members) ------------------
 
 
-def _ensemble(single_fn, weights: dict[str, jax.Array], x: jax.Array) -> jax.Array:
-    """vmap ``single_fn`` over the 10 members, denormalise, average."""
+def _ensemble(
+    single_fn,
+    weights: dict[str, jax.Array],
+    x: jax.Array,
+    member: jax.Array | None = None,
+) -> jax.Array:
+    """vmap ``single_fn`` over members, denormalise, then average or select one."""
     members = {k: v for k, v in weights.items() if k not in ("ymean", "ystd")}
-    raw = jax.vmap(lambda w: single_fn(w, x))(members)  # (10, out)
-    return (raw * weights["ystd"] + weights["ymean"]).mean(axis=0)
+    raw = jax.vmap(lambda w: single_fn(w, x))(members)  # (N, out)
+    preds = raw * weights["ystd"] + weights["ymean"]
+    mean = preds.mean(axis=0)
+    if member is None:
+        return mean
+    idx = jnp.clip(jnp.asarray(member, dtype=jnp.int32), 0, preds.shape[0] - 1)
+    return jnp.where(member < 0, mean, preds[idx])
 
 
-def predict_lstm(bundle: Bundle, x: jax.Array) -> jax.Array:
+def predict_lstm(
+    bundle: Bundle, x: jax.Array, *, member: jax.Array | None = None
+) -> jax.Array:
     """Ensemble LSTM dynamics. ``x``: ``(10, 21)`` -> ``(4,)`` [βn, q95, q0, li]."""
-    return _ensemble(lstm_forward, bundle["lstm"], x)
+    return _ensemble(lstm_forward, bundle["lstm"], x, member=member)
 
 
 def predict_nn(bundle: Bundle, x: jax.Array) -> jax.Array:
@@ -143,6 +155,10 @@ def predict_nn(bundle: Bundle, x: jax.Array) -> jax.Array:
     return raw * bundle["nn"]["ystd"] + bundle["nn"]["ymean"]
 
 
-def predict_bpw(bundle: Bundle, x: jax.Array) -> jax.Array:
+def predict_bpw(
+    bundle: Bundle, x: jax.Array, *, member: jax.Array | None = None
+) -> jax.Array:
     """Ensemble β-power head. ``x``: ``(8,)`` -> ``(2,)`` [βp, wmhd]."""
-    return _ensemble(functools.partial(mlp_forward, n_dense=3), bundle["bpw"], x)
+    return _ensemble(
+        functools.partial(mlp_forward, n_dense=3), bundle["bpw"], x, member=member
+    )
