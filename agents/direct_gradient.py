@@ -82,7 +82,7 @@ def gradient_statistics(
 
     Zero rollout gradients require every coordinate to be exactly zero, so an
     all-invalid rollout is never counted as zero. ``aggregate_zero`` describes
-    the actual optimizer input, including finite-only replacement in policies.
+    the actual optimizer input, including finite-only replacement.
     """
     leaves = jax.tree.leaves(per_rollout_grads)
     num_rollouts = leaves[0].shape[0]
@@ -130,62 +130,6 @@ def gradient_statistics(
             jnp.stack([jnp.all(leaf == 0) for leaf in jax.tree.leaves(aggregate_grads)])
         ),
     )
-
-
-def apply_updates_with_backoff(
-    optimizer: optax.GradientTransformation,
-    grads: Any,
-    opt_state: Any,
-    params: Any,
-    rollback_opt_state: Any,
-    rollback_params: Any,
-    update_scale: jax.Array,
-    *,
-    backoff_factor: float,
-    min_update_scale: float,
-) -> tuple[Any, Any, Any, Any, jax.Array, jax.Array]:
-    """Apply a finite update or roll back the update that caused bad gradients.
-
-    A non-finite gradient is observed one optimizer step after parameters have
-    entered a non-differentiable simulator region. Merely skipping that
-    gradient leaves the parameters stranded there. Keep the previous finite
-    point and optimizer state so the next attempt can resume from it with a
-    smaller update.
-    """
-    finite = jnp.all(
-        jnp.stack([jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(grads)])
-    )
-
-    def apply(_):
-        updates, next_opt_state = optimizer.update(grads, opt_state, params)
-        scaled_updates = jax.tree.map(
-            lambda update: update_scale * update,
-            updates,
-        )
-        next_params = optax.apply_updates(params, scaled_updates)
-        return (
-            next_params,
-            next_opt_state,
-            params,
-            opt_state,
-            update_scale,
-        )
-
-    def rollback(_):
-        next_scale = jnp.maximum(
-            update_scale * backoff_factor,
-            min_update_scale,
-        )
-        return (
-            rollback_params,
-            rollback_opt_state,
-            rollback_params,
-            rollback_opt_state,
-            next_scale,
-        )
-
-    result = jax.lax.cond(finite, apply, rollback, operand=None)
-    return (*result, finite)
 
 
 def make_knot_chunk(
@@ -287,7 +231,7 @@ def apply_policy_optimizer_update(
     params: Any,
     grad_clip: float,
 ) -> tuple[Any, Any, PolicyOptimizerDiagnostics]:
-    """Apply the baseline's fixed clipped Adam step, without knot backoff."""
+    """Apply a fixed clipped Adam step for either policy parameterization."""
     updates, next_opt_state = optimizer.update(grads, opt_state, params)
     next_params = optax.apply_updates(params, updates)
     norm = optax.global_norm(grads)

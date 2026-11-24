@@ -51,16 +51,36 @@ print(info.terminated, info.truncated)
 Environments are loaded through the `make` function. TORAX environment names
 are structured as `{tokamak}/{scenario}/{phase}` and require an explicit
 compatible backend. KSTAR is a standalone environment and takes no backend.
+Convenience wrappers are available for use, to make the environments more close to reality, these are all configurable through the API.
 
-`make` returns the bare environment with physical actuator units and full
-observations. Apply `RealisticWrappers(env)` to add configured physics
-randomization, sensor effects, action scaling, history, and truncation.
-`OracleWrappers(env)` applies action scaling, history, and truncation while
-keeping nominal physics and full observations. Both accept `max_steps` and
-`time_aware`; `RealisticWrappers` also accepts `quantize_bins`. KSTAR supports
-`RealisticWrappers`, preserving its native actions and observations.
+## State and termination semantics
 
 The environments use the [Envelope](https://github.com/keraJLi/envelope) API and contracts, this includes e.g. explicit truncation versus termination.
+`init`, `reset`, and `step` return `(state, info)`.
+
+On TORAX environments, `state` is an `EnvState` JAX pytree dataclass (`plasmax.EnvState`) with fields:
+
+- `plasma`: a `PlasmaState` view over TORAX's `sim` (`SimState`) and `post` (`PostProcessedOutputs`). It exposes shortcut properties such as `t` or `Ip`. In particular, it contains`phys_params` physics runtime parameters which can be changed at each step.
+
+`info` is an Envelope `InfoContainer` exposing:
+- `obs`: flat observation array.
+- `reward`: scalar
+- `terminated`: `bool` (`termination_code != -1`).
+- `truncated`: `bool` which has subtleties compared to termination, see e.g. this [paper](https://arxiv.org/abs/2506.15050).
+- `termination_code`: termination reason (`-1` when not terminated).
+- We also include TORAX stepping diagnostics, which help with debugging.
+
+Termination codes (`info.termination_code`):
+
+| Code | Meaning |
+|---|---|
+| `-1` | No termination (normal transition, `init`, or `reset`) |
+| `1` | Safety-factor disruption (`min(q_face) < q_min_threshold`, default `0.8`) |
+| `2` | Greenwald density limit exceeded (`fgw_n_e_{line_avg,volume_avg} > greenwald_threshold`, default `1.1`) |
+| `3` | Solver failure (nonlinear solve failed to converge, invalid `dt`, or internal substep budget exhausted) |
+| `4` | Invalid / non-finite state or observation (candidate transition is rejected and the previous valid `EnvState` and observation are retained) |
+
+If multiple termination conditions trigger on the same step, precedence is `4 > 3 > 1 > 2`.
 
 ## Tasks and backends
 
@@ -72,49 +92,35 @@ The environments use the [Envelope](https://github.com/keraJLi/envelope) API and
 | `mock/circular/smoke` | `mock` |
 | `kstar_worldmodel` | None; standalone environment |
 
-Unsupported environment/backend pairs are rejected before construction.
-
-```python
-smoke = plasmax.make("mock/circular/smoke", backend="mock")
-kstar = plasmax.make("kstar_worldmodel")
-```
-
-NB: the `tglfnn_spherical` backend requires a repository clone for now.
-[TGLFNN-UKAEA](https://github.com/ukaea/tglfnn-ukaea) is still an eager
-transitive TORAX dependency. TORAX 1.4.3 pins `fusion-surrogates` 0.4.6, whose
-TGLFNN extra pins the older 0.1.0 weights. Repository clones use a uv-only
-override to the final PyPI 0.2.0 weights until TORAX adopts `fusion-surrogates`
-0.4.7. Published installs still follow TORAX's dependency metadata.
-
-Equilibria generated with
-[FreeGSNKE](https://github.com/FusionComputingLab/freegsnke) are committed
-artifacts, so FreeGSNKE is not a runtime dependency.
-
-Every leaf task YAML owns its default reward:
-
+Environments and backends are defined through YAML files, where common settings are shared across tokamaks/scenarios.
+Rewards are defined in the leaf YAML. Backends are similarly defined, both can be extended by using the `extends` keyword.
 ```yaml
-task:
-  reward: lh_transition
-```
+extends: flattop.yaml
 
-Omitting `reward` uses the task default; built-in TORAX rewards apply squareplus
-normally, its logarithm on disruption, and zero on solver failure or invalid state.
+task:
+    reward: beta_N
+```
+Registering a new environment or backend can then be done through the `registry.py`, following the pattern shown there.
+
+## Reward functions
+
+All reward functions are defined and registered in `reward.py` and have the signature `f(state, action, next_state, termination_code) -> reward`. The default reward functions apply penalties for different terminations, where e.g. solver failures are treated differently to constraint violations (disruptions).
+Some default reward functions in the API are the following.
 
 ```python
-env = RealisticWrappers(plasmax.make("iter/advanced/rampup", backend="qlknn"))
-
-oracle_ablation = OracleWrappers(
-    plasmax.make(
-        "iter/advanced/rampup",
-        backend="qlknn",
-        reward="Q_fusion",
-    )
-)
+_REWARD_ALIASES: dict[str, RewardFn] = {
+    "Q_fusion": Q_fusion, 
+    "beta_N": beta_N,
+    "P_diff_MW": P_diff_MW,
+    "W_thermal": W_thermal,
+    "rampdown": rampdown,
+    "lh_transition": lh_transition, # for ramp-up
+}
 ```
 
-Individual wrappers also resolve their defaults from `env.plasmax_config` and
-accept their existing explicit arguments for custom compositions:
+## Wrappers
 
+We include wrappers that help with training and realism. 
 ```python
 from plasmax.wrappers import NoiseWrapper, PhysicsRandomizationWrapper
 
@@ -122,61 +128,19 @@ env = plasmax.make("iter/baseline/flattop", "bohm_gyrobohm")
 env = NoiseWrapper(PhysicsRandomizationWrapper(env))
 ```
 
-To corrupt actuator commands, wrap the bare environment before composing training
-wrappers. Each step adds independent Gaussian noise with standard deviation
-`noise_scale * (high - low)` per actuator. This order applies noise after action
-decoding and scaling; the core then applies its existing bounds and rate limits.
-
+The full list of wrappers is the following is available in `wrappers.py`.
+Due to the number of wrappers, convenience helpers compose the standard training stacks:
 ```python
-from plasmax.wrappers import CorruptedActionWrapper, RealisticWrappers
+from plasmax.wrappers import OracleWrappers, RealisticWrappers
 
-env = plasmax.make("iter/baseline/flattop", "bohm_gyrobohm")
-env = RealisticWrappers(CorruptedActionWrapper(env, noise_scale=0.05))
+# OracleWrappers(env, *, max_steps=None, time_aware=False)
+# ActionRescaleWrapper -> [TimeAwareWrapper] -> [ObsHistoryWrapper] -> TruncationWrapper
+oracle_env = OracleWrappers(env, max_steps=100, time_aware=False)
+
+# RealisticWrappers composes 10 wrappers. 
+realistic_env = RealisticWrappers(env, max_steps=100, time_aware=False, quantize_bins=None)
+
 ```
-
-Physics parameters live in `EnvState.phys_params`. Use
-`env.with_physics(state, parameters)` to replace selected entries, including
-through nested wrapper states. Values persist until overwritten or reset to
-nominal values. `PhysicsRandomizationWrapper` samples before every step,
-always using the configured nominals for relative ranges. Each stochastic
-wrapper owns its RNG; `init(key)` and `reset(state, key)` seed these streams.
-
-
-## Environment boundary
-
-`init`, `step`, and `reset` return `(state, info)`. A transition exposes:
-
-- `info.obs`: the post-transition flat observation;
-- `info.reward`: a scalar float32 RL-boundary reward;
-- `info.terminated`: a physical, solver, or invalid-state termination;
-- `info.truncated`: the configured time-limit cutoff;
-- `info.termination_code`: the environment's termination reason.
-
-If termination and the time limit coincide, termination wins.
-
-Fixed-shape rollout collection is part of the installed library:
-
-```python
-from plasmax import collect_episode
-
-env = RealisticWrappers(plasmax.make("iter/hybrid/flattop", "bohm_gyrobohm"))
-
-
-def act(obs, key):
-    del obs, key
-    return jnp.zeros(env.action_space.shape, dtype=env.action_space.dtype)
-
-
-trajectory = collect_episode(
-    act,
-    env,
-    jax.random.key(1),
-    num_steps=env.max_steps,
-)
-```
-
-The collector retains the first terminal transition, stops stepping the
-environment, and pads the remaining fixed-size output with `valid=False`.
 
 ## Contribution and Development
 
@@ -206,7 +170,7 @@ training/           clone-only training launchers, adapters, and shared utilitie
 scripts/            generic evaluation and rollout launchers
 tools/              artifact and equilibrium generation
 benchmarks/         backend agreement and throughput benchmarks
-experiments/        research studies
+experiments/        local-only research studies (gitignored)
 tests/              library and release tests
 ```
 
@@ -228,4 +192,12 @@ Agents were utilized throughout this work, while I did my best to check the code
 In my experience, the most dangerous are comments that state mistakes or bad assumption as facts, this then further reinforce the agents in their bad ideas.
 
 ## Citation
-Coming soon, once I get the paper out...
+```bibtex
+@inproceedings{wolf2026plasmax,
+    title={Plasmax: Differentiable \& Parallelizable Environments for Tokamak Kinetic Control},
+    author={Theo Wolf and Jarek Luca Liesen and Ingmar Posner and Jakob Nicolaus Foerster},
+    booktitle={Sim2Science: ML with Imperfect Scientific Models},
+    year={2026},
+    url={https://openreview.net/forum?id=hX9aaUMB2a}
+}
+```

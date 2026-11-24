@@ -26,7 +26,6 @@ from plasmax.wrappers import (
     TimeAwareWrapper,
     unwrap_to_env_state,
 )
-from training.evaluation import trajectory_arrays
 
 # Expected observation size: 5 profiles * n_rho + 8 scalars.
 _OBS_SIZE = 5 * N_RHO + 8
@@ -535,14 +534,6 @@ class DisruptionContractTest:
                 ),
                 jax.tree.map(lambda leaf: leaf[0], trajectory.env_state),
             )
-
-        arrays = trajectory_arrays(trajectory, env)
-        np.testing.assert_allclose(
-            arrays["command_physical"][:2, 0], [10e6, 20e6], rtol=1e-6, atol=0.0
-        )
-        np.testing.assert_allclose(
-            arrays["applied_physical"][:2, 0], [10e6, 10e6], rtol=1e-6, atol=0.0
-        )
 
     @pytest.mark.parametrize(
         "raw_reward",

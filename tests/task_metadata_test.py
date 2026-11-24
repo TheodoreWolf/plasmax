@@ -32,7 +32,7 @@ _EXPECTED_TASKS: dict[str, str] = {
     "sparc/prd/flattop": "P_diff",
     "sparc/prd/rampdown": "rampdown",
     "sparc/reduced_field/rampup": "lh_transition",
-    "sparc/reduced_field/flattop": "P_diff",
+    "sparc/reduced_field/flattop": "P_diff_MW",
     "sparc/reduced_field/rampdown": "rampdown",
     "step/spp_001_ec_hd/flattop": "P_diff",
     _MOCK_ENV: "P_diff",

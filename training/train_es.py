@@ -14,8 +14,14 @@ set_default_xla_flags("--xla_gpu_enable_command_buffer=")
 import tyro
 
 from agents.es import ESAgent
-from experiments.studies.baseline_study import run_slug
-from training.runs import EnvConfig, WandbConfig, load_env, run_native, validate_seeds
+from training.runs import (
+    EnvConfig,
+    WandbConfig,
+    load_env,
+    run_native,
+    run_slug,
+    validate_seeds,
+)
 
 
 @dataclasses.dataclass
@@ -35,7 +41,9 @@ class ESConfig:
 @dataclasses.dataclass
 class Config:
     parameterization: Literal["policy", "open_loop"] = "policy"
-    env: EnvConfig = dataclasses.field(default_factory=EnvConfig)
+    env: EnvConfig = dataclasses.field(
+        default_factory=lambda: EnvConfig(eval_n_envs=128, eval_seed=0)
+    )
     es: ESConfig = dataclasses.field(default_factory=ESConfig)
     wandb: WandbConfig = dataclasses.field(default_factory=WandbConfig)
     seed: int = 0

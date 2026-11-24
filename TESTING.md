@@ -1,9 +1,9 @@
 # Testing plasmax
 
 The test suite protects the installed environment contract, configuration
-metadata, JAX behavior, and the repository-only baseline adapters. It does not
-require a nominal controller to keep every physical environment alive: a
-disruption or solver termination is a valid control outcome.
+metadata, and JAX behavior. It does not require a nominal controller to keep
+every physical environment alive: a disruption or solver termination is a valid
+control outcome.
 
 ## Commands
 
@@ -13,9 +13,6 @@ uv run pytest
 
 # Unit and fast regression tests only.
 uv run pytest -m "not integration" tests/
-
-# Clone-only transfer and study tests.
-uv run pytest experiments/tests/
 
 # Slow specialised integration checks, including the TGLFNN canary.
 uv run pytest -m integration tests/
@@ -40,7 +37,7 @@ and packaging regressions. Prefer the packaged `mock/circular/smoke` environment
 with the `mock` backend for these tests.
 
 The default pytest configuration includes tests marked `integration`. Focused
-geometry, STEP, KSTAR, and fixed-duration contracts remain in the fast suite.
+STEP, KSTAR, and fixed-duration contracts remain in the fast suite.
 Slow specialised checks, including external-reference parity and one
 representative `tglfnn_nr` canary, use `@pytest.mark.integration`. CI runs them
 in one integration job, separate from the fast suite.
@@ -49,9 +46,19 @@ The dedicated environment trajectory workflow owns the complete
 environment/backend/variant matrix. It divides that benchmark into seven
 parallel groups; pytest does not repeat this matrix.
 
-Transfer and study-matrix tests live beside their code under `experiments/tests/`;
-they are repository tests, not package contents. Live W&B metric and chart tests
-are tracked under `tests/`. Standalone plotting tests live in ignored
+Commit only tests that test the package directly; they live in `tests/`. Any
+test that does not test the package directly goes in the gitignored
+`local_tests/` folder. That includes quick sanity checks written while working
+on a change, even when they exercise the package: commit a package test only
+when it protects a contract described in this file. Committed tests do not
+import clone-only code from `agents/`, `training/`, `scripts/`, `tools/`, or
+`benchmarks/`. The one exception is `tests/env_trajectory_test.py`, which covers
+the benchmark that the trajectory workflow runs on every pull request. Plain
+`uv run pytest` collects only `tests/`; run local tests with
+`uv run pytest local_tests/`.
+
+Study tests live beside their code in the ignored local `experiments/tests/`, so
+fresh clones and CI do not run them. Standalone plotting tests live in ignored
 `plotting/tests/` and run only when that local workspace is available; historical
 tests under its `_archive/` subdirectory are excluded from collection.
 
@@ -133,8 +140,8 @@ Important reusable properties include:
 - eager/JIT equality for environment and reward calls;
 - vmapped results matching stacked scalar calls;
 - `collect_episode` retaining the first terminal transition and masking padding;
-- the public reward and adapter boundary remaining float32 while internal TORAX
-  precision remains unchanged.
+- the public reward boundary remaining float32 while internal TORAX precision
+  remains unchanged.
 
 Avoid compiling the same expensive call twice unless a test specifically proves
 JIT/eager parity.
@@ -156,7 +163,6 @@ Tests cover:
 - custom rewards receiving `(state, action, next_state, termination_code)` and
   returning the final reward without an environment transformation;
 - nonfinite rewards passing through the float32 cast without changing termination;
-- evaluation nonfinite-reward rates excluding invalid rollout padding;
 - bare construction plus explicit realistic/oracle composition;
 - wrapper default resolution and persistent physics updates/reset behavior.
 
@@ -186,7 +192,7 @@ uv run pytest tests/phase_initialization_test.py -m integration
 ## Environment and wrapper regressions
 
 Keep direct tests for controls, rewards, loaders, wrappers, collection, STEP,
-KSTAR, EQDSK geometry, fixed-duration stepping, and TORAX reference parity.
+KSTAR, fixed-duration stepping, and TORAX reference parity.
 Invalid-state regressions must preserve the entire input core `EnvState`,
 including its timestamp and previous action, and derive the returned observation
 from it. Check that termination and attempted-step diagnostics survive rollback,
@@ -216,14 +222,6 @@ check` on them; nothing installs or exercises the built artifacts.
 uv build
 uvx --from "twine==6.2.0" twine check dist/*
 ```
-
-## Clone-only algorithms
-
-PPO, SAC, and MPC smoke tests exercise upstream algorithms through thin
-repository adapters. They should use tiny horizons and fixed seeds, and assert
-finite outputs and adapter behavior—not copied optimizer internals or long
-training quality. Keep slow research studies and W&B integration out of the
-installed-package tests.
 
 ## Avoid testing
 

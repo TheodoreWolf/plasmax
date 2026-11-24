@@ -252,7 +252,8 @@ references:
       notes:
       - Curves are illustrative; the stored CSV and generated overlay are the inspection record.
       - Psi is reconstructed from digitized q by integrating rho/q and normalized to the local 9 MA equilibrium edge flux.
-    profile_sha256: 5192dc666bd04202cdb40e3fe456332a80174c304df8bb07b0af5a0bd53f97e7
+      - Electron density is reduced uniformly by 5e18 m^-3 from the rounded digitized profile to increase the initial Greenwald margin.
+    profile_sha256: ff356d70b3c2b69ae706035461223cf724396e4f028d9b85e7f6b0bf8b74356a
     artifacts:
       data/references/iter_advanced_slide25_profiles_25.csv: 926b24067bf00fd98e6197f0585a75819b1435535cd0f13608080c1c2f6e4484
     locked_paths:
@@ -515,7 +516,7 @@ references:
       grid: OpenSTEP IMAS profiles and equilibrium imported by TORAX at n_rho=25
       notes:
       - The released IMAS state is used without backend relaxation.
-      - TORAX v1.4.2 pedestal targets, source, current-efficiency and BgB settings are locked.
+      - TORAX v1.4.2 pedestal targets, current-efficiency and BgB settings are retained; default pellet fuelling is reduced following the issue 19 diagnostics.
       - Controller dynamics retain the prescribed pedestal targets but enforce them through adaptive transport rather than hidden sources/sinks.
     profile_sha256: 587ff34913d0b076d99eb081fe9ecb7af9817c0df51cad1768f9ae3bfde9bae3
     artifacts:
@@ -556,16 +557,16 @@ references:
         rho_centroid: 0.7558
         rho_rms_width: 0.1377
       torax_parameters:
-        S_total: 3.0e+21
+        S_total: 1.0e+20
         pellet_deposition_location: 0.8
         pellet_width: 0.17
       notes:
-      - The Gaussian shape matches the released moments, while its total rate is intentionally the exact TORAX v1.4.2 value rather than the larger OpenSTEP source total.
+      - The Gaussian shape matches the released moments. Default fuelling is 1e20 particles/s, reduced from the TORAX v1.4.2 value of 3e21 particles/s following the five-seed issue 19 diagnostics.
     targets:
       Ip_A: 2.123e+7
       ecrh_power_W: 1.5e+8
       ecrh_current_drive_efficiency: 0.14
-      pellet_rate_s-1: 3.0e+21
+      pellet_rate_s-1: 1.0e+20
       bgb_multiplier: 0.15
 
   iter_hybrid_settled_bgb:

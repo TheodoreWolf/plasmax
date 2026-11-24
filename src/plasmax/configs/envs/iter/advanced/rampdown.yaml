@@ -1,7 +1,7 @@
 # ITER advanced — ramp-down from the illustrative steady-state reference.
 #
-# Episode begins at exactly the same digitized hot anchor as flattop; Ip then
-# ramps down 9 → 1 MA. See base.yaml for the confidence caveats.
+# Episode begins at the same density-reduced hot anchor as flattop; Ip then
+# ramps down 9 → 1 MA. See base.yaml for the provenance and confidence caveats.
 #
 # Geometry:  Per-Ip FreeGSnke EQDSKs (9 / 4.5 / 3 MA), anchored where the Ip
 #            schedule crosses each file's current; the 3 MA anchor is the
@@ -21,7 +21,7 @@ torax:
     Ip: {0: 9.0e+6, 60: 1.0e+6}  # [A]
     T_i_right_bc: {0: 0.2, 60: 0.1}  # edge T_i BC [keV]
     T_e_right_bc: {0: 0.2, 60: 0.1}
-    n_e_right_bc: {0: 4.346e+19, 60: 1.0e+19}
+    n_e_right_bc: {0: 3.846e+19, 60: 1.0e+19}
   numerics:
     t_final: 60.0                # ramp-down only [s] → 600 steps
   geometry:

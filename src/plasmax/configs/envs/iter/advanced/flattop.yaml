@@ -2,7 +2,8 @@
 #
 # Episode begins already in the fully-non-inductive flat-top burn: Ip held at
 # 9 MA, with T_i, T_e, n_e, and q digitized from the published slide-25
-# steady-state scenario. See base.yaml for provenance and confidence caveats.
+# steady-state scenario, with density reduced by 5e18 m^-3. See base.yaml for
+# provenance and confidence caveats.
 #
 # Geometry:  Static 9 MA FreeGSnke EQDSK, rescaled to the live Ip. Episode:
 #            t_final = 840 s → 8400 steps (flat-top duration, 100–940 s).
@@ -20,7 +21,7 @@ torax:
     Ip: 9.0e+6                   # constant flat-top plasma current [A]
     T_i_right_bc: 0.2            # edge T_i BC [keV]
     T_e_right_bc: 0.2
-    n_e_right_bc: 4.346e+19
+    n_e_right_bc: 3.846e+19
   numerics:
     t_final: 840.0               # flat-top duration [s] → 8400 steps
   geometry:

@@ -56,7 +56,6 @@ import wandb
 from envelope import Environment
 
 from agents.ppo import PPOAdapter
-from experiments.studies.baseline_study import seed_keys
 from plasmax.environment.factory import make
 from plasmax.environment.registry import resolve_backend
 from plasmax.wrappers import (
@@ -73,7 +72,12 @@ from training.envelope_gymnax import EnvelopeGymnax
 from training.evaluation import (
     write_transfer_summary,
 )
-from training.runs import evaluate_transfer, save_run_policies, validate_seeds
+from training.runs import (
+    evaluate_transfer,
+    save_run_policies,
+    seed_keys,
+    validate_seeds,
+)
 from training.vmap_logging import SeedBufferLogger
 from training.wandb_logging import (
     make_buffered_seed_callback,

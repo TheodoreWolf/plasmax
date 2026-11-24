@@ -15,6 +15,7 @@ import wandb
 
 from agents.policy_io import save_policy
 from plasmax import make
+from plasmax.environment.config import parse_env_and_backend
 from plasmax.wrappers import CorruptedActionWrapper, OracleWrappers, RealisticWrappers
 from training.evaluation import (
     check_interfaces,
@@ -119,6 +120,65 @@ def validate_seeds(backend: str | None, num_seeds: int) -> None:
         raise ValueError("TGLFNN training seeds must run as independent processes")
 
 
+def reward_for_env(env: str, backend: str = "bohm_gyrobohm") -> str:
+    """Return the reward stored with an environment's task metadata."""
+    return parse_env_and_backend(env, backend).task.reward
+
+
+def validate_reward(
+    env: str,
+    reward: str | None,
+    backend: str = "bohm_gyrobohm",
+) -> None:
+    """Validate an explicit override; omitted rewards inherit task metadata."""
+    if reward is None:
+        return
+    expected = reward_for_env(env, backend)
+    if reward != expected:
+        raise ValueError(
+            f"baseline reward mismatch for {env!r}: got {reward!r}, "
+            f"expected {expected!r}"
+        )
+
+
+def seed_keys(first_seed: int, num_seeds: int) -> jax.Array:
+    """Return consecutive numeric seed keys, invariant to job sharding.
+
+    Seed ``i`` is always ``jax.random.PRNGKey(i)``, matching single-seed runs.
+    Consequently, ``seed_keys(0, 5)`` followed by ``seed_keys(5, 5)`` is
+    identical to ``seed_keys(0, 10)``.
+    """
+    if num_seeds <= 0:
+        raise ValueError("num_seeds must be positive")
+    indices = jnp.arange(
+        first_seed,
+        first_seed + num_seeds,
+        dtype=jnp.uint32,
+    )
+    return jax.vmap(jax.random.PRNGKey)(indices)
+
+
+def run_slug(
+    algorithm: str,
+    env: str,
+    backend: str,
+    variant: str,
+    reward: str | None,
+    num_seeds: int,
+) -> str:
+    """Return a filesystem- and W&B-friendly stable baseline run label."""
+    return "-".join(
+        (
+            algorithm,
+            env.replace("/", "_"),
+            backend.replace("/", "_"),
+            variant,
+            reward or "task",
+            f"{num_seeds}seeds",
+        )
+    )
+
+
 def save_run_policies(
     agent: Any,
     states: Any,
@@ -217,8 +277,14 @@ def evaluate_transfer(
     )
 
 
-def run_native(agent: Any, config: Any, run_name: str) -> None:
-    """Run the shared host lifecycle for the native backprop and MPC agents."""
+def run_native(
+    agent: Any, config: Any, run_name: str, *, export_policy: bool = True
+) -> None:
+    """Train a native agent, with optional export for supported policy formats.
+
+    APG and SAPO currently log training history without inference artifacts.
+    Disabling export retains the same failure checks and W&B lifecycle.
+    """
     validate_seeds(config.env.backend, config.num_seeds)
     logger = SeedBufferLogger(
         num_seeds=config.num_seeds,
@@ -292,17 +358,43 @@ def run_native(agent: Any, config: Any, run_name: str) -> None:
             "time/train_s": time.monotonic() - start,
             "run/actual_train_steps": int(np.asarray(states.global_step[0])),
         }
+        failed = np.asarray(getattr(states, "failed", False))
+        failure_steps = np.asarray(
+            getattr(states, "failure_step", getattr(states, "first_failure_step", -1))
+        )
+        summary["run/failed"] = bool(np.any(failed))
+        summary["run/failed_seeds"] = int(np.count_nonzero(failed))
+        for index in range(config.num_seeds):
+            prefix = f"seeds/{config.seed + index}/run"
+            summary[f"{prefix}/actual_train_steps"] = int(states.global_step[index])
+            if failed.ndim:
+                summary[f"{prefix}/failed"] = bool(failed[index])
+                summary[f"{prefix}/failure_step"] = int(failure_steps[index])
+        if hasattr(states, "simulator_steps"):
+            simulator_steps = np.asarray(states.simulator_steps)
+            summary["run/simulator_steps_total"] = int(simulator_steps.sum())
+            for index in range(config.num_seeds):
+                summary[f"seeds/{config.seed + index}/run/simulator_steps"] = int(
+                    simulator_steps[index]
+                )
         if hasattr(states, "alive_steps"):
             summary["run/alive_train_steps_min"] = int(np.min(states.alive_steps))
             summary["run/alive_train_steps_max"] = int(np.max(states.alive_steps))
-        paths = save_run_policies(
-            agent,
-            states,
-            config,
-            run_name,
-            batched=True,
-            results=results,
-            metrics=summary,
+        if np.any(failed):
+            logger.log_once(summary)
+            raise FloatingPointError(f"Training failed at steps {failure_steps}")
+        paths = (
+            save_run_policies(
+                agent,
+                states,
+                config,
+                run_name,
+                batched=True,
+                results=results,
+                metrics=summary,
+            )
+            if export_policy
+            else ()
         )
         if config.env.transfer_backend is not None:
             transfer = evaluate_transfer(
@@ -315,11 +407,12 @@ def run_native(agent: Any, config: Any, run_name: str) -> None:
             )
             summary.update(transfer)
             write_transfer_summary(config.history_dir, run_name, transfer)
-        artifact = wandb.Artifact(run_name, type="model")
-        for path in paths:
-            artifact.add_file(str(path))
-            print(f"Saved policy to {path}", flush=True)
-        logger.log_artifact(artifact)
+        if paths:
+            artifact = wandb.Artifact(run_name, type="model")
+            for path in paths:
+                artifact.add_file(str(path))
+                print(f"Saved policy to {path}", flush=True)
+            logger.log_artifact(artifact)
         logger.log_once(summary)
     finally:
         logger.finish()

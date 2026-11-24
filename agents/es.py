@@ -12,7 +12,9 @@ import numpy as np
 import optax
 from envelope import Continuous
 from evosax.algorithms import CMA_ES, Open_ES
+from flax import linen as nn
 from flax import struct
+from rejax.networks import GaussianPolicy
 
 from agents.backprop import (
     DeterministicPolicy,
@@ -21,6 +23,7 @@ from agents.backprop import (
     source_time_grid,
 )
 from agents.direct_gradient import make_optimizer, tree_is_finite
+from agents.ppo import init_ppo_mean_params, ppo_mean_action
 from plasmax import collect_episode
 from training.envelope_gymnax import to_typed_key
 
@@ -37,6 +40,18 @@ class _PolicyParameterization:
 
     def action(self, params: Any, observation: jax.Array) -> jax.Array:
         return policy_action(self.policy, params, observation)
+
+
+@dataclasses.dataclass(frozen=True)
+class _PPOPolicyParameterization:
+    policy: GaussianPolicy
+    observation_shape: tuple[int, ...]
+
+    def init_params(self, key: jax.Array) -> Any:
+        return init_ppo_mean_params(self.policy, key, self.observation_shape)
+
+    def action(self, params: Any, observation: jax.Array) -> jax.Array:
+        return ppo_mean_action(self.policy, params, observation)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -85,16 +100,16 @@ class ESAgent:
     grad_clip: float = 1.0
     hidden_sizes: tuple[int, ...] = (64, 64)
     num_knots: int = 10
-    eval_n_envs: int = 16
-    eval_seed: int = 10_000
+    eval_n_envs: int = 128
+    eval_seed: int = 0
     episode_steps: int | None = None
     source_times: jax.Array | None = None
     init_seed: int = 0
     eval_callback: Callable | None = None
     deterministic: bool = dataclasses.field(default=True, init=False)
-    controller: _PolicyParameterization | _KnotParameterization = dataclasses.field(
-        init=False, repr=False
-    )
+    controller: (
+        _PolicyParameterization | _PPOPolicyParameterization | _KnotParameterization
+    ) = dataclasses.field(init=False, repr=False)
     es: Any = dataclasses.field(init=False, repr=False)
     es_params: Any = dataclasses.field(init=False, repr=False)
     _ask: Callable = dataclasses.field(init=False, repr=False)
@@ -122,16 +137,34 @@ class ESAgent:
             raise ValueError(
                 "episode_steps, num_rollouts and evaluation sizes must be positive"
             )
-        if self.total_timesteps < self.generation_steps:
+        if self.total_timesteps <= 0:
+            raise ValueError("total_timesteps must be positive")
+        if self.strategy == "open_es" and self.total_timesteps < self.generation_steps:
             raise ValueError(
                 "total_timesteps must cover at least one complete generation"
             )
 
         if self.parameterization == "policy":
-            controller = _PolicyParameterization(
-                DeterministicPolicy(self.env.action_space.shape[0], self.hidden_sizes),
-                self.env.observation_space.shape,
-            )
+            if self.strategy == "cma_es":
+                controller = _PPOPolicyParameterization(
+                    GaussianPolicy(
+                        action_dim=self.env.action_space.shape[0],
+                        action_range=(
+                            self.env.action_space.low,
+                            self.env.action_space.high,
+                        ),
+                        hidden_layer_sizes=self.hidden_sizes,
+                        activation=nn.swish,
+                    ),
+                    self.env.observation_space.shape,
+                )
+            else:
+                controller = _PolicyParameterization(
+                    DeterministicPolicy(
+                        self.env.action_space.shape[0], self.hidden_sizes
+                    ),
+                    self.env.observation_space.shape,
+                )
         else:
             if self.num_knots <= 0:
                 raise ValueError("num_knots must be positive")
@@ -217,8 +250,25 @@ class ESAgent:
     def generation_steps(self) -> int:
         return self.population_size * self.num_rollouts * self.episode_steps
 
+    @property
+    def num_generations(self) -> int:
+        if self.strategy == "cma_es":
+            return max(
+                1,
+                (self.total_timesteps + self.generation_steps - 1)
+                // self.generation_steps,
+            )
+        return self.total_timesteps // self.generation_steps
+
+    @property
+    def planned_timesteps(self) -> int:
+        return self.num_generations * self.generation_steps
+
     def init_state(self, rng: jax.Array) -> ESTrainState:
-        param_key, es_key = jax.random.split(to_typed_key(rng))
+        rng = to_typed_key(rng)
+        param_key, es_key = jax.random.split(rng)
+        if isinstance(self.controller, _PPOPolicyParameterization):
+            param_key = rng
         with jax.enable_x64(False):
             params = self.controller.init_params(param_key)
             es_state = self.es.init(es_key, params, self.es_params)
@@ -297,7 +347,7 @@ class ESAgent:
     def train(self, rng: jax.Array) -> tuple[ESTrainState, dict[str, Any]]:
         rng = to_typed_key(rng)
         state = self.init_state(rng)
-        generations = self.total_timesteps // self.generation_steps
+        generations = self.num_generations
         boundaries = sorted(
             {
                 min(
@@ -316,6 +366,12 @@ class ESAgent:
             return {
                 "train/generation": current.update_index.astype(jnp.float32),
                 "train/search_scale": jnp.asarray(current.es_state.std, jnp.float32),
+                "train/generation_steps": jnp.asarray(self.generation_steps, jnp.int32),
+                "train/planned_generations": jnp.asarray(generations, jnp.int32),
+                "train/planned_steps": jnp.asarray(self.planned_timesteps, jnp.int32),
+                "train/budget_overshoot": jnp.asarray(
+                    max(0, self.planned_timesteps - self.total_timesteps), jnp.int32
+                ),
             }
 
         def evaluate(current: ESTrainState) -> Any:

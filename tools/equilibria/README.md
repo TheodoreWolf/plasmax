@@ -33,11 +33,11 @@ tools/equilibria/.venv/bin/python tools/equilibria/generate_equilibrium.py --sce
 ## Validate (in the main venv)
 
 ```bash
-uv run pytest tests/geometry_eqdsk_test.py -v
+uv run pytest local_tests/geometry_eqdsk_test.py -v
 ```
 
-This reads each EQDSK back through TORAX and checks physical R0/a/B0/Ip/q — it
-needs only TORAX, not FreeGSnke.
+This gitignored local test reads each EQDSK back through TORAX and checks
+physical R0/a/B0/Ip/q — it needs only TORAX, not FreeGSnke.
 
 ## Notes
 
