@@ -337,6 +337,28 @@ class FinalSchemaTest:
         assert config.world_model.weights_path.is_absolute()
         assert config.world_model.weights_path.is_file()
         assert config.world_model.max_steps_in_episode == 100
+        assert [a.name for a in config.actuators] == [
+            "Ip",
+            "Elon",
+            "Up.Tri",
+            "Lo.Tri",
+            "In.Mid",
+            "Out.Mid",
+        ]
+        assert config.physics_randomization["world_model.ensemble_member"].choices == (
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+        )
+        assert "betap_target" not in config.observations.realistic.noise
+        assert "betap_target" not in config.observations.realistic.delay
 
 
 class SteppingConfigTest:
@@ -466,6 +488,71 @@ class PresetWrapperTest:
     def test_quantize_bins_validation(self):
         with pytest.raises(ValueError, match=">= 2|at least 2"):
             RealisticWrappers(make(_MOCK_ENV, backend=_MOCK_BACKEND), quantize_bins=1)
+
+    def test_kstar_worldmodel_wrapper_stacks_match_contract_order(self):
+        realistic = RealisticWrappers(
+            make("kstar_worldmodel"),
+            max_steps=5,
+            time_aware=True,
+            quantize_bins=4,
+        )
+        layers = list(iter_wrappers(realistic))
+        assert [type(layer) for layer in layers[:-1]] == [
+            TruncationWrapper,
+            QuantizeActionWrapper,
+            TimeAwareWrapper,
+            ActionRescaleWrapper,
+            ObsDelayWrapper,
+            NoiseWrapper,
+            PhysicsRandomizationWrapper,
+        ]
+        assert layers[-1] is realistic.unwrapped
+        assert isinstance(realistic.action_space, Discrete)
+        assert realistic.obs_layout().scalar_names[-1] == "elapsed_time"
+
+        oracle = OracleWrappers(
+            make("kstar_worldmodel"),
+            max_steps=5,
+            time_aware=True,
+        )
+        oracle_layers = list(iter_wrappers(oracle))
+        assert [type(layer) for layer in oracle_layers[:-1]] == [
+            TruncationWrapper,
+            TimeAwareWrapper,
+            ActionRescaleWrapper,
+        ]
+        assert oracle_layers[-1] is oracle.unwrapped
+
+    def test_world_model_schema_rejects_invalid_sensors_and_choices(self):
+        with pytest.raises(
+            pydantic.ValidationError, match="absolute, relative, or choices"
+        ):
+            schema_lib.PhysicsRandomizationSpec(absolute=(0.0, 1.0), choices=(0, 1))
+        with pytest.raises(pydantic.ValidationError, match="non-empty"):
+            schema_lib.PhysicsRandomizationSpec(choices=())
+        with pytest.raises(pydantic.ValidationError, match="duplicate choices"):
+            schema_lib.PhysicsRandomizationSpec(choices=(0, 0))
+        with pytest.raises(
+            pydantic.ValidationError, match="unknown profile resolution"
+        ):
+            schema_lib.WorldModelObservationsConfig(
+                realistic=RealisticObsConfig(resolution={"betap": 3})
+            )
+        with pytest.raises(
+            pydantic.ValidationError, match="unknown observation filter"
+        ):
+            schema_lib.WorldModelObservationsConfig(
+                realistic=RealisticObsConfig(
+                    filter=ObsFilterSpec(scalars=("not_real",))
+                )
+            )
+        with pytest.raises(pydantic.ValidationError, match="unknown delay sensors"):
+            schema_lib.WorldModelObservationsConfig(
+                realistic=RealisticObsConfig(
+                    filter=ObsFilterSpec(scalars=("betap",)),
+                    delay={"q95": 0.1},
+                )
+            )
 
 
 class ShippedConfigSmokeTest:

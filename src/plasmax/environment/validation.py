@@ -141,6 +141,11 @@ def validate_physics_randomization(
 ) -> None:
     """Validates physics randomization ranges and provider paths."""
     for path, spec in physics_randomization.items():
+        if spec.is_discrete:
+            raise ValueError(
+                f"physics_randomization path {path!r} must use a continuous "
+                "absolute or relative range on TORAX."
+            )
         lo, hi = spec.bounds
         if not np.isfinite(lo) or not np.isfinite(hi) or not lo < hi:
             raise ValueError(

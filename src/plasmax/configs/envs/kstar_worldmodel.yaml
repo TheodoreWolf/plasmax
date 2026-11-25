@@ -22,3 +22,66 @@ world_model:
   weights_path: ${DATA_DIR}/kstar_lstm/weights.npz
   max_steps_in_episode: 100   # NeoRL2 episode length
   random_target: true         # sample βp/q95/li targets per episode at reset
+
+# Physical actuator ranges verbatim from NeoRL2 neorl2/envs/fusion.py
+# (INPUT_MINS / INPUT_MAXS indexed by CTRL_IDX). Reset prev_action anchors
+# come from initialization.inputs; ActionRescaleWrapper maps [-1, 1] onto
+# these physical ranges.
+actuators:
+  - {name: Ip,      low: 0.3,   high: 0.8}    # MA
+  - {name: Elon,    low: 1.6,   high: 2.0}    # elongation (dimensionless)
+  - {name: Up.Tri,  low: 0.1,   high: 0.5}    # upper triangularity
+  - {name: Lo.Tri,  low: 0.5,   high: 0.9}    # lower triangularity
+  - {name: In.Mid,  low: 1.265, high: 1.36}   # inner midplane radius [m]
+  - {name: Out.Mid, low: 2.18,  high: 2.29}   # outer midplane radius [m]
+
+# Epistemic dynamics randomization over the packaged 10-member fusion_lstm and
+# bpw ensembles (per-transition member sampling). Reset and OracleWrappers
+# evaluate the nominal 10-member ensemble average (-1).
+physics_randomization:
+  world_model.ensemble_member:
+    choices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+observations:
+  realistic:
+    # Engineering-proxy Gaussian sensor noise matching configs/wrappers.yaml
+    # (Mazon et al., Nuclear Fusion 65 (2025) 113001, table 10) for KSTAR's
+    # measured diagnostics:
+    # - Ip (1%), q95 (10%), and betap (10%) match configs/wrappers.yaml directly.
+    # - li uses 10% as the same equilibrium/current-profile proxy as q95/betap.
+    # - Boundary/shape sensors (Elon, Up.Tri, Lo.Tri, In.Mid, Out.Mid) use a 1%
+    #   magnetic-reconstruction proxy.
+    # - External NBI powers (Pnb1a/b/c) use a 5% engineering measurement proxy.
+    # - Commanded target setpoints (betap_target, q95_target, li_target) are
+    #   controller references rather than physical sensors, so they have zero
+    #   noise and zero delay.
+    noise:
+      Ip: 0.01
+      Elon: 0.01
+      Up.Tri: 0.01
+      Lo.Tri: 0.01
+      In.Mid: 0.01
+      Out.Mid: 0.01
+      betap: 0.10
+      q95: 0.10
+      li: 0.10
+      Pnb1a: 0.05
+      Pnb1b: 0.05
+      Pnb1c: 0.05
+    delay:
+      Ip: 0.1
+      Elon: 0.1
+      Up.Tri: 0.1
+      Lo.Tri: 0.1
+      In.Mid: 0.1
+      Out.Mid: 0.1
+      betap: 0.1
+      q95: 0.1
+      li: 0.1
+      Pnb1a: 0.1
+      Pnb1b: 0.1
+      Pnb1c: 0.1
+
+actions:
+  realistic:
+    quantize: {}

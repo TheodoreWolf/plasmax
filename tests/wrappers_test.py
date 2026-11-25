@@ -157,6 +157,17 @@ class WrapperDefaultsTest:
             transition(preset, jax.random.key(0)),
         )
 
+    def test_empty_physics_randomization_is_a_clean_noop(self):
+        base = _make_base_env()
+        wrapped = PhysicsRandomizationWrapper(base)
+        state, init_info = wrapped.init(jax.random.key(0))
+        next_state, step_info = jax.jit(wrapped.step)(state, _ACTION)
+        base_state, base_init = base.init(jax.random.key(0))
+        base_next, base_step = base.step(base_state, _ACTION)
+        chex.assert_trees_all_equal(init_info, base_init)
+        chex.assert_trees_all_equal(unwrap_to_env_state(next_state), base_next)
+        chex.assert_trees_all_equal(step_info, base_step)
+
 
 def _assert_info_contract(info: Info, shape: tuple[int, ...]) -> None:
     assert isinstance(info, Info)

@@ -39,9 +39,13 @@ def _load_world_model_env(cfg: WorldModelConfig) -> Environment:
     from plasmax.models import world_model_env as wm_env_lib
 
     spec = cfg.world_model
+    actuator_specs = [item.to_spec() for item in cfg.actuators]
     return wm_env_lib.WorldModelEnv.from_bundle(
         load_bundle(spec.weights_path),
         random_target=spec.random_target,
+        actuator_specs=actuator_specs,
+        physics_randomization=cfg.physics_randomization,
+        clip_by_max_action_delta=cfg.clip_by_max_action_delta,
         _plasmax_config=cfg,
         _initialization=cfg._initial_state,
     )

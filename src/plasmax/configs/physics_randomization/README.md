@@ -54,10 +54,13 @@ trajectory, rather than selecting one stationary perturbed MDP per episode.
 | Fixed inner/outer transport patches | 0.9-1.1 x nominal | interim engineering model-form prior | TORAX adds these patches specifically where the surrogate transport model is not validated (magnetic axis/sawtooth core and outer edge). The training prior is capped at +/-10% pending calibration. |
 | Mavrin `radiation_multiplier` | 0.9-1.1 x nominal | interim engineering model-form prior | Radiation is highly sensitive to impurity state and atomic modelling; older cooling-rate datasets differ by as much as a factor of two for some low-Z impurities. The training prior is conservatively capped at +/-10% pending calibration rather than treating that spread as a Mavrin-fit uncertainty. |
 | STEP `fraction_P_heating` | 0.9-1.1 x nominal | interim engineering scenario prior | The flat radiation fraction is a scenario calibration rather than a first-principles prediction, so the training prior is capped at +/-10% pending calibration. |
+| KSTAR `world_model.ensemble_member` | discrete `{0..9}` (nominal `-1` = ensemble mean) | learned epistemic ensemble | The packaged NeoRL2 KSTAR `fusion_lstm` and `bpw` weights form 10-member neural-network ensembles. Following MBRL ensemble sampling (PETS TS1, Chua et al. 2018; ME-TRPO, Kurutach et al. 2018), each realistic transition samples one ensemble member uniformly while `OracleWrappers` and reset use the 10-member mean. Direct isotropic noise on frozen LSTM/BatchNorm weights is avoided because it breaks recurrent stability and scales poorly under `vmap`. |
 
 Sources:
 
 - Dulac-Arnold et al., [Challenges of Real-World Reinforcement Learning](https://arxiv.org/abs/1904.12901).
+- Chua et al., [Deep Reinforcement Learning in a Handful of Trials using Probabilistic Dynamics Models](https://arxiv.org/abs/1805.12114).
+- Kurutach et al., [Model-Ensemble Trust-Region Policy Optimization](https://arxiv.org/abs/1802.10592).
 - Citrin et al., [TORAX: A Fast and Differentiable Tokamak Transport Simulator in JAX](https://arxiv.org/abs/2406.06718).
 - Sauter et al., [Neoclassical conductivity and bootstrap current formulas for general axisymmetric equilibria and arbitrary collisionality regime](https://infoscience.epfl.ch/entities/publication/f8bcbda0-d231-42b5-b556-2d3f0ca0b59d).
 - van de Plassche et al., [Fast modeling of turbulent transport in fusion plasmas using neural networks](https://arxiv.org/abs/1911.05617).

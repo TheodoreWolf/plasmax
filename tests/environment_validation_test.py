@@ -108,3 +108,14 @@ class ValidatePhysicsRandomizationTest:
                     )
                 }
             )
+
+    def test_discrete_choices_rejected_on_torax(self):
+        with pytest.raises(ValueError, match="continuous absolute or relative"):
+            validate_physics_randomization(
+                {
+                    "numerics.resistivity_multiplier": PhysicsRandomizationSpec(
+                        choices=(0, 1, 2)
+                    )
+                },
+                self._provider,
+            )

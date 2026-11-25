@@ -31,7 +31,6 @@ from envelope import (
 from envelope.environment import Info
 from envelope.typing import Key, PyTree, State
 
-from plasmax.environment.schema import WorldModelConfig
 from plasmax.spaces import ObsLayout
 
 _NOISE_SAMPLE_STREAM = 0x4E4F4953  # "NOIS"
@@ -58,11 +57,17 @@ class PhysicsRandomizationState(WrappedState):
 class PhysicsRandomizationWrapper(Wrapper):
     """Sample configured physics parameters before each transition.
 
-    Relative bounds always use the configured nominal values. Reset restores
-    those values and restarts the wrapper's PRNG stream.
+    Relative bounds always use the configured nominal values. Discrete specs
+    sample uniformly from their configured integer choices. Reset restores
+    nominal values and restarts the wrapper's PRNG stream.
     """
 
     _paths: tuple[str, ...] = static_field(init=False)
+    _continuous_paths: tuple[str, ...] = static_field(init=False)
+    _continuous_indices: tuple[int, ...] = static_field(init=False)
+    _discrete_paths: tuple[str, ...] = static_field(init=False)
+    _discrete_indices: tuple[int, ...] = static_field(init=False)
+    _discrete_choices: tuple[jax.Array, ...] = field(init=False)
     _nominals: jax.Array = field(init=False)
     _lows: jax.Array = field(init=False)
     _highs: jax.Array = field(init=False)
@@ -71,43 +76,87 @@ class PhysicsRandomizationWrapper(Wrapper):
     def __post_init__(self) -> None:
         specs = self.env.physics_randomization
         paths = tuple(specs)
-        nominals = jnp.asarray(tuple(self.env.physics_nominals[path] for path in paths))
+        continuous_paths: list[str] = []
+        continuous_indices: list[int] = []
+        discrete_paths: list[str] = []
+        discrete_indices: list[int] = []
+        discrete_choices: list[jax.Array] = []
+        for idx, path in enumerate(paths):
+            spec = specs[path]
+            if spec.is_discrete:
+                assert spec.choices is not None
+                discrete_paths.append(path)
+                discrete_indices.append(idx)
+                nominal_dtype = jnp.asarray(self.env.physics_nominals[path]).dtype
+                discrete_choices.append(jnp.asarray(spec.choices, dtype=nominal_dtype))
+            else:
+                continuous_paths.append(path)
+                continuous_indices.append(idx)
+
+        if continuous_paths:
+            nominals = jnp.asarray(
+                tuple(self.env.physics_nominals[path] for path in continuous_paths)
+            )
+            lows = jnp.asarray(
+                tuple(specs[path].bounds[0] for path in continuous_paths),
+                dtype=nominals.dtype,
+            )
+            highs = jnp.asarray(
+                tuple(specs[path].bounds[1] for path in continuous_paths),
+                dtype=nominals.dtype,
+            )
+            relative = jnp.asarray(
+                tuple(specs[path].is_relative for path in continuous_paths),
+                dtype=jnp.bool_,
+            )
+        else:
+            nominals = jnp.zeros((0,), dtype=jnp.float32)
+            lows = jnp.zeros((0,), dtype=jnp.float32)
+            highs = jnp.zeros((0,), dtype=jnp.float32)
+            relative = jnp.zeros((0,), dtype=jnp.bool_)
+
         object.__setattr__(self, "_paths", paths)
+        object.__setattr__(self, "_continuous_paths", tuple(continuous_paths))
+        object.__setattr__(self, "_continuous_indices", tuple(continuous_indices))
+        object.__setattr__(self, "_discrete_paths", tuple(discrete_paths))
+        object.__setattr__(self, "_discrete_indices", tuple(discrete_indices))
+        object.__setattr__(self, "_discrete_choices", tuple(discrete_choices))
         object.__setattr__(self, "_nominals", nominals)
-        object.__setattr__(
-            self,
-            "_lows",
-            jnp.asarray(
-                tuple(specs[path].bounds[0] for path in paths), dtype=nominals.dtype
-            ),
-        )
-        object.__setattr__(
-            self,
-            "_highs",
-            jnp.asarray(
-                tuple(specs[path].bounds[1] for path in paths), dtype=nominals.dtype
-            ),
-        )
-        object.__setattr__(
-            self,
-            "_relative",
-            jnp.asarray(
-                tuple(specs[path].is_relative for path in paths), dtype=jnp.bool_
-            ),
-        )
+        object.__setattr__(self, "_lows", lows)
+        object.__setattr__(self, "_highs", highs)
+        object.__setattr__(self, "_relative", relative)
         super().__post_init__()
 
     def _sample_physics_params(self, key: Key) -> dict[str, jax.Array]:
+        if not self._paths:
+            return {}
         keys = jax.random.split(key, len(self._paths))
+        sampled: dict[str, jax.Array] = {}
+        if self._continuous_paths:
+            cont_keys = keys[jnp.asarray(self._continuous_indices, dtype=jnp.int32)]
 
-        def sample_one(sample_key: Key, low: jax.Array, high: jax.Array) -> jax.Array:
-            return jax.random.uniform(
-                sample_key, (), minval=low, maxval=high, dtype=self._nominals.dtype
+            def sample_one(
+                sample_key: Key, low: jax.Array, high: jax.Array
+            ) -> jax.Array:
+                return jax.random.uniform(
+                    sample_key, (), minval=low, maxval=high, dtype=self._nominals.dtype
+                )
+
+            samples = jax.vmap(sample_one)(cont_keys, self._lows, self._highs)
+            samples = jnp.where(self._relative, self._nominals * samples, samples)
+            for idx, path in enumerate(self._continuous_paths):
+                sampled[path] = samples[idx]
+        for path, key_idx, choices in zip(
+            self._discrete_paths,
+            self._discrete_indices,
+            self._discrete_choices,
+            strict=True,
+        ):
+            choice_idx = jax.random.randint(
+                keys[key_idx], (), 0, choices.shape[0], dtype=jnp.int32
             )
-
-        samples = jax.vmap(sample_one)(keys, self._lows, self._highs)
-        samples = jnp.where(self._relative, self._nominals * samples, samples)
-        return dict(zip(self._paths, samples, strict=True))
+            sampled[path] = choices[choice_idx]
+        return sampled
 
     @override
     def init(self, key: Key) -> tuple[PhysicsRandomizationState, Info]:
@@ -865,11 +914,10 @@ def _training_wrappers(env: Environment, time_aware: bool) -> Environment:
     if not isinstance(time_aware, bool):
         raise ValueError(f"time_aware must be a boolean, got {time_aware!r}")
     cfg = env.plasmax_config
-    if not isinstance(cfg, WorldModelConfig):
-        env = ActionRescaleWrapper(env)
+    env = ActionRescaleWrapper(env)
     if time_aware:
         env = TimeAwareWrapper(env)
-    if not isinstance(cfg, WorldModelConfig) and cfg.observations.history is not None:
+    if cfg is not None and cfg.observations.history is not None:
         env = ObsHistoryWrapper(env)
     return env
 
@@ -883,21 +931,17 @@ def RealisticWrappers(
 ) -> Environment:
     """Compose configured physics, sensor, and action effects for training."""
     cfg = env.plasmax_config
-    if isinstance(cfg, WorldModelConfig):
-        if quantize_bins is not None:
-            raise ValueError("world-model environments do not support quantize_bins")
-    else:
-        if cfg.physics_randomization:
-            env = PhysicsRandomizationWrapper(env)
-        real = cfg.observations.realistic
-        if real.noise:
-            env = NoiseWrapper(env)
-        if real.resolution:
-            env = ObsFilterWrapper.from_resolution_config(env)
-        if real.filter is not None:
-            env = ObsFilterWrapper(env)
-        if real.delay:
-            env = ObsDelayWrapper(env)
+    if cfg.physics_randomization:
+        env = PhysicsRandomizationWrapper(env)
+    real = cfg.observations.realistic
+    if real.noise:
+        env = NoiseWrapper(env)
+    if real.resolution:
+        env = ObsFilterWrapper.from_resolution_config(env)
+    if real.filter is not None:
+        env = ObsFilterWrapper(env)
+    if real.delay:
+        env = ObsDelayWrapper(env)
     env = _training_wrappers(env, time_aware)
     if quantize_bins is not None:
         if isinstance(quantize_bins, bool):
@@ -911,7 +955,7 @@ def RealisticWrappers(
         if quantize_bins < 2:
             raise ValueError(f"quantize_bins must be at least 2, got {quantize_bins}")
         env = QuantizeActionWrapper(env, (quantize_bins,) * len(env.actuator_specs))
-    elif not isinstance(cfg, WorldModelConfig) and cfg.actions.realistic.quantize:
+    elif cfg.actions.realistic.quantize:
         env = QuantizeActionWrapper(env)
     return TruncationWrapper(env, max_steps=max_steps)
 
@@ -923,8 +967,6 @@ def OracleWrappers(
     time_aware: bool = False,
 ) -> Environment:
     """Compose action scaling, optional time, history, and truncation."""
-    if isinstance(env.plasmax_config, WorldModelConfig):
-        raise ValueError("kstar_worldmodel only supports RealisticWrappers")
     return TruncationWrapper(_training_wrappers(env, time_aware), max_steps=max_steps)
 
 
